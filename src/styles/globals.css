@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+* { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+textarea { overflow-y: hidden; }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+#panelSlider {
+  display: flex; flex-direction: row; height: 100%;
+  width: 200%; transform: translateX(0);
+  transition: transform 0.55s cubic-bezier(0.22,0.61,0.36,1);
+  will-change: transform;
+}
+#panelSlider.slide-preview { transform: translateX(-50%); }
+#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
+
+@media (min-width: 1024px) {
+  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
+}
+
+@media (max-width: 1023.98px) {
+  html, body { overflow: hidden; }
+  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
+  #panelSlider {
+    height: 100%;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  #panelSlider > div > section {
+    max-height: none !important; height: 100% !important;
+    min-height: 0; overflow-y: auto !important;
+  }
+}
+
+#prdDocument { min-width: 0; }
+#prdDocument table { table-layout: fixed; width: 100%; }
+#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
+#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+@media screen and (max-width: 640px) {
+  #prdDocument { padding: 1.5rem 1rem; }
+  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
+  #prdDocument table.tbl-stack thead { display: none; }
+  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
+  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  #prdDocument table.tbl-stack tr {
+    border: 1px solid #e2e8f0; border-radius: 10px;
+    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
+  }
+  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
+  #prdDocument table.tbl-stack td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: #64748b; margin-bottom: 1px;
+  }
+}
+
+@page { size: A4; margin: 14mm 12mm; }
+@media print {
+  .no-print, nav, header { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
+  #root { height: auto !important; }
+  #root > div {
+    display: block !important; height: auto !important;
+    overflow: visible !important; background: #ffffff !important;
+  }
+  main { display: block !important; height: auto !important; overflow: visible !important; }
+  #panelSlider {
+    display: block !important; width: 100% !important;
+    height: auto !important; transform: none !important; padding: 0 !important;
+  }
+  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
+  #panelSlider > div:first-child { display: none !important; }
+  #previewPanel {
+    height: auto !important; max-height: none !important;
+    overflow: visible !important; background: #ffffff !important; padding: 0 !important;
+  }
+  #prdDocument {
+    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+    border: none !important; border-radius: 0 !important;
+    box-shadow: none !important; background: #ffffff !important;
+  }
+  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
+  p, li { orphans: 3; widows: 3; }
+  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
+  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
+}
