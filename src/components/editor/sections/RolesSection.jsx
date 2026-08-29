@@ -11,20 +11,27 @@ export default function RolesSection() {
   const add = usePrdStore(function (s) { return s.addRole; });
   const upd = usePrdStore(function (s) { return s.updateRole; });
   const rem = usePrdStore(function (s) { return s.removeRole; });
+
   if (mode !== 'enterprise' && !se.roles) return null;
+
   return (
     <EditorSection title="Role & Permission Matrix" icon={faUserShield} color="amber"
-      action={<IconButton onClick={add} variant="accent">+ Role</IconButton>}>
+      action={<IconButton onClick={add} variant="accent" ariaLabel="Tambah role baru">+ Role</IconButton>}>
       <div className="space-y-3">
         {roles.map(function (r, i) {
           return (
             <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
               <div className="flex justify-between items-center">
-                <input value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-semibold w-1/2" />
-                <button onClick={function () { rem(i); }} className="text-rose-400 hover:text-rose-300"><FontAwesomeIcon icon={faXmark} /> Hapus</button>
+                <label htmlFor={'role-name-' + i} className="sr-only">Nama role {i + 1}</label>
+                <input id={'role-name-' + i} value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-semibold w-1/2" />
+                <button onClick={function () { rem(i); }} aria-label={'Hapus role ' + (r.name || (i + 1))} className="text-rose-400 hover:text-rose-300">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
               </div>
-              <textarea value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
-              <textarea value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
+              <label htmlFor={'role-can-' + i} className="sr-only">Hak akses role {i + 1}</label>
+              <textarea id={'role-can-' + i} value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
+              <label htmlFor={'role-cannot-' + i} className="sr-only">Batasan role {i + 1}</label>
+              <textarea id={'role-cannot-' + i} value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
             </div>
           );
         })}

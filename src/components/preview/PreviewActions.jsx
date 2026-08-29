@@ -46,18 +46,18 @@ export default function PreviewActions() {
   return (
     <div className="no-print flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3 bg-slate-950 pb-4 pt-1 mb-4 border-b border-slate-800">
       <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-        <FontAwesomeIcon icon={faEye} className="mr-1.5" />
+        <FontAwesomeIcon icon={faEye} className="mr-1.5" aria-hidden="true" />
         Live Preview Dokumen
         <span className={'ml-2 px-2 py-0.5 rounded text-[10px] border ' + badge}>
           {mode === 'enterprise' ? 'ENTERPRISE' : 'SIMPLE'} MODE
         </span>
       </span>
       <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
-        <IconButton icon={faFileExport} onClick={function () { exportService.exportJSON(getSnap()); showToast('JSON berhasil diunduh'); }} className="w-full sm:w-auto">JSON</IconButton>
-        <IconButton icon={faFileImport} onClick={function () { ref.current && ref.current.click(); }} className="w-full sm:w-auto">Impor</IconButton>
-        <input ref={ref} type="file" accept=".json" className="hidden" onChange={handleImport} />
-        <IconButton icon={faCopy} onClick={function () { exportService.copyMarkdown(getSnap()); showToast('Markdown disalin'); }} className="col-span-2 w-full sm:w-auto">Salin Markdown</IconButton>
-        <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto">Ekspor PDF / Cetak</IconButton>
+        <IconButton icon={faFileExport} onClick={function () { exportService.exportJSON(getSnap()); showToast('JSON berhasil diunduh'); }} className="w-full sm:w-auto" ariaLabel="Ekspor JSON">JSON</IconButton>
+        <IconButton icon={faFileImport} onClick={function () { ref.current && ref.current.click(); }} className="w-full sm:w-auto" ariaLabel="Impor JSON">Impor</IconButton>
+        <input ref={ref} type="file" accept=".json" className="hidden" onChange={handleImport} aria-label="Pilih file JSON untuk diimpor" />
+        <IconButton icon={faCopy} onClick={function () { exportService.copyMarkdown(getSnap()); showToast('Markdown disalin'); }} className="col-span-2 w-full sm:w-auto" ariaLabel="Salin Markdown">Salin Markdown</IconButton>
+        <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto" ariaLabel="Ekspor PDF atau cetak">Ekspor PDF / Cetak</IconButton>
       </div>
     </div>
   );

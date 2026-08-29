@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { debounce } from 'lodash';
 import { usePrdStore } from './store/usePrdStore';
 import { storageService } from './services/storageService';
 import Header from './components/header/Header';
 import EditorPanel from './components/editor/EditorPanel';
-import PreviewPanel from './components/preview/PreviewPanel';
 import MobileTabBar from './components/mobile/MobileTabBar';
 import ScrollButtons from './components/mobile/ScrollButtons';
 import ToastContainer from './components/shared/Toast';
+
+const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
 
 export default function App() {
   const restoreState = usePrdStore(function (s) { return s.restoreState; });
@@ -66,11 +67,31 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
+      <a
+        href="#editorPanel"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
+      >
+        Lompat ke Editor
+      </a>
+      <a
+        href="#previewPanel"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
+      >
+        Lompat ke Preview
+      </a>
       <Header />
       <main className="flex-grow min-h-0 overflow-hidden relative">
         <div id="panelSlider">
           <div><EditorPanel /></div>
-          <div><PreviewPanel /></div>
+          <div>
+            <Suspense fallback={
+              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center" style={{ height: '100%' }}>
+                <div className="text-slate-400 text-sm">Memuat preview...</div>
+              </div>
+            }>
+              <PreviewPanel />
+            </Suspense>
+          </div>
         </div>
         <ScrollButtons />
       </main>

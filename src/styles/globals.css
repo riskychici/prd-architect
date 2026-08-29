@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 :root { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -13,6 +12,29 @@ button:disabled { cursor: not-allowed; }
 
 textarea { overflow-y: hidden; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+
+/* Skip link utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-only:focus {
+  position: fixed;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
 
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
@@ -72,6 +94,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
 }
 
 @page { size: A4; margin: 14mm 12mm; }
+
 @media print {
   .no-print, nav, header { display: none !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }

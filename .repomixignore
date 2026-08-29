@@ -4,5 +4,5 @@ dist-ssr
 *.local
 .DS_Store
 .vscode
+*.md
 .env
-prd-architec-v3.1.md
