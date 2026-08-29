@@ -83,26 +83,36 @@ export const usePrdStore = create(function (set, get) {
       set(function (s) {
         const snap = get().getSnapshot();
         const last = s.history[s.historyIndex];
-        if (last && JSON.stringify(last) === JSON.stringify(snap)) return {};
+        if (last) {
+          const a = Object.assign({}, last);
+          delete a.mode;
+          const b = Object.assign({}, snap);
+          delete b.mode;
+          if (JSON.stringify(a) === JSON.stringify(b)) return {};
+        }
         const h = s.history.slice(0, s.historyIndex + 1);
         h.push(snap);
         if (h.length > MAX_HISTORY) h.shift();
         return { history: h, historyIndex: h.length - 1 };
       });
     },
+
     undo: function () {
       set(function (s) {
         if (s.historyIndex <= 0) return {};
         const ni = s.historyIndex - 1;
-        const st = s.history[ni];
+        const st = Object.assign({}, s.history[ni]);
+        delete st.mode;
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
+
     redo: function () {
       set(function (s) {
         if (s.historyIndex >= s.history.length - 1) return {};
         const ni = s.historyIndex + 1;
-        const st = s.history[ni];
+        const st = Object.assign({}, s.history[ni]);
+        delete st.mode;
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
