@@ -19,6 +19,28 @@ const stripNonUndo = function (snap) {
   return c;
 };
 
+// Helper untuk membersihkan simbol bullet/strip/nomor/tabel Markdown dari awal & isi baris
+const sanitizeMultiline = function (text) {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .split('\n')
+    .map(function (line) {
+      // Abaikan baris pembatas tabel markdown seperti |---|---|
+      if (/^\|?[\s\-\|:]+\|?$/.test(line.trim())) return '';
+
+      // Hapus simbol '|', '-', '*', '•', atau penomoran seperti '1.', '2)' di awal baris
+      let cleaned = line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
+      // Hapus pipa yang tersisa di akhir/dalam baris jika ada sisa format tabel
+      cleaned = cleaned.replace(/\|/g, '').trim();
+
+      return cleaned;
+    })
+    .filter(function (line) {
+      return line.length > 0;
+    })
+    .join('\n');
+};
+
 export const usePrdStore = create(function (set, get) {
   return {
     ...init(),
@@ -122,12 +144,13 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, base, { mode: s.mode, history: s.history, historyIndex: s.historyIndex, saveIndicator: s.saveIndicator });
       });
     },
-    // Action untuk memanggil Gemini API & mengambil draf penuh (komprehensif)
+
+    // Action STREAMING untuk efek mengetik langsung dari Gemini API
     analyzeWithAi: async function () {
       const state = get();
       const prdSnapshot = state.getSnapshot();
 
-      set({ isAnalyzing: true, aiError: null });
+      set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
 
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -140,18 +163,36 @@ export const usePrdStore = create(function (set, get) {
 Analisis data PRD berikut.
 
 TUGAS KAMU:
-1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi.
+1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi. Jangan sertakan format matematika LaTeX seperti $...$ atau \\text{...}.
+
+HIRARKI HEADING MARKDOWN (WAJIB DIPATUHI):
+- Judul Seksi Utama (misal: "## 1. Analisis System Analyst", "## 2. Analisis Product Manager") GUNAKAN LEVEL HEADING 2 (##).
+- Sub-Seksi (misal: "### A. Arsitektur Backend", "### B. Skalabilitas & Skop") GUNAKAN LEVEL HEADING 3 (###).
+- Selalu pastikan Poin Nomor (## 1.) LEBIH BESAR hirarkinya daripada Poin Huruf (### A.).
+
 2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON lengkap (json_draft) yang merevisi/melengkapi data PRD saat ini.
+
+ATURAN KHUSUS FORMAT JSON:
+- DILARANG MENGGUNAKAN TABEL MARKDOWN (seperti |---|---|) di dalam string JSON apapun.
+- Field "outOfScope" dan "defOfDone" HARUS diisi dengan item-item yang dipisahkan oleh Karakter Enter (\\n).
+- DILARANG MENGGUNAKAN KOMA untuk memisahkan item pada "outOfScope" dan "defOfDone".
+- DILARANG MENGGUNAKAN SIMBOL STRIP (-), BULLET (*, •), PIPA (|), ATAU NOMOR (1., 2.) di awal/dalam setiap baris pada "outOfScope" dan "defOfDone".
 
 FORMAT BLOK JSON:
 \`\`\`json_draft
 {
   "fields": {
+    "projectName": "saran nama proyek draf jika kosong",
     "problemStatement": "saran revisi/lengkapi",
     "productGoal": "saran revisi/lengkapi",
     "userPersona": "saran revisi/lengkapi",
-    "outOfScope": "saran revisi/lengkapi",
-    "defOfDone": "saran revisi/lengkapi",
+    "userFlow": "saran revisi/lengkapi user flow (misal: Onboarding -> Login -> ...)",
+    "techFrontend": "saran frontend stack (misal: React Native, React, Next.js)",
+    "techBackend": "saran backend stack (misal: Node.js, Go, Python)",
+    "techDatabase": "saran database stack (misal: PostgreSQL, Redis)",
+    "techInfra": "saran infrastruktur (misal: AWS, Docker, Kubernetes)",
+    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga (murni teks, TANPA koma, TANPA strip -)",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga (murni teks, TANPA koma, TANPA strip -)",
     "successMetrics": "saran revisi/lengkapi",
     "nfrSpecs": "saran revisi/lengkapi",
     "nfrPerformance": "saran revisi/lengkapi",
@@ -187,7 +228,7 @@ Data PRD saat ini:
 ${JSON.stringify(prdSnapshot, null, 2)}`;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?key=${apiKey}&alt=sse`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -197,17 +238,48 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           }
         );
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error?.message || 'Gagal memproses request ke Gemini API');
+          const errJson = await response.json();
+          throw new Error(errJson.error?.message || 'Gagal memproses request ke Gemini API');
         }
 
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullTextAccumulator = '';
 
-        // Ekstraksi JSON Draft komprehensif dari teks respons Gemini
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.replace('data: ', '').trim();
+              if (jsonStr === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                fullTextAccumulator += textChunk;
+
+                const cleanDisplay = fullTextAccumulator
+                  .replace(/```json_draft[\s\S]*?$/, '')
+                  .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
+                  .replace(/\$([^$]+)\$/g, '$1')
+                  .trim();
+
+                set({ aiFeedback: cleanDisplay });
+              } catch (e) {
+                // Ignore incomplete JSON chunks
+              }
+            }
+          }
+        }
+
         let extractedDraft = null;
-        const match = rawText.match(/```json_draft\s*([\s\S]*?)\s*```/);
+        const match = fullTextAccumulator.match(/```json_draft\s*([\s\S]*?)\s*```/);
         if (match && match[1]) {
           try {
             extractedDraft = JSON.parse(match[1]);
@@ -216,22 +288,25 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           }
         }
 
-        // Bersihkan teks Markdown agar blok json_draft tidak muncul di ulasan UI
-        const cleanFeedback = rawText.replace(/```json_draft[\s\S]*?```/, '').trim();
+        const finalCleanFeedback = fullTextAccumulator
+          .replace(/```json_draft[\s\S]*?```/, '')
+          .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
+          .replace(/\$([^$]+)\$/g, '$1')
+          .trim();
 
         set({
-          aiFeedback: cleanFeedback,
+          aiFeedback: finalCleanFeedback,
           aiDraft: extractedDraft,
           isAnalyzing: false
         });
 
-        return cleanFeedback;
+        return finalCleanFeedback;
       } catch (err) {
         set({ aiError: err.message, isAnalyzing: false });
         throw err;
       }
     },
-    // Action untuk memasukkan SELURUH draf fitur AI (Komprehensif) ke Zustand Store
+
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -240,46 +315,85 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       set(function (s) {
         const updateState = {};
 
-        // 1. Update text fields jika ada di draft
         if (draft.fields && typeof draft.fields === 'object') {
           updateState.fields = { ...s.fields };
           Object.keys(draft.fields).forEach((key) => {
             if (draft.fields[key]) {
-              updateState.fields[key] = draft.fields[key];
+              let val = draft.fields[key];
+
+              // Pembersihan khusus untuk multiline fields
+              if (typeof val === 'string') {
+                val = sanitizeMultiline(val);
+              }
+
+              updateState.fields[key] = val;
             }
           });
         }
 
-        // 2. Update array Core Features jika disarankan AI
         if (Array.isArray(draft.features) && draft.features.length > 0) {
-          updateState.features = draft.features;
+          updateState.features = draft.features.map(function(f, idx) {
+            return {
+              id: f.id || 'F-0' + (idx + 1),
+              name: sanitizeMultiline(f.name || ''),
+              story: sanitizeMultiline(f.story || ''),
+              priority: f.priority || 'High'
+            };
+          });
         }
 
-        // 3. Update array User Roles jika disarankan AI
         if (Array.isArray(draft.roles) && draft.roles.length > 0) {
-          updateState.roles = draft.roles;
+          updateState.roles = draft.roles.map(function(r) {
+            return {
+              name: sanitizeMultiline(r.name || ''),
+              can: sanitizeMultiline(r.can || ''),
+              cannot: sanitizeMultiline(r.cannot || '')
+            };
+          });
         }
 
-        // 4. Update array Acceptance Criteria jika disarankan AI
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
-          updateState.acModules = draft.acModules;
+          updateState.acModules = draft.acModules.map(function(m) {
+            return {
+              title: sanitizeMultiline(m.title || ''),
+              items: Array.isArray(m.items) ? m.items.map(function(it) {
+                return {
+                  title: sanitizeMultiline(it.title || ''),
+                  desc: sanitizeMultiline(it.desc || '')
+                };
+              }) : []
+            };
+          });
         }
 
-        // 5. Update array Schema Tables jika disarankan AI (misal: tambah tabel likes/stories/messages)
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
-          updateState.schemaTables = draft.schemaTables;
+          updateState.schemaTables = draft.schemaTables.map(function(t) {
+            return {
+              name: sanitizeMultiline(t.name || ''),
+              desc: sanitizeMultiline(t.desc || ''),
+              fields: Array.isArray(t.fields) ? t.fields.map(function(fi) {
+                return {
+                  field: sanitizeMultiline(fi.field || ''),
+                  type: sanitizeMultiline(fi.type || ''),
+                  required: fi.required || 'Ya',
+                  note: sanitizeMultiline(fi.note || '')
+                };
+              }) : []
+            };
+          });
         }
 
         return { ...updateState, aiDraft: null };
       });
 
-      // Simpan ke riwayat Undo/Redo
       get().commitHistory();
       return true;
     },
+
     clearAiFeedback: function () {
       set({ aiFeedback: '', aiDraft: null, aiError: null });
     },
+
     loadSampleData: function () {
       set(function () {
         return {
@@ -318,7 +432,7 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             nfrPerformance: 'FCP < 1.2s, feed load < 2s, kompresi media otomatis',
             nfrLocalization: 'Multi-bahasa (30+), format waktu & tanggal lokal',
             nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge',
-            figmaLink: 'https://figma.com/file/instagram-clone',
+            figmaLink: '[https://figma.com/file/instagram-clone](https://figma.com/file/instagram-clone)',
             riskMitigation: 'Risiko konten ilegal & cyberbullying. Mitigasi: AI moderation, report & block, rate limiting.',
           },
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
