@@ -62,22 +62,20 @@ export default function ScrollButtons() {
   }
 
   useEffect(function () {
-    const editor = getEl('editor');
-    const preview = getEl('preview');
-
-    function onScroll(panel) {
-      if (autoScroll.current[panel]) return;
-      updateIcon(panel);
+    function onScrollCapture(e) {
+      const t = e.target;
+      if (!t || t.nodeType !== 1) return;
+      if (t.id === 'editorPanel' && !autoScroll.current.editor) updateIcon('editor');
+      else if (t.id === 'previewPanel' && !autoScroll.current.preview) updateIcon('preview');
     }
-    const eh = function () { onScroll('editor'); };
-    const ph = function () { onScroll('preview'); };
-    if (editor) editor.addEventListener('scroll', eh, { passive: true });
-    if (preview) preview.addEventListener('scroll', ph, { passive: true });
+
+    document.addEventListener('scroll', onScrollCapture, { capture: true, passive: true });
 
     function interrupt() {
       if (autoScroll.current.editor) stopAuto('editor');
       if (autoScroll.current.preview) stopAuto('preview');
     }
+
     document.addEventListener('touchstart', interrupt, { passive: true });
     document.addEventListener('wheel', interrupt, { passive: true });
     document.addEventListener('keydown', interrupt, { passive: true });
@@ -86,8 +84,7 @@ export default function ScrollButtons() {
     updateIcon('preview');
 
     return function () {
-      if (editor) editor.removeEventListener('scroll', eh);
-      if (preview) preview.removeEventListener('scroll', ph);
+      document.removeEventListener('scroll', onScrollCapture, { capture: true });
       document.removeEventListener('touchstart', interrupt);
       document.removeEventListener('wheel', interrupt);
       document.removeEventListener('keydown', interrupt);
