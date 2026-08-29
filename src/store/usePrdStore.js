@@ -7,6 +7,8 @@ const init = function () {
     mode: 'simple', simpleExtras: { ...INITIAL_SIMPLE_EXTRAS }, fields: { ...DEFAULT_FIELDS },
     features: [], palette: [], roles: [], schemaTables: [], acModules: [], techOptional: [],
     history: [], historyIndex: -1, saveIndicator: '',
+    // State untuk AI Analysis & Auto-fill Draft
+    aiFeedback: '', aiDraft: null, isAnalyzing: false, aiError: null,
   };
 };
 
@@ -119,6 +121,108 @@ export const usePrdStore = create(function (set, get) {
         const base = init();
         return Object.assign({}, base, { mode: s.mode, history: s.history, historyIndex: s.historyIndex, saveIndicator: s.saveIndicator });
       });
+    },
+    // Action untuk memanggil Gemini API & ekstraksi draf perbaikan
+    analyzeWithAi: async function () {
+      const state = get();
+      const prdSnapshot = state.getSnapshot();
+
+      set({ isAnalyzing: true, aiError: null });
+
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+        if (!apiKey) {
+          throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
+        }
+
+        const prompt = `Kamu adalah seorang System Analyst dan Senior Product Manager handal.
+Analisis data PRD berikut.
+
+TUGAS KAMU:
+1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi.
+2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON khusus dengan format:
+\`\`\`json_draft
+{
+  "problemStatement": "isi draf problem statement saranmu jika yang ada masih kosong/kurang tepat",
+  "productGoal": "isi draf product goal saranmu jika kosong",
+  "userPersona": "isi draf user persona saranmu jika kosong",
+  "outOfScope": "isi draf out of scope (dipisahkan baris)",
+  "defOfDone": "isi draf definition of done (dipisahkan baris)"
+}
+\`\`\`
+
+Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error?.message || 'Gagal memproses request ke Gemini API');
+        }
+
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        // Ekstraksi JSON Draft dari teks respons Gemini
+        let extractedDraft = null;
+        const match = rawText.match(/```json_draft\s*([\s\S]*?)\s*```/);
+        if (match && match[1]) {
+          try {
+            extractedDraft = JSON.parse(match[1]);
+          } catch (e) {
+            console.warn('Gagal parse JSON draft dari AI:', e);
+          }
+        }
+
+        // Bersihkan teks Markdown agar blok json_draft tidak tampil di UI ulasan
+        const cleanFeedback = rawText.replace(/```json_draft[\s\S]*?```/, '').trim();
+
+        set({
+          aiFeedback: cleanFeedback,
+          aiDraft: extractedDraft,
+          isAnalyzing: false
+        });
+
+        return cleanFeedback;
+      } catch (err) {
+        set({ aiError: err.message, isAnalyzing: false });
+        throw err;
+      }
+    },
+    // Action untuk memasukkan draf dari AI ke dalam fields PRD
+    applyAiDraft: function () {
+      const state = get();
+      const draft = state.aiDraft;
+      if (!draft) return false;
+
+      set(function (s) {
+        const newFields = { ...s.fields };
+        Object.keys(draft).forEach((key) => {
+          if (draft[key]) {
+            newFields[key] = draft[key];
+          }
+        });
+
+        return { fields: newFields, aiDraft: null };
+      });
+
+      // Simpan ke riwayat Undo/Redo
+      get().commitHistory();
+      return true;
+    },
+    clearAiFeedback: function () {
+      set({ aiFeedback: '', aiDraft: null, aiError: null });
     },
     loadSampleData: function () {
       set(function () {
