@@ -3,6 +3,9 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowDown, faArrowUp } from '@fortawesome/free-solid-svg-icons';
 import { useViewStore } from '../../store/useViewStore';
 
+const AMBANG_NAIK = 0.8;
+const AMBANG_TURUN = 0.2;
+
 export default function ScrollButtons() {
   const view = useViewStore(function (s) { return s.view; });
   const [atTop, setAtTop] = useState({ editor: true, preview: true });
@@ -17,8 +20,16 @@ export default function ScrollButtons() {
   function updateIcon(panel) {
     const el = getEl(panel);
     if (!el) return;
-    const top = el.scrollTop <= 8;
+    const max = el.scrollHeight - el.clientHeight;
     setAtTop(function (prev) {
+      let top = prev[panel];
+      if (max <= 4) {
+        top = true;
+      } else {
+        const p = el.scrollTop / max;
+        if (p >= AMBANG_NAIK) top = false;
+        else if (p <= AMBANG_TURUN) top = true;
+      }
       if (prev[panel] === top) return prev;
       const next = { editor: prev.editor, preview: prev.preview };
       next[panel] = top;
