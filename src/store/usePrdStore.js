@@ -122,7 +122,7 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, base, { mode: s.mode, history: s.history, historyIndex: s.historyIndex, saveIndicator: s.saveIndicator });
       });
     },
-    // Action untuk memanggil Gemini API & ekstraksi draf perbaikan
+    // Action untuk memanggil Gemini API & mengambil draf penuh (komprehensif)
     analyzeWithAi: async function () {
       const state = get();
       const prdSnapshot = state.getSnapshot();
@@ -141,14 +141,45 @@ Analisis data PRD berikut.
 
 TUGAS KAMU:
 1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi.
-2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON khusus dengan format:
+2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON lengkap (json_draft) yang merevisi/melengkapi data PRD saat ini.
+
+FORMAT BLOK JSON:
 \`\`\`json_draft
 {
-  "problemStatement": "isi draf problem statement saranmu jika yang ada masih kosong/kurang tepat",
-  "productGoal": "isi draf product goal saranmu jika kosong",
-  "userPersona": "isi draf user persona saranmu jika kosong",
-  "outOfScope": "isi draf out of scope (dipisahkan baris)",
-  "defOfDone": "isi draf definition of done (dipisahkan baris)"
+  "fields": {
+    "problemStatement": "saran revisi/lengkapi",
+    "productGoal": "saran revisi/lengkapi",
+    "userPersona": "saran revisi/lengkapi",
+    "outOfScope": "saran revisi/lengkapi",
+    "defOfDone": "saran revisi/lengkapi",
+    "successMetrics": "saran revisi/lengkapi",
+    "nfrSpecs": "saran revisi/lengkapi",
+    "nfrPerformance": "saran revisi/lengkapi",
+    "riskMitigation": "saran revisi/lengkapi"
+  },
+  "features": [
+    { "id": "F-01", "name": "Nama Fitur", "story": "User story", "priority": "High/Medium/Low" }
+  ],
+  "roles": [
+    { "name": "Nama Peran", "can": "Hak akses", "cannot": "Batasan" }
+  ],
+  "acModules": [
+    {
+      "title": "Nama Modul AC",
+      "items": [
+        { "title": "Nama AC", "desc": "Deskripsi AC/BDD Syntax" }
+      ]
+    }
+  ],
+  "schemaTables": [
+    {
+      "name": "nama_tabel",
+      "desc": "Deskripsi tabel",
+      "fields": [
+        { "field": "nama_kolom", "type": "TIPE_DATA", "required": "Ya/Opsional", "note": "catatan/PK/FK" }
+      ]
+    }
+  ]
 }
 \`\`\`
 
@@ -174,7 +205,7 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
 
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-        // Ekstraksi JSON Draft dari teks respons Gemini
+        // Ekstraksi JSON Draft komprehensif dari teks respons Gemini
         let extractedDraft = null;
         const match = rawText.match(/```json_draft\s*([\s\S]*?)\s*```/);
         if (match && match[1]) {
@@ -185,7 +216,7 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           }
         }
 
-        // Bersihkan teks Markdown agar blok json_draft tidak tampil di UI ulasan
+        // Bersihkan teks Markdown agar blok json_draft tidak muncul di ulasan UI
         const cleanFeedback = rawText.replace(/```json_draft[\s\S]*?```/, '').trim();
 
         set({
@@ -200,21 +231,46 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
         throw err;
       }
     },
-    // Action untuk memasukkan draf dari AI ke dalam fields PRD
+    // Action untuk memasukkan SELURUH draf fitur AI (Komprehensif) ke Zustand Store
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
       if (!draft) return false;
 
       set(function (s) {
-        const newFields = { ...s.fields };
-        Object.keys(draft).forEach((key) => {
-          if (draft[key]) {
-            newFields[key] = draft[key];
-          }
-        });
+        const updateState = {};
 
-        return { fields: newFields, aiDraft: null };
+        // 1. Update text fields jika ada di draft
+        if (draft.fields && typeof draft.fields === 'object') {
+          updateState.fields = { ...s.fields };
+          Object.keys(draft.fields).forEach((key) => {
+            if (draft.fields[key]) {
+              updateState.fields[key] = draft.fields[key];
+            }
+          });
+        }
+
+        // 2. Update array Core Features jika disarankan AI
+        if (Array.isArray(draft.features) && draft.features.length > 0) {
+          updateState.features = draft.features;
+        }
+
+        // 3. Update array User Roles jika disarankan AI
+        if (Array.isArray(draft.roles) && draft.roles.length > 0) {
+          updateState.roles = draft.roles;
+        }
+
+        // 4. Update array Acceptance Criteria jika disarankan AI
+        if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
+          updateState.acModules = draft.acModules;
+        }
+
+        // 5. Update array Schema Tables jika disarankan AI (misal: tambah tabel likes/stories/messages)
+        if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
+          updateState.schemaTables = draft.schemaTables;
+        }
+
+        return { ...updateState, aiDraft: null };
       });
 
       // Simpan ke riwayat Undo/Redo
