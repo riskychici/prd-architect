@@ -33,7 +33,7 @@ export default function Header() {
           <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)"><span className="hidden md:inline">Undo</span></IconButton>
           <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)"><span className="hidden md:inline">Redo</span></IconButton>
         </div>
-        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Prime Property dimuat'); }} className="order-4 flex-1 md:flex-none">Muat Contoh</IconButton>
+        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none">Muat Contoh</IconButton>
         <IconButton icon={faTrash} onClick={function () { clearAll(); commitHistory(); storageService.clear(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none">Reset</IconButton>
       </div>
     </header>
