@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faWandMagicSparkles, faSpinner, faTrash, faRobot } from '@fortawesome/free-solid-svg-icons';
 import ReactMarkdown from 'react-markdown';
@@ -20,6 +20,14 @@ import SchemaSection from './sections/SchemaSection';
 import NfrSection from './sections/NfrSection';
 import OutOfScope from './sections/OutOfScope';
 
+// ============================================================
+// Kecepatan animasi: 3 karakter per 15ms = 0.2 char/ms
+// Dengan timestamp-based, meskipun browser throttle interval
+// di background tab, posisi karakter tetap dihitung berdasarkan
+// waktu yang sudah berlalu, bukan jumlah tick.
+// ============================================================
+const CHARS_PER_MS = 0.2;
+
 function AiAnalysisCard() {
   const analyzeWithAi = usePrdStore((s) => s.analyzeWithAi);
   const applyAiDraft = usePrdStore((s) => s.applyAiDraft);
@@ -29,50 +37,83 @@ function AiAnalysisCard() {
   const aiError = usePrdStore((s) => s.aiError);
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
   const showToast = useToast();
-  
+
   const feedbackBoxRef = useRef(null);
+  const typewriterStartRef = useRef(null);
+
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingFinished, setIsTypingFinished] = useState(true);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
 
-  // Smooth Typewriter Engine
+  // ============================================================
+  // TIMESTAMP-BASED TYPEWRITER ENGINE
+  //
+  // Cara kerja:
+  // 1. Catat waktu mulai saat streaming pertama kali menghasilkan teks
+  // 2. Setiap tick interval, hitung: elapsed * CHARS_PER_MS = posisi karakter
+  // 3. Meskipun browser throttle interval di background (1x/detik),
+  //    begitu tick terjadi, posisi langsung "lompat" sesuai waktu.
+  // 4. Saat user kembali ke tab, animasi lanjut smooth dari posisi terakhir.
+  // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
       setDisplayedText('');
       setIsTypingFinished(true);
+      typewriterStartRef.current = null;
       return;
+    }
+
+    // Set start time hanya sekali per sesi analisis
+    if (typewriterStartRef.current === null) {
+      typewriterStartRef.current = performance.now();
     }
 
     setIsTypingFinished(false);
 
     const timer = setInterval(() => {
+      const elapsed = performance.now() - typewriterStartRef.current;
+      const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
+      const targetLength = Math.min(expectedChars, rawAiFeedback.length);
+
       setDisplayedText((prev) => {
-        if (prev.length < rawAiFeedback.length) {
-          const step = Math.min(3, rawAiFeedback.length - prev.length);
-          return rawAiFeedback.slice(0, prev.length + step);
-        } else {
-          setIsTypingFinished(true);
-          clearInterval(timer);
-          return prev;
-        }
+        if (prev.length === targetLength) return prev;
+        return rawAiFeedback.slice(0, targetLength);
       });
+
+      if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
+        setIsTypingFinished(true);
+        clearInterval(timer);
+      }
     }, 15);
 
     return () => clearInterval(timer);
-  }, [rawAiFeedback]);
+  }, [rawAiFeedback, isAnalyzing]);
 
-  // Smooth Auto-scroll
+  // ============================================================
+  // AUTO-SCROLL: hanya aktif jika user berada di bagian bawah
+  // ============================================================
   useEffect(() => {
-    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current) {
+    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current && !isUserScrolledUp) {
       feedbackBoxRef.current.scrollTo({
         top: feedbackBoxRef.current.scrollHeight,
         behavior: 'smooth'
       });
     }
-  }, [displayedText, isAnalyzing, isTypingFinished]);
+  }, [displayedText, isAnalyzing, isTypingFinished, isUserScrolledUp]);
+
+  const handleScroll = useCallback(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    const threshold = 50;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setIsUserScrolledUp(distFromBottom > threshold);
+  }, []);
 
   const handleAnalyze = async () => {
     try {
       setDisplayedText('');
+      setIsUserScrolledUp(false);
+      typewriterStartRef.current = null;
       await analyzeWithAi();
       showToast('Analisis AI selesai!', 'success');
     } catch (err) {
@@ -83,13 +124,14 @@ function AiAnalysisCard() {
   const handleApplyDraft = () => {
     const ok = applyAiDraft();
     if (ok) {
-      showToast('Draf saran AI berhasil diterapkan ke formulir!', 'success');
+      showToast('Saran AI diterapkan', 'success');
     } else {
-      showToast('Tidak ada data draf yang bisa diterapkan', 'info');
+      showToast('Tidak ada draf AI', 'info');
     }
   };
 
   const isBusy = isAnalyzing || !isTypingFinished;
+  const hasDraft = !!aiDraft;
 
   return (
     <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
@@ -100,13 +142,12 @@ function AiAnalysisCard() {
             <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
               Analisis PRD Berbasis AI
               <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono">
-                Gemini Flash
+                Gemini Flash Lite
               </span>
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
         </div>
-
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
@@ -145,11 +186,16 @@ function AiAnalysisCard() {
               )}
             </span>
             <div className="flex items-center gap-2">
-              {aiDraft && !isBusy && (
+              {!isBusy && (
                 <button
                   onClick={handleApplyDraft}
-                  className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-2.5 py-1 rounded transition-all duration-200 flex items-center gap-1 cursor-pointer shadow-md hover:shadow-emerald-500/20"
-                  title="Isi otomatis bagian form yang kosong dengan saran AI"
+                  disabled={!hasDraft}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded transition-all duration-200 flex items-center gap-1 shadow-md ${
+                    hasDraft
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer hover:shadow-emerald-500/20'
+                      : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                  title={hasDraft ? 'Isi otomatis bagian form dengan saran AI' : 'Tidak ada draf JSON dari AI'}
                 >
                   <FontAwesomeIcon icon={faWandMagicSparkles} /> Terapkan ke Form
                 </button>
@@ -166,8 +212,17 @@ function AiAnalysisCard() {
             </div>
           </div>
 
+          {/* Info saat user scroll manual */}
+          {isUserScrolledUp && !isTypingFinished && (
+            <div className="text-[10px] text-purple-300 bg-purple-950/50 border border-purple-800/50 rounded px-2 py-1 flex items-center gap-1.5">
+              <FontAwesomeIcon icon={faSpinner} className="animate-spin" />
+              AI masih mengetik di bawah. Scroll ke bawah untuk lanjut auto-scroll.
+            </div>
+          )}
+
           <div
             ref={feedbackBoxRef}
+            onScroll={handleScroll}
             className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
           >
             {isAnalyzing && !displayedText ? (

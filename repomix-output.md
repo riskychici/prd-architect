@@ -730,66 +730,6 @@ export const useAutoResize = function () {
 };
 ````
 
-## File: src/hooks/useAutoSave.js
-````javascript
-import { useEffect, useRef } from 'react';
-import { debounce } from 'lodash';
-import { usePrdStore } from '../store/usePrdStore';
-import { storageService } from '../services/storageService';
-import { AUTOSAVE_DELAY } from '../utils/constants';
-
-export const useAutoSave = function () {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const fields = usePrdStore(function (s) { return s.fields; });
-  const features = usePrdStore(function (s) { return s.features; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  const schemaTables = usePrdStore(function (s) { return s.schemaTables; });
-  const acModules = usePrdStore(function (s) { return s.acModules; });
-  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
-  const techOptional = usePrdStore(function (s) { return s.techOptional; });
-  const aiFeedback = usePrdStore(function (s) { return s.aiFeedback; });
-  const aiDraft = usePrdStore(function (s) { return s.aiDraft; });
-  const setSaveIndicator = usePrdStore(function (s) { return s.setSaveIndicator; });
-  const first = useRef(true);
-
-  useEffect(function () {
-    const payload = {
-      mode: mode,
-      state: {
-        fields: fields,
-        features: features,
-        palette: palette,
-        roles: roles,
-        schemaTables: schemaTables,
-        acModules: acModules,
-        simpleExtras: simpleExtras,
-        techOptional: techOptional,
-        aiFeedback: aiFeedback,
-        aiDraft: aiDraft,
-      },
-    };
-
-    const save = debounce(function () {
-      const ok = storageService.save(payload);
-      if (ok) {
-        const t = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-        setSaveIndicator('Tersimpan ' + t);
-      }
-    }, AUTOSAVE_DELAY);
-
-    if (first.current) {
-      first.current = false;
-      save.flush();
-    } else {
-      save();
-    }
-
-    return function () { save.cancel(); };
-  }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, aiFeedback, aiDraft, setSaveIndicator]);
-};
-````
-
 ## File: src/hooks/useSwipe.js
 ````javascript
 import { useEffect, useRef } from 'react';
@@ -2141,22 +2081,63 @@ export default function ToggleSwitch(props) {
 }
 ````
 
-## File: src/services/exportService.js
+## File: src/hooks/useAutoSave.js
 ````javascript
-import { saveAs } from 'file-saver';
-import copyToClipboard from 'copy-to-clipboard';
-import { generateMarkdown } from '../utils/markdown';
+import { useEffect, useRef } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from '../store/usePrdStore';
+import { storageService } from '../services/storageService';
+import { AUTOSAVE_DELAY } from '../utils/constants';
 
-export const exportService = {
-  exportJSON: function (state) {
-    const data = { app: 'PRD Architect Pro', version: '3.3', mode: state.mode, state: state };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
-  },
-  copyMarkdown: function (state) {
-    copyToClipboard(generateMarkdown(state));
-  },
-  printDocument: function () { window.print(); },
+export const useAutoSave = function () {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const fields = usePrdStore(function (s) { return s.fields; });
+  const features = usePrdStore(function (s) { return s.features; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  const schemaTables = usePrdStore(function (s) { return s.schemaTables; });
+  const acModules = usePrdStore(function (s) { return s.acModules; });
+  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const aiFeedback = usePrdStore(function (s) { return s.aiFeedback; });
+  const aiDraft = usePrdStore(function (s) { return s.aiDraft; });
+  const setSaveIndicator = usePrdStore(function (s) { return s.setSaveIndicator; });
+  const first = useRef(true);
+
+  useEffect(function () {
+    const payload = {
+      mode: mode,
+      state: {
+        fields: fields,
+        features: features,
+        palette: palette,
+        roles: roles,
+        schemaTables: schemaTables,
+        acModules: acModules,
+        simpleExtras: simpleExtras,
+        techOptional: techOptional,
+        aiFeedback: aiFeedback,
+        aiDraft: aiDraft,
+      },
+    };
+
+    const save = debounce(function () {
+      const ok = storageService.save(payload);
+      if (ok) {
+        const t = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+        setSaveIndicator('Tersimpan ' + t);
+      }
+    }, AUTOSAVE_DELAY);
+
+    if (first.current) {
+      first.current = false;
+      save.flush();
+    } else {
+      save();
+    }
+
+    return function () { save.cancel(); };
+  }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, aiFeedback, aiDraft, setSaveIndicator]);
 };
 ````
 
@@ -2881,6 +2862,25 @@ export default function IconButton(props) {
 }
 ````
 
+## File: src/services/exportService.js
+````javascript
+import { saveAs } from 'file-saver';
+import copyToClipboard from 'copy-to-clipboard';
+import { generateMarkdown } from '../utils/markdown';
+
+export const exportService = {
+  exportJSON: function (state) {
+    const data = { app: 'PRD Architect Pro', version: '3.3', mode: state.mode, state: state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
+  },
+  copyMarkdown: function (state) {
+    copyToClipboard(generateMarkdown(state));
+  },
+  printDocument: function () { window.print(); },
+};
+````
+
 ## File: index.html
 ````html
 <!doctype html>
@@ -2974,6 +2974,20 @@ export default function IconButton(props) {
 }
 ````
 
+## File: .gitignore
+````
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode
+.env
+prd-architec-v3.1.md
+.repomixignore
+.vercel
+````
+
 ## File: src/components/header/Header.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -3017,20 +3031,6 @@ export default function Header() {
 }
 ````
 
-## File: .gitignore
-````
-node_modules
-dist
-dist-ssr
-*.local
-.DS_Store
-.vscode
-.env
-prd-architec-v3.1.md
-.repomixignore
-.vercel
-````
-
 ## File: src/store/usePrdStore.js
 ````javascript
 import { create } from 'zustand';
@@ -3060,20 +3060,34 @@ const sanitizeMultiline = function (text) {
   return text
     .split('\n')
     .map(function (line) {
-      // Abaikan baris pembatas tabel markdown seperti |---|---|
       if (/^\|?[\s\-\|:]+\|?$/.test(line.trim())) return '';
-
-      // Hapus simbol '|', '-', '*', '•', atau penomoran seperti '1.', '2)' di awal baris
       let cleaned = line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
-      // Hapus pipa yang tersisa di akhir/dalam baris jika ada sisa format tabel
       cleaned = cleaned.replace(/\|/g, '').trim();
-
       return cleaned;
     })
     .filter(function (line) {
       return line.length > 0;
     })
     .join('\n');
+};
+
+// Helper khusus penanganan & pembersihan simbol/format LaTeX
+const cleanLatex = function (str) {
+  if (!str || typeof str !== 'string') return str;
+
+  return str
+    .replace(/\\ge\b|\\geq\b/g, '≥')
+    .replace(/\\le\b|\\leq\b/g, '≤')
+    .replace(/\\approx\b/g, '≈')
+    .replace(/\\neq\b/g, '≠')
+    .replace(/\\times\b/g, '×')
+    .replace(/\\div\b/g, '÷')
+    .replace(/\\pm\b/g, '±')
+    .replace(/\\infty\b/g, '∞')
+    .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
+    .replace(/\\text\{([^}]+)\}/g, '$1')     .replace(/\$\$([^$]+)\$\$/g, '$1')     .replace(/\$([^$]+)\$/g, '$1')
+    .replace(/\\([_#%&])/g, '$1')
+    .trim();
 };
 
 export const usePrdStore = create(function (set, get) {
@@ -3167,7 +3181,6 @@ export const usePrdStore = create(function (set, get) {
       const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
       const features = st.features || [];
 
-      // Validasi: Cek apakah data PRD kosong
       const isEmptyPrd =
         !(fields.projectName || '').trim() &&
         !(fields.problemStatement || '').trim() &&
@@ -3183,7 +3196,6 @@ export const usePrdStore = create(function (set, get) {
         acModules: st.acModules || [],
         simpleExtras: st.simpleExtras || { ...INITIAL_SIMPLE_EXTRAS },
         techOptional: st.techOptional || [],
-        // Hapus feedback & draft AI jika PRD terdeteksi kosong
         aiFeedback: isEmptyPrd ? '' : (st.aiFeedback || ''),
         aiDraft: isEmptyPrd ? null : (st.aiDraft || null),
         mode: st.mode || 'simple',
@@ -3196,12 +3208,11 @@ export const usePrdStore = create(function (set, get) {
       });
     },
 
-    // Action STREAMING untuk efek mengetik langsung dari Gemini API
+    // Action STREAMING dengan Analisis Mendalam & Rekomendasi Solutif
     analyzeWithAi: async function () {
       const state = get();
       const prdSnapshot = state.getSnapshot();
 
-      // Langsung reset error & state lama saat tombol diklik
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
 
       try {
@@ -3211,63 +3222,96 @@ export const usePrdStore = create(function (set, get) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
 
-        const prompt = `Kamu adalah seorang System Analyst dan Senior Product Manager handal.
-Analisis data PRD berikut.
+        const prompt = `Kamu adalah seorang Principal System Analyst dan VP of Product berpengalaman.
+Tugasmu adalah melakukan audit, analisis, SERTA MEMBERIKAN REKOMENDASI TERBAIK DAN SARAN STRATEGIS terhadap dokumen PRD (Product Requirement Document) berikut secara EKSTENSIF, DETAIL, KOMPREHENSIF, dan PROFESIONAL.
 
-TUGAS KAMU:
-1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi. Jangan sertakan format matematika LaTeX seperti $...$ atau \\text{...}.
+PEDOMAN FORMATTING & GAYA BAHASA (WAJIB DIPATUHI):
+1. Tuliskan jawaban dalam bahasa Indonesia formal, taktis, mendalam, dan kaya akan terminologi industri perangkat lunak.
+2. DILARANG KERAS menggunakan format matematika LaTeX (seperti $...$, \\text{...}, \\ge, \\le). Gunakan simbol baku Unicode seperti ≥, ≤, ≈, atau teks biasa.
+3. Struktur teks HARUS menggunakan hirarki Markdown berikut:
+   - Seksi Utama: GUNAKAN LEVEL HEADING 2 (## 1. Analisis System Analyst, ## 2. Analisis Product Manager, ## 3. Saran Terbaik & Rekomendasi AI)
+   - Sub-Seksi: GUNAKAN LEVEL HEADING 3 (### A. ..., ### B. ..., dst)
+4. Setiap poin analisis WAJIB diawali dengan bullet point (*) dan teks tebal (**Bold Title**), diikuti oleh penjelasan komprehensif 2-3 kalimat per poin.
 
-HIRARKI HEADING MARKDOWN (WAJIB DIPATUHI):
-- Judul Seksi Utama (misal: "## 1. Analisis System Analyst", "## 2. Analisis Product Manager") GUNAKAN LEVEL HEADING 2 (##).
-- Sub-Seksi (misal: "### A. Arsitektur Backend", "### B. Skalabilitas & Skop") GUNAKAN LEVEL HEADING 3 (###).
-- Selalu pastikan Poin Nomor (## 1.) LEBIH BESAR hirarkinya daripada Poin Huruf (### A.).
+TEMPLATE ANALISIS & REKOMENDASI LENGKAP:
 
-2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON lengkap (json_draft) yang merevisi/melengkapi data PRD saat ini.
+## 1. Analisis System Analyst
 
-ATURAN KHUSUS FORMAT JSON:
-- DILARANG MENGGUNAKAN TABEL MARKDOWN (seperti |---|---|) di dalam string JSON apapun.
-- Field "outOfScope" dan "defOfDone" HARUS diisi dengan item-item yang dipisahkan oleh Karakter Enter (\\n).
-- DILARANG MENGGUNAKAN KOMA untuk memisahkan item pada "outOfScope" dan "defOfDone".
-- DILARANG MENGGUNAKAN SIMBOL STRIP (-), BULLET (*, •), PIPA (|), ATAU NOMOR (1., 2.) di awal/dalam setiap baris pada "outOfScope" dan "defOfDone".
+### A. Evaluasi Kelengkapan Data & Arsitektur Sistem
+* **Status Kelengkapan Spesifikasi**: Audit mendalam mengenai kelengkapan komponen PRD (apakah empty state, partial, atau full) serta kesiapan tim pengembang.
+* **Evaluasi Frontend & User Interface**: Ulas opsi stack frontend (misal React/Next.js), arsitektur state management, serta pertimbangan SSR vs CSR.
+* **Evaluasi Backend & Microservices**: Ulas pilihan arsitektur backend, skalabilitas penanganan konkurensi (Node.js/Go/Python), serta desain REST API / GraphQL.
 
-FORMAT BLOK JSON:
+### B. Analisis Basis Data, Caching & Infrastruktur Cloud
+* **Integritas Skema Basis Data**: Ulas struktur tabel (schemaTables), kebutuhan indexing, primary/foreign key constraints, dan potensi query bottleneck.
+* **Strategi Caching & Message Queue**: Ulas kebutuhan Redis untuk caching serta Kafka/RabbitMQ untuk pemrosesan asynchronous.
+* **Infrastruktur & Pipeline DevOps**: Rekomendasikan kontainerisasi (Docker/Kubernetes), CI/CD (GitHub Actions), serta manajemen cloud (AWS/GCP).
+
+### C. Spesifikasi Non-Fungsional (NFR) & Keamanan
+* **Keamanan & Manajemen Akses**: Audit sistem otentikasi (JWT, OAuth 2.0, 2FA), enkripsi data (at-rest & in-transit), dan mitigasi serangan cyber.
+* **Performa, Latensi & SLA**: Tentukan standar FCP, response time API, target uptime SLA (99.9%), dan kapasitas concurrent users.
+
+## 2. Analisis Product Manager
+
+### A. Value Proposition & Strategi Bisnis
+* **Kejelasan Problem Statement & Goals**: Evaluasi seberapa kuat pernyataan masalah dan tujuan produk dalam menjawab kebutuhan pasar dan ROI.
+* **Segmentasi User Persona**: Ulas ketajaman profil pengguna target, pain points mereka, dan kesesuaian alur penggunaan (userFlow).
+
+### B. Manajemen Ruang Lingkup (Scope Creep) & DoD
+* **Batasan Fitur (Out of Scope)**: Identifikasi risiko pembengkakan fitur (scope creep) dan evaluasi kejelasan batasan hal yang tidak dikerjakan.
+* **Kriteria Keberhasilan (Definition of Done)**: Ulas standar kualitas rilis (QA testing coverage, bug threshold, performance metrics) sebelum siap produksi.
+
+### C. Roadmap Pengembangan MVP & Success Metrics
+* **Prioritisasi Fitur MVP**: Rekomendasikan urutan eksekusi fitur inti (High Priority) untuk membentuk MVP yang fungsional.
+* **Metrik Keberhasilan Terukur**: Tentukan indikator kinerja utama / KPI (seperti DAU/MAU, Retention Rate, CSAT) yang dipantau pasca rilis.
+
+## 3. Saran Terbaik & Rekomendasi AI
+
+### A. Rekomendasi Arsitektur & Technology Stack Terbaik
+* **Rekomendasi Stack Ideal**: Berikan kombinasi teknologi (Frontend, Backend, DB, Cloud) paling ideal dan rasional untuk jenis proyek ini beserta alasan teknisnya.
+* **Standar Keamanan Utama**: Berikan rekomendasi langkah keamanan prioritas tinggi yang wajib langsung diimplementasikan pada sprint pertama.
+
+### B. Rekomendasi Eksekusi Produk & Langkah Selanjutnya
+* **Langkah Krusial Berikutnya (Next Action Items)**: Berikan daftar 3-5 langkah konkret yang harus dilakukan tim (PM/Dev) saat ini juga untuk mematangkan PRD ini.
+* **Strategi Mitigasi Risiko Bisnis**: Berikan masukan langsung mengenai potensi kendala operasional/pengguna beserta solusi pencegahannya.
+
 \`\`\`json_draft
 {
   "fields": {
     "projectName": "saran nama proyek draf jika kosong",
-    "problemStatement": "saran revisi/lengkapi",
-    "productGoal": "saran revisi/lengkapi",
-    "userPersona": "saran revisi/lengkapi",
-    "userFlow": "saran revisi/lengkapi user flow (misal: Onboarding -> Login -> ...)",
-    "techFrontend": "saran frontend stack (misal: React Native, React, Next.js)",
-    "techBackend": "saran backend stack (misal: Node.js, Go, Python)",
-    "techDatabase": "saran database stack (misal: PostgreSQL, Redis)",
-    "techInfra": "saran infrastruktur (misal: AWS, Docker, Kubernetes)",
-    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga (murni teks, TANPA koma, TANPA strip -)",
-    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga (murni teks, TANPA koma, TANPA strip -)",
-    "successMetrics": "saran revisi/lengkapi",
-    "nfrSpecs": "saran revisi/lengkapi",
-    "nfrPerformance": "saran revisi/lengkapi",
-    "riskMitigation": "saran revisi/lengkapi"
+    "problemStatement": "saran revisi/lengkapi masalah",
+    "productGoal": "saran revisi/lengkapi tujuan",
+    "userPersona": "saran revisi/lengkapi persona",
+    "userFlow": "saran revisi/lengkapi user flow",
+    "techFrontend": "saran stack frontend",
+    "techBackend": "saran stack backend",
+    "techDatabase": "saran stack database",
+    "techInfra": "saran infrastruktur cloud",
+    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga",
+    "successMetrics": "saran metrik sukses terukur",
+    "nfrSpecs": "saran NFR keamanan dan spesifikasi",
+    "nfrPerformance": "saran NFR performa dan latency",
+    "riskMitigation": "saran mitigasi risiko utama"
   },
   "features": [
-    { "id": "F-01", "name": "Nama Fitur", "story": "User story", "priority": "High/Medium/Low" }
+    { "id": "F-01", "name": "Nama Fitur Inti", "story": "User story fitur", "priority": "High" }
   ],
   "roles": [
-    { "name": "Nama Peran", "can": "Hak akses", "cannot": "Batasan" }
+    { "name": "Nama Peran", "can": "Hak akses diizinkan", "cannot": "Batasan akses" }
   ],
   "acModules": [
     {
       "title": "Nama Modul AC",
       "items": [
-        { "title": "Nama AC", "desc": "Deskripsi AC/BDD Syntax" }
+        { "title": "Skenario AC", "desc": "Deskripsi BDD Given-When-Then" }
       ]
     }
   ],
   "schemaTables": [
     {
       "name": "nama_tabel",
-      "desc": "Deskripsi tabel",
+      "desc": "Deskripsi fungsi tabel",
       "fields": [
         { "field": "nama_kolom", "type": "TIPE_DATA", "required": "Ya/Opsional", "note": "catatan/PK/FK" }
       ]
@@ -3280,12 +3324,16 @@ Data PRD saat ini:
 ${JSON.stringify(prdSnapshot, null, 2)}`;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?key=${apiKey}&alt=sse`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 8192,
+              }
             })
           }
         );
@@ -3294,10 +3342,9 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           const errJson = await response.json();
           const errMsg = errJson.error?.message || '';
 
-          // Deteksi error Quota Exceeded / Rate Limit (HTTP 429)
           if (response.status === 429 || errJson.error?.code === 429) {
             if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
-              throw new Error('Kuota harian (Free Tier) Gemini API telah habis. Buat API Key baru di Google AI Studio atau tunggu reset kuota harian.');
+              throw new Error('Kuota harian (Free Tier) Gemini API telah habis. Silakan gunakan API Key baru atau tunggu reset kuota harian.');
             }
             throw new Error('Batas penggunaan AI sedang penuh. Silakan tunggu 30 detik lalu coba lagi.');
           }
@@ -3326,11 +3373,9 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
 
-                const cleanDisplay = fullTextAccumulator
-                  .replace(/```json_draft[\s\S]*?$/, '')
-                  .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
-                  .replace(/\$([^$]+)\$/g, '$1')
-                  .trim();
+                const cleanDisplay = cleanLatex(
+                  fullTextAccumulator.replace(/```json_draft[\s\S]*?$/, '')
+                );
 
                 set({ aiFeedback: cleanDisplay });
               } catch (e) {
@@ -3350,11 +3395,9 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           }
         }
 
-        const finalCleanFeedback = fullTextAccumulator
-          .replace(/```json_draft[\s\S]*?```/, '')
-          .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
-          .replace(/\$([^$]+)\$/g, '$1')
-          .trim();
+        const finalCleanFeedback = cleanLatex(
+          fullTextAccumulator.replace(/```json_draft[\s\S]*?```/, '')
+        );
 
         set({
           aiFeedback: finalCleanFeedback,
@@ -3383,9 +3426,8 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             if (draft.fields[key]) {
               let val = draft.fields[key];
 
-              // Pembersihan khusus untuk multiline fields
               if (typeof val === 'string') {
-                val = sanitizeMultiline(val);
+                val = sanitizeMultiline(cleanLatex(val));
               }
 
               updateState.fields[key] = val;
@@ -3397,8 +3439,8 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           updateState.features = draft.features.map(function(f, idx) {
             return {
               id: f.id || 'F-0' + (idx + 1),
-              name: sanitizeMultiline(f.name || ''),
-              story: sanitizeMultiline(f.story || ''),
+              name: sanitizeMultiline(cleanLatex(f.name || '')),
+              story: sanitizeMultiline(cleanLatex(f.story || '')),
               priority: f.priority || 'High'
             };
           });
@@ -3407,9 +3449,9 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
         if (Array.isArray(draft.roles) && draft.roles.length > 0) {
           updateState.roles = draft.roles.map(function(r) {
             return {
-              name: sanitizeMultiline(r.name || ''),
-              can: sanitizeMultiline(r.can || ''),
-              cannot: sanitizeMultiline(r.cannot || '')
+              name: sanitizeMultiline(cleanLatex(r.name || '')),
+              can: sanitizeMultiline(cleanLatex(r.can || '')),
+              cannot: sanitizeMultiline(cleanLatex(r.cannot || ''))
             };
           });
         }
@@ -3417,11 +3459,11 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
           updateState.acModules = draft.acModules.map(function(m) {
             return {
-              title: sanitizeMultiline(m.title || ''),
+              title: sanitizeMultiline(cleanLatex(m.title || '')),
               items: Array.isArray(m.items) ? m.items.map(function(it) {
                 return {
-                  title: sanitizeMultiline(it.title || ''),
-                  desc: sanitizeMultiline(it.desc || '')
+                  title: sanitizeMultiline(cleanLatex(it.title || '')),
+                  desc: sanitizeMultiline(cleanLatex(it.desc || ''))
                 };
               }) : []
             };
@@ -3431,14 +3473,14 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
           updateState.schemaTables = draft.schemaTables.map(function(t) {
             return {
-              name: sanitizeMultiline(t.name || ''),
-              desc: sanitizeMultiline(t.desc || ''),
+              name: sanitizeMultiline(cleanLatex(t.name || '')),
+              desc: sanitizeMultiline(cleanLatex(t.desc || '')),
               fields: Array.isArray(t.fields) ? t.fields.map(function(fi) {
                 return {
-                  field: sanitizeMultiline(fi.field || ''),
-                  type: sanitizeMultiline(fi.type || ''),
+                  field: sanitizeMultiline(cleanLatex(fi.field || '')),
+                  type: sanitizeMultiline(cleanLatex(fi.type || '')),
                   required: fi.required || 'Ya',
-                  note: sanitizeMultiline(fi.note || '')
+                  note: sanitizeMultiline(cleanLatex(fi.note || ''))
                 };
               }) : []
             };
@@ -3487,9 +3529,9 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             successMetrics: 'DAU/MAU >= 0.6, Retention D30 >= 40%, avg session >= 15 menit',
             brandTypography: 'System font (SF Pro / Roboto), Billabong untuk logo',
             brandLayout: 'Mobile-first, grid gallery 3 kolom, infinite scroll',
-            bpMobileOp: '\u2264', bpMobile: '640', bpMobileUnit: 'px',
-            bpTabletOp: '\u2264', bpTablet: '1024', bpTabletUnit: 'px',
-            bpDesktopOp: '\u2265', bpDesktop: '1024', bpDesktopUnit: 'px',
+            bpMobileOp: '≤', bpMobile: '640', bpMobileUnit: 'px',
+            bpTabletOp: '≤', bpTablet: '1024', bpTabletUnit: 'px',
+            bpDesktopOp: '≥', bpDesktop: '1024', bpDesktopUnit: 'px',
             nfrSpecs: 'HTTPS/TLS 1.3, OAuth 2.0, rate limiting, enkripsi at-rest',
             nfrPerformance: 'FCP < 1.2s, feed load < 2s, kompresi media otomatis',
             nfrLocalization: 'Multi-bahasa (30+), format waktu & tanggal lokal',

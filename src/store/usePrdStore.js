@@ -7,7 +7,6 @@ const init = function () {
     mode: 'simple', simpleExtras: { ...INITIAL_SIMPLE_EXTRAS }, fields: { ...DEFAULT_FIELDS },
     features: [], palette: [], roles: [], schemaTables: [], acModules: [], techOptional: [],
     history: [], historyIndex: -1, saveIndicator: '',
-    // State untuk AI Analysis & Auto-fill Draft
     aiFeedback: '', aiDraft: null, isAnalyzing: false, aiError: null,
   };
 };
@@ -19,20 +18,14 @@ const stripNonUndo = function (snap) {
   return c;
 };
 
-// Helper untuk membersihkan simbol bullet/strip/nomor/tabel Markdown dari awal & isi baris
 const sanitizeMultiline = function (text) {
   if (!text || typeof text !== 'string') return text;
   return text
     .split('\n')
     .map(function (line) {
-      // Abaikan baris pembatas tabel markdown seperti |---|---|
       if (/^\|?[\s\-\|:]+\|?$/.test(line.trim())) return '';
-
-      // Hapus simbol '|', '-', '*', '•', atau penomoran seperti '1.', '2)' di awal baris
       let cleaned = line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
-      // Hapus pipa yang tersisa di akhir/dalam baris jika ada sisa format tabel
       cleaned = cleaned.replace(/\|/g, '').trim();
-
       return cleaned;
     })
     .filter(function (line) {
@@ -40,6 +33,53 @@ const sanitizeMultiline = function (text) {
     })
     .join('\n');
 };
+
+const cleanLatex = function (str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/\\ge\b|\\geq\b/g, '≥')
+    .replace(/\\le\b|\\leq\b/g, '≤')
+    .replace(/\\approx\b/g, '≈')
+    .replace(/\\neq\b/g, '≠')
+    .replace(/\\times\b/g, '×')
+    .replace(/\\div\b/g, '÷')
+    .replace(/\\pm\b/g, '±')
+    .replace(/\\infty\b/g, '∞')
+    .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\$\$([^$]+)\$\$/g, '$1')
+    .replace(/\$([^$]+)\$/g, '$1')
+    .replace(/\\([_#%&])/g, '$1')
+    .trim();
+};
+
+function extractAiDraft(fullText) {
+  if (!fullText || typeof fullText !== 'string') return null;
+
+  let match = fullText.match(/```json_draft\s*\n?([\s\S]*?)\n?\s*```/);
+  if (match && match[1]) {
+    try {
+      return JSON.parse(match[1].trim());
+    } catch (e) { console.warn('[AI Draft] Strategi 1 gagal:', e.message); }
+  }
+
+  match = fullText.match(/`{3,}\s*json_draft\s*([\s\S]*?)\s*`{3,}/i);
+  if (match && match[1]) {
+    try {
+      return JSON.parse(match[1].trim());
+    } catch (e) { console.warn('[AI Draft] Strategi 2 gagal:', e.message); }
+  }
+
+  const jsonMatch = fullText.match(/\{[\s\S]*?"fields"\s*:\s*\{[\s\S]*?\}\s*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (e) { console.warn('[AI Draft] Strategi 3 gagal:', e.message); }
+  }
+
+  console.warn('[AI Draft] Semua strategi parsing gagal.');
+  return null;
+}
 
 export const usePrdStore = create(function (set, get) {
   return {
@@ -131,14 +171,11 @@ export const usePrdStore = create(function (set, get) {
     restoreState: function (st) {
       const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
       const features = st.features || [];
-
-      // Validasi: Cek apakah data PRD kosong
       const isEmptyPrd =
         !(fields.projectName || '').trim() &&
         !(fields.problemStatement || '').trim() &&
         !(fields.productGoal || '').trim() &&
         features.length === 0;
-
       set({
         fields: fields,
         features: features,
@@ -148,7 +185,6 @@ export const usePrdStore = create(function (set, get) {
         acModules: st.acModules || [],
         simpleExtras: st.simpleExtras || { ...INITIAL_SIMPLE_EXTRAS },
         techOptional: st.techOptional || [],
-        // Hapus feedback & draft AI jika PRD terdeteksi kosong
         aiFeedback: isEmptyPrd ? '' : (st.aiFeedback || ''),
         aiDraft: isEmptyPrd ? null : (st.aiDraft || null),
         mode: st.mode || 'simple',
@@ -161,80 +197,169 @@ export const usePrdStore = create(function (set, get) {
       });
     },
 
-    // Action STREAMING untuk efek mengetik langsung dari Gemini API
+    // ============================================================
+    // ACTION ANALISIS AI — Model: gemini-3.5-flash-lite
+    // ============================================================
     analyzeWithAi: async function () {
       const state = get();
       const prdSnapshot = state.getSnapshot();
-
-      // Langsung reset error & state lama saat tombol diklik
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
 
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
 
-        const prompt = `Kamu adalah seorang System Analyst dan Senior Product Manager handal.
-Analisis data PRD berikut.
+        const prompt = `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level). Kamu sedang menulis PRD untuk dibaca oleh tim engineer, designer, dan stakeholder bisnis.
 
-TUGAS KAMU:
-1. Berikan analisis dan saran perbaikan dalam bentuk teks Markdown yang rapi. Jangan sertakan format matematika LaTeX seperti $...$ atau \\text{...}.
+Tugasmu: audit PRD berikut, lalu berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, bukan seperti template AI.
 
-HIRARKI HEADING MARKDOWN (WAJIB DIPATUHI):
-- Judul Seksi Utama (misal: "## 1. Analisis System Analyst", "## 2. Analisis Product Manager") GUNAKAN LEVEL HEADING 2 (##).
-- Sub-Seksi (misal: "### A. Arsitektur Backend", "### B. Skalabilitas & Skop") GUNAKAN LEVEL HEADING 3 (###).
-- Selalu pastikan Poin Nomor (## 1.) LEBIH BESAR hirarkinya daripada Poin Huruf (### A.).
+================================================================================
+ATURAN GAYA BAHASA (WAJIB DIPATUHI)
+================================================================================
 
-2. Di PALING AKHIR jawabanmu, sertakan blok kode JSON lengkap (json_draft) yang merevisi/melengkapi data PRD saat ini.
+1. TULIS SEPERTI MANUSIA. Bayangkan kamu sedang menjelaskan ke tech lead di whiteboard: to the point, kontekstual, pakai istilah industri yang natural.
 
-ATURAN KHUSUS FORMAT JSON:
-- DILARANG MENGGUNAKAN TABEL MARKDOWN (seperti |---|---|) di dalam string JSON apapun.
-- Field "outOfScope" dan "defOfDone" HARUS diisi dengan item-item yang dipisahkan oleh Karakter Enter (\\n).
-- DILARANG MENGGUNAKAN KOMA untuk memisahkan item pada "outOfScope" dan "defOfDone".
-- DILARANG MENGGUNAKAN SIMBOL STRIP (-), BULLET (*, •), PIPA (|), ATAU NOMOR (1., 2.) di awal/dalam setiap baris pada "outOfScope" dan "defOfDone".
+2. DAFTAR KATA YANG DILARANG (jangan pakai kata/frasa klise AI ini):
+   - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
+   - "secara manual dan terfragmentasi"
+   - "kredensial yang valid"
+   - "melakukan manipulasi", "melakukan proses", "melakukan kegiatan"
+   - "platform digital terpusat"
+   - "efisiensi waktu dan akurasi"
+   - "secara tepat", "secara mudah", "secara real-time"
+   - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
+   - "guna", "adapun", "selanjutnya", "berkenaan dengan"
+   - Angka generik klise: "40 persen", "85 persen", "30 persen" (pakai angka spesifik)
 
-FORMAT BLOK JSON:
+3. SEBALIKNYA, PAKAI GAYA INI:
+   - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
+   - Kalimat pendek dan aktif
+   - Konteks bisnis nyata
+   - Angka yang masuk akal berdasarkan konteks
+
+4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
+
+5. STRUKTUR WAJIB (Markdown):
+   ## 1. Analisis System Analyst
+   ### A. Arsitektur & Stack
+   * **Poin Bold**: 2-3 kalimat kontekstual
+   (lanjutkan dengan ## 2. Analisis Product Manager, ## 3. Rekomendasi Strategis)
+
+================================================================================
+ATURAN FORMAT JSON DRAFT (SANGAT KRITIS — BACA BAIK-BAIK)
+================================================================================
+
+### A. PERSONA (field "userPersona")
+- JANGAN PERNAH pakai nama orang fiktif (Budi, Siti, Andi, dll)
+- JANGAN PERNAH sertakan umur dalam kurung
+- Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN
+- SALAH: "Budi (32), Staf Ops: Tiap hari harus input 150+ data transaksi..."
+- BENAR: "Staf Operasional: Tiap hari input 150+ transaksi manual di Google Sheets. Pain point utama: data sering duplikat dan sheet ke-lock saat rekonsiliasi bulanan."
+
+### B. ROLE & PERMISSION MATRIX (array "roles", field "can" dan "cannot")
+- Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma
+- JANGAN pakai bullet "-", "*", "·", atau nomor
+- SALAH: "Input data transaksi, Edit data sebelum pukul 17.00"
+- SALAH: "- Input data transaksi\\n- Edit data sebelum pukul 17.00"
+- SALAH: "Input data transaksi | Edit data sebelum pukul 17.00"
+- BENAR:
+  "can": "Input data transaksi\\nEdit data sebelum pukul 17.00\\nExport laporan harian"
+  "cannot": "Hapus data permanen\\nUbah data yang sudah di-lock finance"
+
+### C. TECH STACK (field "techFrontend", "techBackend", "techDatabase", "techInfra", dll)
+- TULIS NAMA TEKNOLOGI SAJA, tanpa penjelasan, tanpa alasan, tanpa kurung
+- SALAH: "Next.js 14 (React) karena butuh SSR cepat dan gampang di-deploy ke Vercel"
+- SALAH: "Node.js dengan NestJS Framework untuk ekosistem TypeScript"
+- BENAR: "Next.js 14" atau "Next.js + Tailwind CSS"
+- BENAR: "Node.js + NestJS" atau "Express.js"
+- BENAR: "PostgreSQL"
+- BENAR: "AWS ECS + Docker + Cloudflare CDN"
+
+### D. RISK & MITIGATION (field "riskMitigation")
+- JANGAN awali dengan kata "Risiko:" karena label ini sudah ada otomatis di dokumen
+- Langsung tulis risikonya + mitigasi praktis
+- SALAH: "Risiko: Staf malas pindah dari Excel. Mitigasi: Training 30 menit."
+- BENAR: "Staf operasional resisten pindah dari Excel karena sudah terbiasa. Mitigasi: Sesi training 30 menit + sediakan tombol import CSV dari file lama."
+- BENAR: "Potensi selisih data saat migrasi. Mitigasi: Periode parallel run 2 minggu dengan validasi harian."
+
+### E. OUT OF SCOPE (field "outOfScope")
+- Pisahkan SETIAP item dengan ENTER (newline \\n)
+- JANGAN pakai bullet "-", "*", koma, atau tanda hubung
+- JANGAN sertakan penjelasan "Ditunda ke v1.1" — tulis nama itemnya saja
+- SALAH: "- Export PDF kustom\\n- Integrasi akuntansi"
+- SALAH: "Export PDF kustom, Integrasi akuntansi pihak ketiga"
+- BENAR: "Export PDF kustom\\nIntegrasi sistem akuntansi pihak ketiga\\nModul approval multi-level"
+
+### F. DEFINITION OF DONE (field "defOfDone")
+- Pisahkan SETIAP kriteria dengan ENTER (newline \\n)
+- JANGAN pakai bullet "-", "*", koma
+- SALAH: "- Kode merged ke main\\n- Unit test ≥ 80%"
+- SALAH: "Kode merged, unit test lulus, lolos QA"
+- BENAR: "Kode merged ke branch main\\nUnit test coverage minimal 80 persen\\nLolos QA di environment staging\\nDisetujui Tech Lead"
+
+### G. USER STORY (field "story" di features)
+- Variasikan format, JANGAN selalu pakai "Sebagai X, saya dapat Y, sehingga Z"
+- Contoh BAGUS: "Staf ops bisa input dan edit transaksi langsung dari tabel tanpa reload halaman"
+- Contoh BAGUS: "Admin finance bisa lock data bulanan dan export laporan ke Excel"
+
+### H. ACCEPTANCE CRITERIA (field "desc" di acModules.items)
+- Format praktis: trigger → reaksi sistem (pakai angka kalau relevan)
+- Contoh BAGUS: "User klik Simpan → data masuk DB dalam < 500ms → toast sukses muncul → tabel auto-refresh"
+- Contoh BURUK: "Pengguna menekan tombol simpan, kemudian sistem akan menyimpan data ke database"
+
+================================================================================
+TEMPLATE JSON DRAFT (WAJIB OUTPUT DI AKHIR)
+================================================================================
+
 \`\`\`json_draft
 {
   "fields": {
-    "projectName": "saran nama proyek draf jika kosong",
-    "problemStatement": "saran revisi/lengkapi",
-    "productGoal": "saran revisi/lengkapi",
-    "userPersona": "saran revisi/lengkapi",
-    "userFlow": "saran revisi/lengkapi user flow (misal: Onboarding -> Login -> ...)",
-    "techFrontend": "saran frontend stack (misal: React Native, React, Next.js)",
-    "techBackend": "saran backend stack (misal: Node.js, Go, Python)",
-    "techDatabase": "saran database stack (misal: PostgreSQL, Redis)",
-    "techInfra": "saran infrastruktur (misal: AWS, Docker, Kubernetes)",
-    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga (murni teks, TANPA koma, TANPA strip -)",
-    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga (murni teks, TANPA koma, TANPA strip -)",
-    "successMetrics": "saran revisi/lengkapi",
-    "nfrSpecs": "saran revisi/lengkapi",
-    "nfrPerformance": "saran revisi/lengkapi",
-    "riskMitigation": "saran revisi/lengkapi"
+    "projectName": "nama proyek",
+    "problemStatement": "masalah konkret dengan konteks bisnis",
+    "productGoal": "tujuan SMART terukur",
+    "userPersona": "peran + pain point + goal harian (TANPA nama/umur)",
+    "userFlow": "alur step-by-step natural",
+    "techFrontend": "nama teknologi saja",
+    "techBackend": "nama teknologi saja",
+    "techDatabase": "nama teknologi saja",
+    "techInfra": "nama teknologi saja",
+    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga",
+    "successMetrics": "KPI spesifik realistis",
+    "brandTypography": "font + alasan UX singkat",
+    "brandLayout": "prinsip layout praktis",
+    "nfrSpecs": "security stack konkret",
+    "nfrPerformance": "angka performance realistis",
+    "nfrLocalization": "scope lokalisasi",
+    "nfrBrowser": "support matrix",
+    "figmaLink": "link kalau relevan",
+    "riskMitigation": "risiko + mitigasi praktis (TANPA awalan 'Risiko:')"
   },
   "features": [
-    { "id": "F-01", "name": "Nama Fitur", "story": "User story", "priority": "High/Medium/Low" }
+    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural", "priority": "High" }
+  ],
+  "palette": [
+    { "name": "Nama", "hex": "#HEX", "usage": "konteks pemakaian" }
   ],
   "roles": [
-    { "name": "Nama Peran", "can": "Hak akses", "cannot": "Batasan" }
+    { "name": "Role", "can": "Aksi pertama\\nAksi kedua\\nAksi ketiga", "cannot": "Batasan pertama\\nBatasan kedua" }
   ],
   "acModules": [
     {
-      "title": "Nama Modul AC",
+      "title": "Modul",
       "items": [
-        { "title": "Nama AC", "desc": "Deskripsi AC/BDD Syntax" }
+        { "title": "Skenario", "desc": "trigger → reaksi sistem" }
       ]
     }
   ],
   "schemaTables": [
     {
       "name": "nama_tabel",
-      "desc": "Deskripsi tabel",
+      "desc": "fungsi tabel di konteks bisnis",
       "fields": [
-        { "field": "nama_kolom", "type": "TIPE_DATA", "required": "Ya/Opsional", "note": "catatan/PK/FK" }
+        { "field": "kolom", "type": "TIPE", "required": "Ya", "note": "catatan praktis" }
       ]
     }
   ]
@@ -245,28 +370,30 @@ Data PRD saat ini:
 ${JSON.stringify(prdSnapshot, null, 2)}`;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?key=${apiKey}&alt=sse`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 8192,
+                topP: 0.95,
+              }
             })
           }
         );
 
         if (!response.ok) {
-          const errJson = await response.json();
+          const errJson = await response.json().catch(function () { return {}; });
           const errMsg = errJson.error?.message || '';
-
-          // Deteksi error Quota Exceeded / Rate Limit (HTTP 429)
           if (response.status === 429 || errJson.error?.code === 429) {
             if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
-              throw new Error('Kuota harian (Free Tier) Gemini API telah habis. Buat API Key baru di Google AI Studio atau tunggu reset kuota harian.');
+              throw new Error('Kuota harian (Free Tier) Gemini API telah habis.');
             }
-            throw new Error('Batas penggunaan AI sedang penuh. Silakan tunggu 30 detik lalu coba lagi.');
+            throw new Error('Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.');
           }
-
           throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
         }
 
@@ -291,35 +418,21 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
 
-                const cleanDisplay = fullTextAccumulator
-                  .replace(/```json_draft[\s\S]*?$/, '')
-                  .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
-                  .replace(/\$([^$]+)\$/g, '$1')
-                  .trim();
-
+                const cleanDisplay = cleanLatex(
+                  fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
+                );
                 set({ aiFeedback: cleanDisplay });
-              } catch (e) {
-                // Ignore incomplete JSON chunks
-              }
+              } catch (e) {}
             }
           }
         }
 
-        let extractedDraft = null;
-        const match = fullTextAccumulator.match(/```json_draft\s*([\s\S]*?)\s*```/);
-        if (match && match[1]) {
-          try {
-            extractedDraft = JSON.parse(match[1]);
-          } catch (e) {
-            console.warn('Gagal parse JSON draft dari AI:', e);
-          }
-        }
+        const extractedDraft = extractAiDraft(fullTextAccumulator);
+        console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
 
-        const finalCleanFeedback = fullTextAccumulator
-          .replace(/```json_draft[\s\S]*?```/, '')
-          .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
-          .replace(/\$([^$]+)\$/g, '$1')
-          .trim();
+        const finalCleanFeedback = cleanLatex(
+          fullTextAccumulator.replace(/`{3,}\s*json_draft[\s\S]*?`{3,}/gi, '')
+        );
 
         set({
           aiFeedback: finalCleanFeedback,
@@ -334,6 +447,11 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       }
     },
 
+    // ============================================================
+    // ACTION APPLY DRAFT
+    // Otomatis mengaktifkan modul enterprise di Simple Mode
+    // jika draft AI memberikan data untuk modul tersebut.
+    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -341,79 +459,109 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
 
       set(function (s) {
         const updateState = {};
+        const newSimpleExtras = { ...s.simpleExtras };
 
         if (draft.fields && typeof draft.fields === 'object') {
           updateState.fields = { ...s.fields };
           Object.keys(draft.fields).forEach((key) => {
-            if (draft.fields[key]) {
-              let val = draft.fields[key];
-
-              // Pembersihan khusus untuk multiline fields
-              if (typeof val === 'string') {
-                val = sanitizeMultiline(val);
+            const rawVal = draft.fields[key];
+            if (rawVal && typeof rawVal === 'string' && rawVal.trim()) {
+              const val = sanitizeMultiline(cleanLatex(rawVal));
+              if (val.trim()) {
+                updateState.fields[key] = val;
               }
-
-              updateState.fields[key] = val;
             }
           });
+
+          const personaKeys = ['userPersona', 'successMetrics'];
+          if (personaKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.persona = true;
+          }
+
+          const brandingKeys = ['brandTypography', 'brandLayout'];
+          if (brandingKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.branding = true;
+          }
+
+          const nfrKeys = ['nfrSpecs', 'nfrPerformance', 'nfrLocalization', 'nfrBrowser', 'figmaLink', 'riskMitigation'];
+          if (nfrKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.nfr = true;
+          }
         }
 
         if (Array.isArray(draft.features) && draft.features.length > 0) {
-          updateState.features = draft.features.map(function(f, idx) {
+          updateState.features = draft.features.map(function (f, idx) {
             return {
               id: f.id || 'F-0' + (idx + 1),
-              name: sanitizeMultiline(f.name || ''),
-              story: sanitizeMultiline(f.story || ''),
+              name: sanitizeMultiline(cleanLatex(f.name || '')),
+              story: sanitizeMultiline(cleanLatex(f.story || '')),
               priority: f.priority || 'High'
             };
           });
         }
 
-        if (Array.isArray(draft.roles) && draft.roles.length > 0) {
-          updateState.roles = draft.roles.map(function(r) {
+        if (Array.isArray(draft.palette) && draft.palette.length > 0) {
+          updateState.palette = draft.palette.map(function (p) {
             return {
-              name: sanitizeMultiline(r.name || ''),
-              can: sanitizeMultiline(r.can || ''),
-              cannot: sanitizeMultiline(r.cannot || '')
+              name: sanitizeMultiline(cleanLatex(p.name || '')),
+              hex: p.hex || '#C9A961',
+              usage: sanitizeMultiline(cleanLatex(p.usage || ''))
             };
           });
+          newSimpleExtras.branding = true;
+        }
+
+        if (Array.isArray(draft.roles) && draft.roles.length > 0) {
+          updateState.roles = draft.roles.map(function (r) {
+            return {
+              name: sanitizeMultiline(cleanLatex(r.name || '')),
+              can: sanitizeMultiline(cleanLatex(r.can || '')),
+              cannot: sanitizeMultiline(cleanLatex(r.cannot || ''))
+            };
+          });
+          newSimpleExtras.roles = true;
         }
 
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
-          updateState.acModules = draft.acModules.map(function(m) {
+          updateState.acModules = draft.acModules.map(function (m) {
             return {
-              title: sanitizeMultiline(m.title || ''),
-              items: Array.isArray(m.items) ? m.items.map(function(it) {
+              title: sanitizeMultiline(cleanLatex(m.title || '')),
+              items: Array.isArray(m.items) ? m.items.map(function (it) {
                 return {
-                  title: sanitizeMultiline(it.title || ''),
-                  desc: sanitizeMultiline(it.desc || '')
+                  title: sanitizeMultiline(cleanLatex(it.title || '')),
+                  desc: sanitizeMultiline(cleanLatex(it.desc || ''))
                 };
               }) : []
             };
           });
+          newSimpleExtras.ac = true;
         }
 
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
-          updateState.schemaTables = draft.schemaTables.map(function(t) {
+          updateState.schemaTables = draft.schemaTables.map(function (t) {
             return {
-              name: sanitizeMultiline(t.name || ''),
-              desc: sanitizeMultiline(t.desc || ''),
-              fields: Array.isArray(t.fields) ? t.fields.map(function(fi) {
+              name: sanitizeMultiline(cleanLatex(t.name || '')),
+              desc: sanitizeMultiline(cleanLatex(t.desc || '')),
+              fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
                 return {
-                  field: sanitizeMultiline(fi.field || ''),
-                  type: sanitizeMultiline(fi.type || ''),
+                  field: sanitizeMultiline(cleanLatex(fi.field || '')),
+                  type: sanitizeMultiline(cleanLatex(fi.type || '')),
                   required: fi.required || 'Ya',
-                  note: sanitizeMultiline(fi.note || '')
+                  note: sanitizeMultiline(cleanLatex(fi.note || ''))
                 };
               }) : []
             };
           });
+          newSimpleExtras.schema = true;
         }
+
+        updateState.simpleExtras = newSimpleExtras;
 
         return { ...updateState, aiDraft: null };
       });
 
       get().commitHistory();
+      console.log('[AI Draft] Apply selesai, modul enterprise terkait telah diaktifkan di Simple Mode.');
       return true;
     },
 
@@ -427,74 +575,74 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           fields: {
             projectName: 'Instagram', docVersion: 'v2.0 Final Draft', author: 'Tim Product Instagram',
             targetDate: '2026-12-15', targetDateFormat: 'full',
-            problemStatement: 'Pengguna membutuhkan platform untuk berbagi momen berupa foto dan video secara cepat, serta berinteraksi dengan komunitas melalui like, komentar, dan pesan langsung.',
-            productGoal: 'Membangun platform media sosial berbagi foto dan video dengan feed personal, stories 24 jam, dan sistem interaksi real-time.',
-            userFlow: 'Onboarding -> Login -> Home Feed -> Upload Post -> Edit & Filter -> Publish -> Like/Komentar -> Profile',
-            techFrontend: 'React Native, React, Redux Toolkit',
-            techBackend: 'Node.js, GraphQL, Django REST',
-            techDatabase: 'PostgreSQL, Redis, Cassandra',
-            techInfra: 'AWS (EC2, S3, CloudFront), Docker, Kubernetes',
-            techDomain: 'Route 53, Cloudflare DNS',
+            problemStatement: 'Pengguna butuh platform buat share foto & video cepet, plus interaksi lewat like, komentar, dan DM.',
+            productGoal: 'Platform social media foto/video dengan feed personal, stories 24 jam, dan interaksi real-time.',
+            userFlow: 'Onboarding → Login → Home Feed → Upload Post → Edit & Filter → Publish → Like/Komentar → Profile',
+            techFrontend: 'React Native + Redux Toolkit',
+            techBackend: 'Node.js + GraphQL',
+            techDatabase: 'PostgreSQL + Redis + Cassandra',
+            techInfra: 'AWS EC2 + S3 + CloudFront + Kubernetes',
+            techDomain: 'Route 53 + Cloudflare DNS',
             techVcs: 'GitHub',
-            techSecurity: 'OAuth 2.0, JWT + refresh token, bcrypt, 2FA',
+            techSecurity: 'OAuth 2.0 + JWT + bcrypt + 2FA',
             techStorage: 'AWS S3 + CloudFront CDN',
-            techThirdParty: 'Firebase Cloud Messaging, FFmpeg, Google Maps',
-            techDevOps: 'GitHub Actions CI/CD, Sentry',
-            techCaching: 'Redis, Memcached',
-            techQueue: 'Kafka, RabbitMQ',
-            techMonitoring: 'Sentry, Grafana, Prometheus',
-            techAnalytics: 'Amplitude, Google Analytics',
-            techTesting: 'Jest, Detox, Playwright',
+            techThirdParty: 'Firebase Cloud Messaging + FFmpeg + Google Maps',
+            techDevOps: 'GitHub Actions CI/CD + Sentry',
+            techCaching: 'Redis + Memcached',
+            techQueue: 'Kafka',
+            techMonitoring: 'Sentry + Grafana + Prometheus',
+            techAnalytics: 'Amplitude + Google Analytics',
+            techTesting: 'Jest + Detox + Playwright',
             dbSchema: 'users: id, username, email, password_hash, bio, profile_pic_url\nposts: id, user_id, media_url, caption, likes_count\ncomments: id, post_id, user_id, text\nfollows: follower_id, followee_id\nstories: id, user_id, media_url, expires_at',
             outOfScope: 'Live streaming\nVideo call\nMarketplace / jual beli',
-            defOfDone: 'Semua AC terpenuhi\nTidak ada bug critical\nFeed load < 2 detik\nUpload media sukses 99%',
-            userPersona: 'Gen Z & milenial 15-34 tahun, content creator, brand & bisnis',
-            successMetrics: 'DAU/MAU >= 0.6, Retention D30 >= 40%, avg session >= 15 menit',
-            brandTypography: 'System font (SF Pro / Roboto), Billabong untuk logo',
-            brandLayout: 'Mobile-first, grid gallery 3 kolom, infinite scroll',
-            bpMobileOp: '\u2264', bpMobile: '640', bpMobileUnit: 'px',
-            bpTabletOp: '\u2264', bpTablet: '1024', bpTabletUnit: 'px',
-            bpDesktopOp: '\u2265', bpDesktop: '1024', bpDesktopUnit: 'px',
-            nfrSpecs: 'HTTPS/TLS 1.3, OAuth 2.0, rate limiting, enkripsi at-rest',
-            nfrPerformance: 'FCP < 1.2s, feed load < 2s, kompresi media otomatis',
-            nfrLocalization: 'Multi-bahasa (30+), format waktu & tanggal lokal',
-            nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge',
-            figmaLink: '[https://figma.com/file/instagram-clone](https://figma.com/file/instagram-clone)',
-            riskMitigation: 'Risiko konten ilegal & cyberbullying. Mitigasi: AI moderation, report & block, rate limiting.',
+            defOfDone: 'Semua AC lulus\nZero critical bug\nFeed load < 2 detik\nUpload success rate 99%',
+            userPersona: 'Gen Z 15-24 tahun (content creator kasual), milenial 25-34 (brand/bisnis kecil)',
+            successMetrics: 'DAU/MAU ratio ≥ 0.6, D30 retention ≥ 40%, avg session ≥ 15 menit',
+            brandTypography: 'System font (SF Pro iOS / Roboto Android), Billabong untuk logo saja',
+            brandLayout: 'Mobile-first, grid 3 kolom, infinite scroll, thumb-friendly navigation',
+            bpMobileOp: '≤', bpMobile: '640', bpMobileUnit: 'px',
+            bpTabletOp: '≤', bpTablet: '1024', bpTabletUnit: 'px',
+            bpDesktopOp: '≥', bpDesktop: '1024', bpDesktopUnit: 'px',
+            nfrSpecs: 'HTTPS/TLS 1.3 everywhere, OAuth 2.0, rate limit per IP, enkripsi at-rest (AES-256)',
+            nfrPerformance: 'FCP < 1.2s, feed load < 2s, image auto-compress WebP/AVIF',
+            nfrLocalization: '30+ bahasa, format waktu & tanggal lokal, RTL support',
+            nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
+            figmaLink: 'https://figma.com/file/instagram-clone',
+            riskMitigation: 'Konten ilegal & cyberbullying → AI moderation + report flow + rate limit upload',
           },
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
-            { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol primer & link' },
+            { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol utama & link aktif' },
             { name: 'Gradient Purple', hex: '#833AB4', usage: 'Gradient logo & stories ring' },
             { name: 'Gradient Pink', hex: '#E1306C', usage: 'Gradient logo & stories ring' },
-            { name: 'Gradient Orange', hex: '#F77737', usage: 'Gradient logo & accent' },
+            { name: 'Gradient Orange', hex: '#F77737', usage: 'Gradient accent' },
             { name: 'Neutral White', hex: '#FFFFFF', usage: 'Background utama' },
-            { name: 'Text Black', hex: '#262626', usage: 'Teks utama' },
+            { name: 'Text Black', hex: '#262626', usage: 'Teks body & heading' },
           ],
           roles: [
-            { name: 'User Reguler', can: 'Buat post & story\nLike, komentar, share, save\nFollow/unfollow\nDirect message', cannot: 'Hapus konten orang lain\nAkses insight analitik' },
-            { name: 'Content Creator (Pro)', can: 'Semua hak user reguler\nAkses insight & analitik\nMonetisasi & link di story', cannot: 'Hapus konten orang lain' },
-            { name: 'Admin / Moderator', can: 'Hapus konten melanggar\nSuspend/ban akun\nKelola laporan pengguna', cannot: 'Edit post milik pengguna' },
+            { name: 'User Reguler', can: 'Post & story\nLike, komentar, share, save\nFollow/unfollow\nDM', cannot: 'Hapus konten orang lain\nAkses insight' },
+            { name: 'Creator (Pro)', can: 'Semua hak user reguler\nInsight & analytics\nMonetisasi link story', cannot: 'Hapus konten orang lain' },
+            { name: 'Admin/Moderator', can: 'Hapus konten violating\nSuspend/ban akun\nHandle report queue', cannot: 'Edit post user' },
           ],
           schemaTables: [
-            { name: 'users', desc: 'Akun pengguna', fields: [
+            { name: 'users', desc: 'Akun pengguna + profil publik', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
-              { field: 'username', type: 'VARCHAR', required: 'Ya', note: 'unik, max 30' },
-              { field: 'email', type: 'VARCHAR', required: 'Ya', note: 'unik' },
-              { field: 'password_hash', type: 'VARCHAR', required: 'Ya', note: 'bcrypt' },
+              { field: 'username', type: 'VARCHAR', required: 'Ya', note: 'unik, max 30 char' },
+              { field: 'email', type: 'VARCHAR', required: 'Ya', note: 'unik, verified' },
+              { field: 'password_hash', type: 'VARCHAR', required: 'Ya', note: 'bcrypt 12 rounds' },
               { field: 'bio', type: 'TEXT', required: 'Opsional', note: 'max 150 karakter' },
               { field: 'profile_pic_url', type: 'VARCHAR', required: 'Opsional', note: 'URL S3' },
             ] },
-            { name: 'posts', desc: 'Post foto/video di feed', fields: [
+            { name: 'posts', desc: 'Post foto/video di feed utama', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
               { field: 'user_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
               { field: 'media_url', type: 'VARCHAR', required: 'Ya', note: 'URL S3/CDN' },
-              { field: 'caption', type: 'TEXT', required: 'Opsional', note: 'dengan hashtag' },
-              { field: 'likes_count', type: 'INT / INTEGER', required: 'Ya', note: 'default 0' },
-              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'untuk urutan feed' },
+              { field: 'caption', type: 'TEXT', required: 'Opsional', note: 'support hashtag & mention' },
+              { field: 'likes_count', type: 'INT', required: 'Ya', note: 'counter, default 0' },
+              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'index untuk feed ordering' },
             ] },
-            { name: 'comments', desc: 'Komentar pada post', fields: [
+            { name: 'comments', desc: 'Komentar di post', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
               { field: 'post_id', type: 'BIGINT', required: 'Ya', note: 'FK ke posts' },
               { field: 'user_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
@@ -503,37 +651,37 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             { name: 'follows', desc: 'Relasi follow antar user', fields: [
               { field: 'follower_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
               { field: 'followee_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
-              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'PK komposit' },
+              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'composite PK' },
             ] },
           ],
           acModules: [
-            { title: 'Autentikasi & Onboarding', items: [
-              { title: 'Registrasi', desc: 'Daftar dengan email/username unik, password minimal 8 karakter, verifikasi email' },
-              { title: 'Login Aman', desc: 'Login dengan JWT + refresh token, dukungan 2FA dan logout semua perangkat' },
+            { title: 'Auth & Onboarding', items: [
+              { title: 'Register', desc: 'User submit email + username unik + password ≥ 8 char → email verifikasi terkirim < 5 detik' },
+              { title: 'Login', desc: 'Kredensial valid → mint JWT + refresh token, redirect ke home feed' },
             ] },
             { title: 'Feed & Post', items: [
-              { title: 'Home Feed', desc: 'Infinite scroll post dari akun yang diikuti dengan pull-to-refresh' },
-              { title: 'Upload Post', desc: 'Upload foto/video, crop, filter, caption + hashtag, lalu publish' },
-              { title: 'Like & Komentar', desc: 'Double-tap untuk like dengan animasi hati, komentar real-time dengan mention' },
+              { title: 'Home Feed', desc: 'Pull-to-refresh load post terbaru dari following, infinite scroll batch 20 post' },
+              { title: 'Upload Post', desc: 'Pilih foto/video → crop/filter → caption + hashtag → publish → muncul di feed follower dalam < 3 detik' },
+              { title: 'Like', desc: 'Double-tap post → animasi hati, counter increment, notifikasi ke owner' },
             ] },
             { title: 'Stories', items: [
-              { title: 'Buat Story', desc: 'Story foto/video 15 detik dengan stiker & teks, otomatis hilang setelah 24 jam' },
-              { title: 'Stories Ring', desc: 'Ring gradient pada avatar untuk story yang belum dilihat, abu-abu setelah dilihat' },
+              { title: 'Buat Story', desc: 'Capture foto/video ≤ 15 detik → tambah stiker/teks → publish → ring gradient muncul di avatar follower' },
+              { title: 'View Story', desc: 'Tap avatar → putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
             ] },
             { title: 'Profile & Follow', items: [
-              { title: 'Profile Grid', desc: 'Grid 3 kolom, tab Posts/Saved/Tagged, edit profile dan ganti foto' },
-              { title: 'Follow System', desc: 'Follow/unfollow dengan update count follower & following secara real-time' },
+              { title: 'Profile Grid', desc: 'Tab Posts/Saved/Tagged render grid 3 kolom, scroll infinite' },
+              { title: 'Follow/Unfollow', desc: 'Tap tombol → counter update real-time, feed algorithm adjust' },
             ] },
           ],
           features: [
-            { id: 'F-01', name: 'Autentikasi', story: 'Registrasi, login, logout dengan JWT dan 2FA', priority: 'High' },
-            { id: 'F-02', name: 'Upload Post', story: 'Upload foto/video dengan filter, crop, dan caption', priority: 'High' },
-            { id: 'F-03', name: 'Home Feed', story: 'Infinite scroll post dari akun yang diikuti', priority: 'High' },
-            { id: 'F-04', name: 'Interaksi Sosial', story: 'Like, komentar, share, dan save post', priority: 'High' },
-            { id: 'F-05', name: 'Stories', story: 'Story 24 jam dengan ring gradient dan stiker', priority: 'Medium' },
-            { id: 'F-06', name: 'Direct Message', story: 'Chat pribadi dengan kirim teks, foto, dan reaksi', priority: 'Medium' },
-            { id: 'F-07', name: 'Explore & Search', story: 'Rekomendasi konten berdasarkan minat dan tren', priority: 'Medium' },
-            { id: 'F-08', name: 'Notifikasi Push', story: 'Notifikasi like, komentar, follow via FCM', priority: 'Low' },
+            { id: 'F-01', name: 'Auth', story: 'User bisa login/logout pakai email + 2FA opsional, session persist 30 hari', priority: 'High' },
+            { id: 'F-02', name: 'Upload Post', story: 'User bisa upload foto/video dengan filter, crop, caption + hashtag', priority: 'High' },
+            { id: 'F-03', name: 'Home Feed', story: 'User lihat post terbaru dari following, infinite scroll, pull-to-refresh', priority: 'High' },
+            { id: 'F-04', name: 'Interaksi', story: 'User bisa like, komentar, share, save post. Counter real-time.', priority: 'High' },
+            { id: 'F-05', name: 'Stories', story: 'User bisa post story 24 jam dengan ring gradient, auto-expire', priority: 'Medium' },
+            { id: 'F-06', name: 'DM', story: 'User bisa chat privat (teks + foto + reaksi) dengan follower mutual', priority: 'Medium' },
+            { id: 'F-07', name: 'Explore', story: 'User dapat rekomendasi konten berdasarkan minat & trending', priority: 'Medium' },
+            { id: 'F-08', name: 'Push Notification', story: 'User dapat notifikasi like, komentar, follow via FCM', priority: 'Low' },
           ],
         };
       });
