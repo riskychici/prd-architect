@@ -191,9 +191,11 @@ export const usePrdStore = create(function (set, get) {
     },
 
     // ============================================================
-    // ACTION ANALISIS AI (Prompt lebih ringkas, output seimbang)
+    // ACTION ANALISIS AI
+    // Menerima parameter userBrief: deskripsi aplikasi dari user
+    // saat form PRD masih kosong.
     // ============================================================
-    analyzeWithAi: async function () {
+    analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
@@ -202,6 +204,33 @@ export const usePrdStore = create(function (set, get) {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
+        }
+
+        const brief = (userBrief || '').trim();
+        const isPrdEmpty =
+          !(prdSnapshot.fields.projectName || '').trim() &&
+          !(prdSnapshot.fields.problemStatement || '').trim() &&
+          !(prdSnapshot.fields.productGoal || '').trim() &&
+          (prdSnapshot.features || []).length === 0;
+
+        let contextBlock;
+        if (brief && isPrdEmpty) {
+          contextBlock = `DESKRIPSI APLIKASI YANG INGIN DIBUAT USER (ACUAN UTAMA):
+"${brief}"
+
+INSTRUKSI KHUSUS: Dokumen PRD saat ini masih KOSONG. Jangan mengeluh soal dokumen kosong. Gunakan deskripsi user di atas sebagai acuan utama. Bayangkan produknya secara konkret (target user, masalah nyata, fitur inti, alur penggunaan, dan stack yang masuk akal untuk skala tersebut), lalu susun analisis dan isi SELURUH field json_draft dari nol seolah kamu sedang merancang PRD untuk aplikasi tersebut. Termasuk projectName yang cocok.
+
+Data PRD saat ini (masih kosong):
+${JSON.stringify(prdSnapshot, null, 2)}`;
+        } else if (brief) {
+          contextBlock = `CATATAN TAMBAHAN DARI USER TENTANG APLIKASI:
+"${brief}"
+
+Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
+        } else {
+          contextBlock = `Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
         }
 
         const prompt = `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
@@ -215,7 +244,7 @@ ATURAN PANJANG OUTPUT (SANGAT PENTING)
 - Setiap poin analisis MAKSIMAL 2-3 kalimat saja
 - JANGAN bertele-tele, JANGAN mengulang poin yang sama dengan kata berbeda
 - Fokus ke insight actionable, bukan penjelasan teori
-- Jika field PRD kosong, cukup sebutkan 1 kali dan berikan saran konkret
+- Jika field PRD kosong dan tidak ada deskripsi user, cukup sebutkan 1 kali dan berikan saran konkret
 
 ================================================================================
 ATURAN GAYA BAHASA
@@ -354,8 +383,7 @@ ATURAN FORMAT KHUSUS:
 }
 \`\`\`
 
-Data PRD saat ini:
-${JSON.stringify(prdSnapshot, null, 2)}`;
+${contextBlock}`;
 
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
@@ -435,6 +463,10 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       }
     },
 
+    // ============================================================
+    // ACTION APPLY DRAFT
+    // Otomatis mengaktifkan modul enterprise di Simple Mode
+    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;

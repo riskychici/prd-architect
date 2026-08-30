@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner, faTrash, faRobot, faArrowDown } from '@fortawesome/free-solid-svg-icons';
+import { faWandMagicSparkles, faSpinner, faTrash, faRobot, faArrowDown, faCircleQuestion, faLightbulb } from '@fortawesome/free-solid-svg-icons';
 import ReactMarkdown from 'react-markdown';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
@@ -22,6 +22,13 @@ import OutOfScope from './sections/OutOfScope';
 
 const CHARS_PER_MS = 0.2;
 
+const BRIEF_EXAMPLES = [
+  'Aplikasi kasir untuk warung kopi',
+  'Sistem inventaris gudang UMKM',
+  'Aplikasi booking barbershop',
+  'Dashboard monitoring penjualan online shop',
+];
+
 function AiAnalysisCard() {
   const analyzeWithAi = usePrdStore((s) => s.analyzeWithAi);
   const applyAiDraft = usePrdStore((s) => s.applyAiDraft);
@@ -30,9 +37,19 @@ function AiAnalysisCard() {
   const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
   const aiError = usePrdStore((s) => s.aiError);
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
+
+  const isPrdEmpty = usePrdStore((s) => {
+    const f = s.fields;
+    return !(f.projectName || '').trim() &&
+      !(f.problemStatement || '').trim() &&
+      !(f.productGoal || '').trim() &&
+      s.features.length === 0;
+  });
+
   const showToast = useToast();
 
   const feedbackBoxRef = useRef(null);
+  const briefRef = useRef(null);
   const typewriterStartRef = useRef(null);
   const userScrolledUpRef = useRef(false);
   const rafScrollRef = useRef(null);
@@ -40,6 +57,7 @@ function AiAnalysisCard() {
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingFinished, setIsTypingFinished] = useState(true);
   const [showJumpButton, setShowJumpButton] = useState(false);
+  const [briefText, setBriefText] = useState('');
 
   // ============================================================
   // TYPEWRITER ENGINE (timestamp-based, tetap jalan di background)
@@ -150,13 +168,21 @@ function AiAnalysisCard() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  // ============================================================
+  // ANALISIS: jika PRD kosong dan deskripsi kosong, arahkan ke brief
+  // ============================================================
   const handleAnalyze = async () => {
+    if (isPrdEmpty && !briefText.trim()) {
+      showToast('Ceritakan dulu aplikasi yang ingin kamu buat', 'info');
+      if (briefRef.current) briefRef.current.focus();
+      return;
+    }
     try {
       setDisplayedText('');
       userScrolledUpRef.current = false;
       setShowJumpButton(false);
       typewriterStartRef.current = null;
-      await analyzeWithAi();
+      await analyzeWithAi(briefText.trim() || null);
       showToast('Analisis AI selesai!', 'success');
     } catch (err) {
       showToast(err.message || 'Gagal menganalisis PRD', 'error');
@@ -166,7 +192,7 @@ function AiAnalysisCard() {
   const handleApplyDraft = () => {
     const ok = applyAiDraft();
     if (ok) {
-      showToast('Saran AI diterapkan', 'success');
+      showToast('Saran AI diterapkan ✓', 'success');
     } else {
       showToast('Tidak ada draf AI', 'info');
     }
@@ -178,11 +204,7 @@ function AiAnalysisCard() {
   return (
     <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
 
-      {/* ============================================================
-          HEADER CARD
-          Mobile: stack vertikal (judul di atas, tombol di bawah full-width)
-          Desktop (md+): horizontal seperti semula
-      ============================================================ */}
+      {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
         <div className="flex items-start space-x-2.5 min-w-0">
           <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base mt-1 shrink-0" />
@@ -190,7 +212,7 @@ function AiAnalysisCard() {
             <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
               <span>Analisis PRD Berbasis AI</span>
               <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
-                Gemini AI
+                Gemini Flash Lite
               </span>
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
@@ -216,6 +238,44 @@ function AiAnalysisCard() {
         </button>
       </div>
 
+      {/* EMPTY STATE: muncul otomatis saat PRD masih kosong */}
+      {isPrdEmpty && (
+        <div className="space-y-2.5 pt-3 border-t border-purple-900/40">
+          <div className="flex items-start gap-2">
+            <FontAwesomeIcon icon={faCircleQuestion} className="text-amber-300 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-purple-200">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
+            </div>
+          </div>
+          <textarea
+            ref={briefRef}
+            value={briefText}
+            onChange={function (e) { setBriefText(e.target.value); }}
+            rows="3"
+            placeholder="Contoh: Aplikasi kasir untuk warung kopi dengan laporan penjualan harian dan manajemen stok bahan baku..."
+            className="w-full bg-slate-950/80 border border-purple-700/50 rounded-lg p-3 text-xs text-slate-100 focus:border-purple-500 focus:outline-none resize-none"
+          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
+              <FontAwesomeIcon icon={faLightbulb} className="text-amber-400" />
+              Contoh:
+            </span>
+            {BRIEF_EXAMPLES.map(function (ex) {
+              return (
+                <button
+                  key={ex}
+                  onClick={function () { setBriefText(ex); }}
+                  className="text-[10px] px-2 py-1 rounded-full border border-purple-700/50 text-purple-300 hover:bg-purple-600/20 transition cursor-pointer"
+                >
+                  {ex}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {aiError && (
         <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-300">
           ⚠️ {aiError}
@@ -225,11 +285,7 @@ function AiAnalysisCard() {
       {(displayedText || isAnalyzing) && (
         <div className="space-y-3 pt-1 border-t border-purple-900/40">
 
-          {/* ============================================================
-              BARIS AKSI
-              Mobile: stack vertikal, tombol sejajar membungkus rapi
-              Desktop (sm+): horizontal kiri-kanan
-          ============================================================ */}
+          {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
             <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
               Hasil Rekomendasi AI:
@@ -270,7 +326,6 @@ function AiAnalysisCard() {
             </div>
           </div>
 
-          {/* Container dengan posisi relative untuk tombol jump */}
           <div className="relative">
             <div
               ref={feedbackBoxRef}
@@ -315,7 +370,6 @@ function AiAnalysisCard() {
               )}
             </div>
 
-            {/* Tombol "Ikuti AI" muncul saat user scroll ke atas */}
             {showJumpButton && !isTypingFinished && (
               <button
                 onClick={jumpToBottom}
