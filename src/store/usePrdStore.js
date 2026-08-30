@@ -58,26 +58,19 @@ function extractAiDraft(fullText) {
 
   let match = fullText.match(/```json_draft\s*\n?([\s\S]*?)\n?\s*```/);
   if (match && match[1]) {
-    try {
-      return JSON.parse(match[1].trim());
-    } catch (e) { console.warn('[AI Draft] Strategi 1 gagal:', e.message); }
+    try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
 
   match = fullText.match(/`{3,}\s*json_draft\s*([\s\S]*?)\s*`{3,}/i);
   if (match && match[1]) {
-    try {
-      return JSON.parse(match[1].trim());
-    } catch (e) { console.warn('[AI Draft] Strategi 2 gagal:', e.message); }
+    try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
 
   const jsonMatch = fullText.match(/\{[\s\S]*?"fields"\s*:\s*\{[\s\S]*?\}\s*\}/);
   if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch (e) { console.warn('[AI Draft] Strategi 3 gagal:', e.message); }
+    try { return JSON.parse(jsonMatch[0]); } catch (e) {}
   }
 
-  console.warn('[AI Draft] Semua strategi parsing gagal.');
   return null;
 }
 
@@ -198,7 +191,7 @@ export const usePrdStore = create(function (set, get) {
     },
 
     // ============================================================
-    // ACTION ANALISIS AI — Model: gemini-3.5-flash-lite
+    // ACTION ANALISIS AI (Prompt lebih ringkas, output seimbang)
     // ============================================================
     analyzeWithAi: async function () {
       const state = get();
@@ -211,107 +204,101 @@ export const usePrdStore = create(function (set, get) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
 
-        const prompt = `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level). Kamu sedang menulis PRD untuk dibaca oleh tim engineer, designer, dan stakeholder bisnis.
+        const prompt = `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
 
-Tugasmu: audit PRD berikut, lalu berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, bukan seperti template AI.
+Tugasmu: audit PRD berikut dan berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, PADAT, dan BERISI.
 
 ================================================================================
-ATURAN GAYA BAHASA (WAJIB DIPATUHI)
+ATURAN PANJANG OUTPUT (SANGAT PENTING)
 ================================================================================
+- Total output analisis MAKSIMAL 1200 kata (tidak termasuk json_draft)
+- Setiap poin analisis MAKSIMAL 2-3 kalimat saja
+- JANGAN bertele-tele, JANGAN mengulang poin yang sama dengan kata berbeda
+- Fokus ke insight actionable, bukan penjelasan teori
+- Jika field PRD kosong, cukup sebutkan 1 kali dan berikan saran konkret
 
-1. TULIS SEPERTI MANUSIA. Bayangkan kamu sedang menjelaskan ke tech lead di whiteboard: to the point, kontekstual, pakai istilah industri yang natural.
+================================================================================
+ATURAN GAYA BAHASA
+================================================================================
+1. TULIS SEPERTI MANUSIA. To the point, kontekstual, pakai istilah industri yang natural.
 
-2. DAFTAR KATA YANG DILARANG (jangan pakai kata/frasa klise AI ini):
+2. DAFTAR KATA YANG DILARANG (klise AI):
    - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
    - "secara manual dan terfragmentasi"
    - "kredensial yang valid"
-   - "melakukan manipulasi", "melakukan proses", "melakukan kegiatan"
+   - "melakukan manipulasi", "melakukan proses"
    - "platform digital terpusat"
    - "efisiensi waktu dan akurasi"
    - "secara tepat", "secara mudah", "secara real-time"
    - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
-   - "guna", "adapun", "selanjutnya", "berkenaan dengan"
-   - Angka generik klise: "40 persen", "85 persen", "30 persen" (pakai angka spesifik)
+   - "guna", "adapun", "selanjutnya"
 
-3. SEBALIKNYA, PAKAI GAYA INI:
+3. PAKAI GAYA INI:
    - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
    - Kalimat pendek dan aktif
-   - Konteks bisnis nyata
-   - Angka yang masuk akal berdasarkan konteks
+   - Konteks bisnis nyata dengan contoh spesifik
+   - Berikan reasoning "kenapa" di balik setiap rekomendasi
 
 4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
 
-5. STRUKTUR WAJIB (Markdown):
-   ## 1. Analisis System Analyst
-   ### A. Arsitektur & Stack
-   * **Poin Bold**: 2-3 kalimat kontekstual
-   (lanjutkan dengan ## 2. Analisis Product Manager, ## 3. Rekomendasi Strategis)
-
 ================================================================================
-ATURAN FORMAT JSON DRAFT (SANGAT KRITIS — BACA BAIK-BAIK)
+STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
 ================================================================================
 
-### A. PERSONA (field "userPersona")
-- JANGAN PERNAH pakai nama orang fiktif (Budi, Siti, Andi, dll)
-- JANGAN PERNAH sertakan umur dalam kurung
-- Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN
-- SALAH: "Budi (32), Staf Ops: Tiap hari harus input 150+ data transaksi..."
-- BENAR: "Staf Operasional: Tiap hari input 150+ transaksi manual di Google Sheets. Pain point utama: data sering duplikat dan sheet ke-lock saat rekonsiliasi bulanan."
+## 1. Analisis System Analyst
 
-### B. ROLE & PERMISSION MATRIX (array "roles", field "can" dan "cannot")
-- Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma
-- JANGAN pakai bullet "-", "*", "·", atau nomor
-- SALAH: "Input data transaksi, Edit data sebelum pukul 17.00"
-- SALAH: "- Input data transaksi\\n- Edit data sebelum pukul 17.00"
-- SALAH: "Input data transaksi | Edit data sebelum pukul 17.00"
-- BENAR:
-  "can": "Input data transaksi\\nEdit data sebelum pukul 17.00\\nExport laporan harian"
-  "cannot": "Hapus data permanen\\nUbah data yang sudah di-lock finance"
+### A. Arsitektur & Stack Teknologi
+* **Status Kelengkapan & Kesiapan**: Audit singkat kelengkapan PRD dan gap kritis yang harus diisi sebelum sprint planning.
+* **Rekomendasi Frontend & Backend**: Stack yang paling cocok untuk use case ini, plus alasan teknis singkat (SSR vs CSR, monolith vs microservices, REST vs GraphQL).
 
-### C. TECH STACK (field "techFrontend", "techBackend", "techDatabase", "techInfra", dll)
-- TULIS NAMA TEKNOLOGI SAJA, tanpa penjelasan, tanpa alasan, tanpa kurung
-- SALAH: "Next.js 14 (React) karena butuh SSR cepat dan gampang di-deploy ke Vercel"
-- SALAH: "Node.js dengan NestJS Framework untuk ekosistem TypeScript"
-- BENAR: "Next.js 14" atau "Next.js + Tailwind CSS"
-- BENAR: "Node.js + NestJS" atau "Express.js"
-- BENAR: "PostgreSQL"
-- BENAR: "AWS ECS + Docker + Cloudflare CDN"
+### B. Basis Data & Infrastruktur
+* **Skema & Integritas Data**: Evaluasi struktur tabel, indexing, dan normalisasi berdasarkan kebutuhan aplikasi.
+* **Caching, Queue & DevOps**: Kebutuhan Redis/cache, message queue jika relevan, dan strategi CI/CD + containerization.
 
-### D. RISK & MITIGATION (field "riskMitigation")
-- JANGAN awali dengan kata "Risiko:" karena label ini sudah ada otomatis di dokumen
-- Langsung tulis risikonya + mitigasi praktis
-- SALAH: "Risiko: Staf malas pindah dari Excel. Mitigasi: Training 30 menit."
-- BENAR: "Staf operasional resisten pindah dari Excel karena sudah terbiasa. Mitigasi: Sesi training 30 menit + sediakan tombol import CSV dari file lama."
-- BENAR: "Potensi selisih data saat migrasi. Mitigasi: Periode parallel run 2 minggu dengan validasi harian."
+### C. Keamanan & NFR
+* **Security & Compliance**: Standar auth, enkripsi, dan compliance regulasi data (UU PDP) yang wajib dipenuhi.
+* **Performance & SLA**: Target FCP, response time API, uptime SLA, dan strategi monitoring.
 
-### E. OUT OF SCOPE (field "outOfScope")
-- Pisahkan SETIAP item dengan ENTER (newline \\n)
-- JANGAN pakai bullet "-", "*", koma, atau tanda hubung
-- JANGAN sertakan penjelasan "Ditunda ke v1.1" — tulis nama itemnya saja
-- SALAH: "- Export PDF kustom\\n- Integrasi akuntansi"
-- SALAH: "Export PDF kustom, Integrasi akuntansi pihak ketiga"
-- BENAR: "Export PDF kustom\\nIntegrasi sistem akuntansi pihak ketiga\\nModul approval multi-level"
+## 2. Analisis Product Manager
 
-### F. DEFINITION OF DONE (field "defOfDone")
-- Pisahkan SETIAP kriteria dengan ENTER (newline \\n)
-- JANGAN pakai bullet "-", "*", koma
-- SALAH: "- Kode merged ke main\\n- Unit test ≥ 80%"
-- SALAH: "Kode merged, unit test lulus, lolos QA"
-- BENAR: "Kode merged ke branch main\\nUnit test coverage minimal 80 persen\\nLolos QA di environment staging\\nDisetujui Tech Lead"
+### A. Problem Statement & Persona
+* **Kejelasan Masalah & Tujuan**: Evaluasi apakah problem statement sudah spesifik dan goals sudah terukur. Berikan saran perbaikan jika masih generic.
+* **Ketajaman Persona**: Apakah persona sudah menggambarkan pain point nyata dan jobs-to-be-done pengguna target.
 
-### G. USER STORY (field "story" di features)
-- Variasikan format, JANGAN selalu pakai "Sebagai X, saya dapat Y, sehingga Z"
-- Contoh BAGUS: "Staf ops bisa input dan edit transaksi langsung dari tabel tanpa reload halaman"
-- Contoh BAGUS: "Admin finance bisa lock data bulanan dan export laporan ke Excel"
+### B. Scope & Definition of Done
+* **Batasan Fitur (Out of Scope)**: Identifikasi risiko scope creep dan fitur yang sebaiknya di-cut untuk MVP yang lebih fokus.
+* **Kriteria Rilis (DoD)**: Standar kualitas yang harus dipenuhi sebelum fitur dinyatakan selesai (testing coverage, bug threshold, approval).
 
-### H. ACCEPTANCE CRITERIA (field "desc" di acModules.items)
-- Format praktis: trigger → reaksi sistem (pakai angka kalau relevan)
-- Contoh BAGUS: "User klik Simpan → data masuk DB dalam < 500ms → toast sukses muncul → tabel auto-refresh"
-- Contoh BURUK: "Pengguna menekan tombol simpan, kemudian sistem akan menyimpan data ke database"
+### C. Roadmap & Success Metrics
+* **Prioritas MVP**: Urutan eksekusi fitur inti menggunakan framework sederhana (High/Medium/Low) dengan justifikasi singkat.
+* **KPI Terukur**: 3-5 metrik utama pasca-rilis (retention, DAU, conversion, CSAT) dengan target angka realistis.
+
+## 3. Rekomendasi AI
+
+### A. Stack Ideal & Keamanan Prioritas
+* **Stack Rekomendasi**: Kombinasi teknologi paling rasional untuk proyek ini beserta alasan singkat kenapa lebih baik dari alternatif.
+* **Security Quick Wins**: 2-3 langkah keamanan yang wajib langsung dikerjakan di sprint pertama.
+
+### B. Next Actions & Mitigasi Risiko
+* **Langkah Konkret Berikutnya**: 3-5 action items yang harus dilakukan tim (PM/Dev/Design) saat ini juga, urutkan berdasarkan prioritas.
+* **Mitigasi Risiko Utama**: Top 2 risiko terbesar (teknis atau bisnis) beserta strategi mitigasi praktis.
 
 ================================================================================
-TEMPLATE JSON DRAFT (WAJIB OUTPUT DI AKHIR)
+ATURAN FORMAT JSON DRAFT (WAJIB OUTPUT DI AKHIR)
 ================================================================================
+
+Setelah analisis, WAJIB output blok \`\`\`json_draft. Semua nilai string HARUS:
+- Bahasa Indonesia natural
+- JANGAN pakai format "Sebagai X, saya dapat Y" untuk user story
+- Kontekstual, tidak generik
+
+ATURAN FORMAT KHUSUS:
+1. PERSONA (field "userPersona"): JANGAN pakai nama orang fiktif atau umur. Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN.
+2. ROLE MATRIX (array "roles"): Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma. JANGAN pakai bullet "-", "*", atau nomor.
+3. TECH STACK: TULIS NAMA TEKNOLOGI SAJA tanpa penjelasan atau alasan.
+4. RISK (field "riskMitigation"): JANGAN awali dengan kata "Risiko:" karena sudah ada label otomatis. Langsung tulis isi.
+5. OUT OF SCOPE & DEFINITION OF DONE: Pisahkan SETIAP item dengan ENTER (\\n), tanpa bullet atau koma.
+6. DB SCHEMA (field "dbSchema"): Format "nama_tabel: field1, field2" per baris, dipisah dengan \\n.
 
 \`\`\`json_draft
 {
@@ -325,8 +312,9 @@ TEMPLATE JSON DRAFT (WAJIB OUTPUT DI AKHIR)
     "techBackend": "nama teknologi saja",
     "techDatabase": "nama teknologi saja",
     "techInfra": "nama teknologi saja",
-    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga",
-    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga",
+    "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
+    "outOfScope": "Item pertama\\nItem kedua",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua",
     "successMetrics": "KPI spesifik realistis",
     "brandTypography": "font + alasan UX singkat",
     "brandLayout": "prinsip layout praktis",
@@ -338,13 +326,13 @@ TEMPLATE JSON DRAFT (WAJIB OUTPUT DI AKHIR)
     "riskMitigation": "risiko + mitigasi praktis (TANPA awalan 'Risiko:')"
   },
   "features": [
-    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural", "priority": "High" }
+    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural tanpa template", "priority": "High" }
   ],
   "palette": [
     { "name": "Nama", "hex": "#HEX", "usage": "konteks pemakaian" }
   ],
   "roles": [
-    { "name": "Role", "can": "Aksi pertama\\nAksi kedua\\nAksi ketiga", "cannot": "Batasan pertama\\nBatasan kedua" }
+    { "name": "Role", "can": "Aksi pertama\\nAksi kedua", "cannot": "Batasan pertama\\nBatasan kedua" }
   ],
   "acModules": [
     {
@@ -377,8 +365,8 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
+                temperature: 0.4,
+                maxOutputTokens: 4096,
                 topP: 0.95,
               }
             })
@@ -447,11 +435,6 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       }
     },
 
-    // ============================================================
-    // ACTION APPLY DRAFT
-    // Otomatis mengaktifkan modul enterprise di Simple Mode
-    // jika draft AI memberikan data untuk modul tersebut.
-    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -561,7 +544,7 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       });
 
       get().commitHistory();
-      console.log('[AI Draft] Apply selesai, modul enterprise terkait telah diaktifkan di Simple Mode.');
+      console.log('[AI Draft] Apply selesai.');
       return true;
     },
 
