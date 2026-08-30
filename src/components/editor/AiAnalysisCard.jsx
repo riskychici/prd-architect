@@ -5,7 +5,15 @@ import ReactMarkdown from 'react-markdown';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
 
+// ============================================================
+// KONFIGURASI PERFORMA:
+// Tick 60ms (sekitar 16 update per detik) bukan 15ms.
+// Kecepatan ketik TETAP sama karena dihitung dari timestamp,
+// tapi beban parse ReactMarkdown turun 4x lipat sehingga
+// animasi lain (toggle, progress bar, undo/redo) tidak frame drop.
+// ============================================================
 const CHARS_PER_MS = 0.2;
+const TICK_MS = 60;
 
 const BRIEF_EXAMPLES = [
   'Aplikasi kasir untuk warung kopi',
@@ -14,17 +22,8 @@ const BRIEF_EXAMPLES = [
   'Dashboard monitoring penjualan online shop',
 ];
 
-// ============================================================
-// FIX BUG SELEKSI TEKS:
-// Komponen Markdown WAJIB didefinisikan di luar komponen React
-// (module-level) agar referensinya stabil antar render.
-//
-// Jika didefinisikan inline di dalam JSX, setiap re-render
-// (misal dipicu state showJumpButton saat user scroll) membuat
-// referensi fungsi baru. React menganggap tipe komponen berubah,
-// lalu me-remount seluruh subtree DOM. Node lama yang sedang
-// diseleksi user hancur, dan seleksi terbatalkan otomatis.
-// ============================================================
+// Komponen Markdown di luar komponen React agar referensi stabil
+// (mencegah remount DOM yang membatalkan seleksi teks user)
 const MARKDOWN_COMPONENTS = {
   h1: function (props) {
     return <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
@@ -91,8 +90,11 @@ export default function AiAnalysisCard() {
   const [showJumpButton, setShowJumpButton] = useState(false);
   const [briefText, setBriefText] = useState('');
 
+  // Apakah box output sedang ter-render (untuk dependency effect listener)
+  const boxMounted = !!(displayedText || isAnalyzing);
+
   // ============================================================
-  // TYPEWRITER ENGINE (timestamp-based, tetap jalan di background)
+  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
   // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
@@ -122,7 +124,7 @@ export default function AiAnalysisCard() {
         setIsTypingFinished(true);
         clearInterval(timer);
       }
-    }, 15);
+    }, TICK_MS);
 
     return () => clearInterval(timer);
   }, [rawAiFeedback, isAnalyzing]);
@@ -172,6 +174,12 @@ export default function AiAnalysisCard() {
     }
   }, []);
 
+  // ============================================================
+  // FIX PERFORMA: dependency hanya boxMounted (boolean),
+  // BUKAN displayedText. Sebelumnya effect ini re-run tiap tick
+  // (66x per detik) untuk remove+add 3 listener, sangat boros.
+  // Sekarang hanya re-run saat box muncul/hilang.
+  // ============================================================
   useEffect(() => {
     const el = feedbackBoxRef.current;
     if (!el) return;
@@ -183,7 +191,7 @@ export default function AiAnalysisCard() {
       el.removeEventListener('touchmove', handleUserScrollIntent);
       el.removeEventListener('pointerdown', handleUserScrollIntent);
     };
-  }, [handleUserScrollIntent, displayedText]);
+  }, [handleUserScrollIntent, boxMounted]);
 
   useEffect(() => {
     if (isAnalyzing && displayedText === '') {
@@ -200,9 +208,6 @@ export default function AiAnalysisCard() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
-  // ============================================================
-  // ANALISIS: jika PRD kosong dan deskripsi kosong, arahkan ke brief
-  // ============================================================
   const handleAnalyze = async () => {
     if (isPrdEmpty && !briefText.trim()) {
       showToast('Ceritakan dulu aplikasi yang ingin kamu buat', 'info');
@@ -363,7 +368,13 @@ export default function AiAnalysisCard() {
               ref={feedbackBoxRef}
               onScroll={handleScroll}
               className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
-              style={{ overscrollBehavior: 'contain' }}
+              style={{
+                overscrollBehavior: 'contain',
+                // FIX PERFORMA: containment membuat perubahan layout & paint
+                // di dalam box tidak menyebar ke seluruh halaman, sehingga
+                // animasi di luar box (toggle, progress bar, dll) tetap mulus
+                contain: 'layout paint',
+              }}
             >
               {isAnalyzing && !displayedText ? (
                 <div className="space-y-2.5 animate-pulse py-1">

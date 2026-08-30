@@ -193,7 +193,9 @@ export const usePrdStore = create(function (set, get) {
 
     // ============================================================
     // ACTION ANALISIS AI
-    // Prompt sekarang diimpor dari utils/aiPrompts.js
+    // Prompt diimpor dari utils/aiPrompts.js
+    // Streaming UI update di-throttle agar tidak membanjiri
+    // main thread dan menyebabkan frame drop pada animasi lain
     // ============================================================
     analyzeWithAi: async function (userBrief) {
       const state = get();
@@ -206,7 +208,6 @@ export const usePrdStore = create(function (set, get) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
 
-        // Prompt dibangun di file terpisah untuk maintainability
         const prompt = buildAiPrompt(prdSnapshot, userBrief);
 
         const response = await fetch(
@@ -240,6 +241,24 @@ export const usePrdStore = create(function (set, get) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullTextAccumulator = '';
+        // ============================================================
+        // FIX ANIMASI FRAME DROP:
+        // Throttle update store ke UI maksimal 1x per 80ms.
+        //
+        // MASALAH SEBELUMNYA:
+        // set({ aiFeedback }) dipanggil setiap token masuk dari API
+        // (bisa 30-50x per detik). Setiap panggilan set() memicu
+        // re-render seluruh subscriber Zustand, termasuk komponen
+        // yang punya animasi CSS (toggle switch, progress bar, dll).
+        // Main thread kewalahan dan animasi jadi patah-patah.
+        //
+        // SOLUSI:
+        // Token tetap dikumpulkan di variabel lokal (instant, tanpa
+        // re-render), tapi update ke store dibatasi tiap 80ms.
+        // Kecepatan streaming tetap sama, user tidak merasakan delay,
+        // tapi main thread punya waktu untuk menjalankan animasi.
+        // ============================================================
+        let lastUiPush = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -258,15 +277,21 @@ export const usePrdStore = create(function (set, get) {
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
 
-                const cleanDisplay = cleanLatex(
-                  fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
-                );
-                set({ aiFeedback: cleanDisplay });
+                // Throttle: hanya push ke UI setiap 80ms
+                const now = performance.now();
+                if (now - lastUiPush > 80) {
+                  lastUiPush = now;
+                  const cleanDisplay = cleanLatex(
+                    fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
+                  );
+                  set({ aiFeedback: cleanDisplay });
+                }
               } catch (e) {}
             }
           }
         }
 
+        // Push terakhir: pastikan semua teks yang tersisa tampil
         const extractedDraft = extractAiDraft(fullTextAccumulator);
         console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
 
