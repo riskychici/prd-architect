@@ -14,19 +14,43 @@ export const useAutoSave = function () {
   const acModules = usePrdStore(function (s) { return s.acModules; });
   const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
   const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const aiFeedback = usePrdStore(function (s) { return s.aiFeedback; });
+  const aiDraft = usePrdStore(function (s) { return s.aiDraft; });
   const setSaveIndicator = usePrdStore(function (s) { return s.setSaveIndicator; });
   const first = useRef(true);
 
   useEffect(function () {
-    const state = { mode: mode, fields: fields, features: features, palette: palette, roles: roles, schemaTables: schemaTables, acModules: acModules, simpleExtras: simpleExtras, techOptional: techOptional };
+    const payload = {
+      mode: mode,
+      state: {
+        fields: fields,
+        features: features,
+        palette: palette,
+        roles: roles,
+        schemaTables: schemaTables,
+        acModules: acModules,
+        simpleExtras: simpleExtras,
+        techOptional: techOptional,
+        aiFeedback: aiFeedback,
+        aiDraft: aiDraft,
+      },
+    };
+
     const save = debounce(function () {
-      const ok = storageService.save(state);
+      const ok = storageService.save(payload);
       if (ok) {
         const t = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
         setSaveIndicator('Tersimpan ' + t);
       }
     }, AUTOSAVE_DELAY);
-    if (first.current) { first.current = false; save.flush(); } else { save(); }
+
+    if (first.current) {
+      first.current = false;
+      save.flush();
+    } else {
+      save();
+    }
+
     return function () { save.cancel(); };
-  }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, setSaveIndicator]);
+  }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, aiFeedback, aiDraft, setSaveIndicator]);
 };

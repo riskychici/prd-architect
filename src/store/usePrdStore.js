@@ -129,12 +129,28 @@ export const usePrdStore = create(function (set, get) {
       });
     },
     restoreState: function (st) {
+      const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
+      const features = st.features || [];
+
+      // Validasi: Cek apakah data PRD kosong
+      const isEmptyPrd =
+        !(fields.projectName || '').trim() &&
+        !(fields.problemStatement || '').trim() &&
+        !(fields.productGoal || '').trim() &&
+        features.length === 0;
+
       set({
-        fields: Object.assign({}, DEFAULT_FIELDS, st.fields || {}),
-        features: st.features || [], palette: st.palette || [], roles: st.roles || [],
-        schemaTables: st.schemaTables || [], acModules: st.acModules || [],
+        fields: fields,
+        features: features,
+        palette: st.palette || [],
+        roles: st.roles || [],
+        schemaTables: st.schemaTables || [],
+        acModules: st.acModules || [],
         simpleExtras: st.simpleExtras || { ...INITIAL_SIMPLE_EXTRAS },
         techOptional: st.techOptional || [],
+        // Hapus feedback & draft AI jika PRD terdeteksi kosong
+        aiFeedback: isEmptyPrd ? '' : (st.aiFeedback || ''),
+        aiDraft: isEmptyPrd ? null : (st.aiDraft || null),
         mode: st.mode || 'simple',
       });
     },
@@ -150,6 +166,7 @@ export const usePrdStore = create(function (set, get) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
 
+      // Langsung reset error & state lama saat tombol diklik
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
 
       try {
@@ -240,7 +257,17 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
 
         if (!response.ok) {
           const errJson = await response.json();
-          throw new Error(errJson.error?.message || 'Gagal memproses request ke Gemini API');
+          const errMsg = errJson.error?.message || '';
+
+          // Deteksi error Quota Exceeded / Rate Limit (HTTP 429)
+          if (response.status === 429 || errJson.error?.code === 429) {
+            if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
+              throw new Error('Kuota harian (Free Tier) Gemini API telah habis. Buat API Key baru di Google AI Studio atau tunggu reset kuota harian.');
+            }
+            throw new Error('Batas penggunaan AI sedang penuh. Silakan tunggu 30 detik lalu coba lagi.');
+          }
+
+          throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
         }
 
         const reader = response.body.getReader();
