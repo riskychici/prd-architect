@@ -53,6 +53,7 @@ src/
         RolesSection.jsx
         SchemaSection.jsx
         TechStack.jsx
+      AiAnalysisCard.jsx
       EditorPanel.jsx
       EditorSection.jsx
       ExtrasPicker.jsx
@@ -97,6 +98,7 @@ src/
   styles/
     globals.css
   utils/
+    aiPrompts.js
     constants.js
     helpers.js
     markdown.js
@@ -488,35 +490,6 @@ export default function PersonaPreview() {
 }
 ````
 
-## File: src/components/preview/sections/RolesPreview.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-export default function RolesPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  if (mode !== 'enterprise' && !se.roles) return null;
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
-      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-        {roles.length ? roles.map(function (r, i) {
-          return (
-            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together">
-              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
-              <p className="text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />{r.can.split('\n').filter(function (x) { return x.trim(); }).join(' \u00B7 ') || '-'}</p>
-              <p className="text-rose-700 mt-0.5"><FontAwesomeIcon icon={faCircleXmark} className="mr-1" />{r.cannot.split('\n').filter(function (x) { return x.trim(); }).join(' \u00B7 ') || '-'}</p>
-            </div>
-          );
-        }) : <p className="italic text-slate-400">Belum ada role.</p>}
-      </div>
-    </div>
-  );
-}
-````
-
 ## File: src/components/preview/sections/SchemaPreview.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -819,6 +792,220 @@ import { create } from 'zustand';
 export const useViewStore = create(function (set) {
   return { view: 'editor', setView: function (v) { set({ view: v }); } };
 });
+````
+
+## File: src/utils/aiPrompts.js
+````javascript
+// Utils untuk membangun prompt AI secara terpisah dari store
+// Memudahkan iterasi prompt tanpa menyentuh business logic
+
+/**
+ * Bangun blok konteks dinamis berdasarkan kondisi PRD dan brief user
+ */
+function buildContextBlock(prdSnapshot, brief, isPrdEmpty) {
+  if (brief && isPrdEmpty) {
+    return `DESKRIPSI APLIKASI YANG INGIN DIBUAT USER (ACUAN UTAMA):
+"${brief}"
+
+INSTRUKSI KHUSUS: Dokumen PRD saat ini masih KOSONG. Jangan mengeluh soal dokumen kosong. Gunakan deskripsi user di atas sebagai acuan utama, lalu patuhi 5 aturan ini:
+
+1. INTERPRETASI LITERAL: Pahami inti produk secara harfiah dari kata-kata user. JANGAN memperluas scope menjadi produk lain. Contoh: "aplikasi catatan kuliah" berarti aplikasi untuk membuat, menyimpan, dan mengelola catatan kuliah per mata kuliah atau semester, BUKAN sistem informasi akademik dengan absensi, nilai, KRS, atau pembayaran SPP.
+2. KEMBANGAN YANG RELEVAN: Fitur tambahan boleh disarankan hanya jika relevan langsung dengan inti produk. Untuk catatan kuliah misalnya: pencarian catatan, lampiran foto atau PDF, sinkronisasi antar perangkat, dan berbagi catatan ke teman sekelas.
+3. KONFIRMASI INTERPRETASI: Pada poin "Status Kelengkapan & Kesiapan", tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta user, agar user bisa memverifikasi pemahaman kamu.
+4. KONSISTENSI STACK: Gunakan SATU rekomendasi technology stack yang sama di semua bagian dokumen. Jangan menyebut Next.js di satu bagian lalu React Native di bagian lain.
+5. RANCANG DARI NOL: Bayangkan produknya secara konkret (target user, masalah nyata, fitur inti, alur penggunaan, stack masuk akal untuk skala tersebut), lalu susun analisis dan isi SELURUH field json_draft dari nol, termasuk projectName yang cocok.
+
+Data PRD saat ini (masih kosong):
+${JSON.stringify(prdSnapshot, null, 2)}`;
+  }
+
+  if (brief) {
+    return `CATATAN TAMBAHAN DARI USER TENTANG APLIKASI:
+"${brief}"
+
+INGAT: Jangan memperluas scope di luar inti produk yang sudah ada di PRD atau catatan user. Jaga konsistensi rekomendasi stack di semua bagian.
+
+Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
+  }
+
+  return `Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
+}
+
+/**
+ * Bangun prompt lengkap untuk analisis PRD oleh AI
+ * @param {Object} prdSnapshot - Snapshot state PRD dari store
+ * @param {string|null} userBrief - Deskripsi aplikasi dari user (bisa null)
+ * @returns {string} Prompt lengkap siap dikirim ke Gemini API
+ */
+export function buildAiPrompt(prdSnapshot, userBrief) {
+  const brief = (userBrief || '').trim();
+  const isPrdEmpty =
+    !(prdSnapshot.fields.projectName || '').trim() &&
+    !(prdSnapshot.fields.problemStatement || '').trim() &&
+    !(prdSnapshot.fields.productGoal || '').trim() &&
+    (prdSnapshot.features || []).length === 0;
+
+  const contextBlock = buildContextBlock(prdSnapshot, brief, isPrdEmpty);
+
+  return `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
+
+Tugasmu: audit PRD berikut dan berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, PADAT, dan BERISI.
+
+================================================================================
+ATURAN PANJANG OUTPUT (SANGAT PENTING)
+================================================================================
+- Total output analisis MAKSIMAL 1200 kata (tidak termasuk json_draft)
+- Setiap poin analisis MAKSIMAL 2-3 kalimat saja
+- JANGAN bertele-tele, JANGAN mengulang poin yang sama dengan kata berbeda
+- Fokus ke insight actionable, bukan penjelasan teori
+- Jika field PRD kosong dan tidak ada deskripsi user, cukup sebutkan 1 kali dan berikan saran konkret
+
+================================================================================
+ATURAN GAYA BAHASA
+================================================================================
+1. TULIS SEPERTI MANUSIA. To the point, kontekstual, pakai istilah industri yang natural.
+
+2. DAFTAR KATA YANG DILARANG (klise AI):
+   - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
+   - "secara manual dan terfragmentasi"
+   - "kredensial yang valid"
+   - "melakukan manipulasi", "melakukan proses"
+   - "platform digital terpusat"
+   - "efisiensi waktu dan akurasi"
+   - "secara tepat", "secara mudah", "secara real-time"
+   - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
+   - "guna", "adapun", "selanjutnya"
+
+3. PAKAI GAYA INI:
+   - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
+   - Kalimat pendek dan aktif
+   - Konteks bisnis nyata dengan contoh spesifik
+   - Berikan reasoning "kenapa" di balik setiap rekomendasi
+
+4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
+
+5. KONSISTENSI: Gunakan SATU rekomendasi technology stack yang sama di seluruh dokumen. Jangan ada kontradiksi antar bagian (misal menyebut Next.js di satu seksi lalu React Native di seksi lain).
+
+6. FOKUS SCOPE: Analisis dan rekomendasi harus sesuai dengan inti produk yang diminta atau yang sudah tertulis di PRD. JANGAN memperluas scope menjadi produk lain.
+
+================================================================================
+STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
+================================================================================
+
+## 1. Analisis System Analyst
+
+### A. Arsitektur & Stack Teknologi
+* **Status Kelengkapan & Kesiapan**: Audit singkat kelengkapan PRD dan gap kritis yang harus diisi sebelum sprint planning. Jika ada deskripsi user, tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta di awal poin ini.
+* **Rekomendasi Frontend & Backend**: Stack yang paling cocok untuk use case ini, plus alasan teknis singkat (SSR vs CSR, monolith vs microservices, REST vs GraphQL).
+
+### B. Basis Data & Infrastruktur
+* **Skema & Integritas Data**: Evaluasi struktur tabel, indexing, dan normalisasi berdasarkan kebutuhan aplikasi.
+* **Caching, Queue & DevOps**: Kebutuhan Redis/cache, message queue jika relevan, dan strategi CI/CD + containerization.
+
+### C. Keamanan & NFR
+* **Security & Compliance**: Standar auth, enkripsi, dan compliance regulasi data (UU PDP) yang wajib dipenuhi.
+* **Performance & SLA**: Target FCP, response time API, uptime SLA, dan strategi monitoring.
+
+## 2. Analisis Product Manager
+
+### A. Problem Statement & Persona
+* **Kejelasan Masalah & Tujuan**: Evaluasi apakah problem statement sudah spesifik dan goals sudah terukur. Berikan saran perbaikan jika masih generic.
+* **Ketajaman Persona**: Apakah persona sudah menggambarkan pain point nyata dan jobs-to-be-done pengguna target.
+
+### B. Scope & Definition of Done
+* **Batasan Fitur (Out of Scope)**: Identifikasi risiko scope creep dan fitur yang sebaiknya di-cut untuk MVP yang lebih fokus.
+* **Kriteria Rilis (DoD)**: Standar kualitas yang harus dipenuhi sebelum fitur dinyatakan selesai (testing coverage, bug threshold, approval).
+
+### C. Roadmap & Success Metrics
+* **Prioritas MVP**: Urutan eksekusi fitur inti menggunakan framework sederhana (High/Medium/Low) dengan justifikasi singkat.
+* **KPI Terukur**: 3-5 metrik utama pasca-rilis (retention, DAU, conversion, CSAT) dengan target angka realistis.
+
+## 3. Rekomendasi AI
+
+### A. Stack Ideal & Keamanan Prioritas
+* **Stack Rekomendasi**: Kombinasi teknologi paling rasional untuk proyek ini beserta alasan singkat kenapa lebih baik dari alternatif. WAJIB sama dengan rekomendasi di bagian 1.
+* **Security Quick Wins**: 2-3 langkah keamanan yang wajib langsung dikerjakan di sprint pertama.
+
+### B. Next Actions & Mitigasi Risiko
+* **Langkah Konkret Berikutnya**: 3-5 action items yang harus dilakukan tim (PM/Dev/Design) saat ini juga, urutkan berdasarkan prioritas.
+* **Mitigasi Risiko Utama**: Top 2 risiko terbesar (teknis atau bisnis) beserta strategi mitigasi praktis.
+
+================================================================================
+ATURAN FORMAT JSON DRAFT (WAJIB OUTPUT DI AKHIR)
+================================================================================
+
+Setelah analisis, WAJIB output blok \`\`\`json_draft. Semua nilai string HARUS:
+- Bahasa Indonesia natural
+- JANGAN pakai format "Sebagai X, saya dapat Y" untuk user story
+- Kontekstual, tidak generik
+- SESUAI dengan inti produk yang diminta user, jangan meluas ke produk lain
+
+ATURAN FORMAT KHUSUS:
+1. PERSONA (field "userPersona"): JANGAN pakai nama orang fiktif atau umur. Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN.
+2. ROLE MATRIX (array "roles"): Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma. JANGAN pakai bullet "-", "*", atau nomor.
+3. TECH STACK: TULIS NAMA TEKNOLOGI SAJA tanpa penjelasan atau alasan, dan konsisten dengan rekomendasi di analisis.
+4. RISK (field "riskMitigation"): JANGAN awali dengan kata "Risiko:" karena sudah ada label otomatis. Langsung tulis isi.
+5. OUT OF SCOPE & DEFINITION OF DONE: Pisahkan SETIAP item dengan ENTER (\\n), tanpa bullet atau koma.
+6. DB SCHEMA (field "dbSchema"): Format "nama_tabel: field1, field2" per baris, dipisah dengan \\n. Tabel harus relevan dengan inti produk.
+
+\`\`\`json_draft
+{
+  "fields": {
+    "projectName": "nama proyek",
+    "problemStatement": "masalah konkret dengan konteks bisnis",
+    "productGoal": "tujuan SMART terukur",
+    "userPersona": "peran + pain point + goal harian (TANPA nama/umur)",
+    "userFlow": "alur step-by-step natural",
+    "techFrontend": "nama teknologi saja",
+    "techBackend": "nama teknologi saja",
+    "techDatabase": "nama teknologi saja",
+    "techInfra": "nama teknologi saja",
+    "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
+    "outOfScope": "Item pertama\\nItem kedua",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua",
+    "successMetrics": "KPI spesifik realistis",
+    "brandTypography": "font + alasan UX singkat",
+    "brandLayout": "prinsip layout praktis",
+    "nfrSpecs": "security stack konkret",
+    "nfrPerformance": "angka performance realistis",
+    "nfrLocalization": "scope lokalisasi",
+    "nfrBrowser": "support matrix",
+    "figmaLink": "link kalau relevan",
+    "riskMitigation": "risiko + mitigasi praktis (TANPA awalan 'Risiko:')"
+  },
+  "features": [
+    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural tanpa template", "priority": "High" }
+  ],
+  "palette": [
+    { "name": "Nama", "hex": "#HEX", "usage": "konteks pemakaian" }
+  ],
+  "roles": [
+    { "name": "Role", "can": "Aksi pertama\\nAksi kedua", "cannot": "Batasan pertama\\nBatasan kedua" }
+  ],
+  "acModules": [
+    {
+      "title": "Modul",
+      "items": [
+        { "title": "Skenario", "desc": "trigger → reaksi sistem" }
+      ]
+    }
+  ],
+  "schemaTables": [
+    {
+      "name": "nama_tabel",
+      "desc": "fungsi tabel di konteks bisnis",
+      "fields": [
+        { "field": "kolom", "type": "TIPE", "required": "Ya", "note": "catatan praktis" }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+${contextBlock}`;
+}
 ````
 
 ## File: src/utils/constants.js
@@ -1894,6 +2081,78 @@ export default function NfrPreview() {
 }
 ````
 
+## File: src/components/preview/sections/RolesPreview.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+
+export default function RolesPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+
+  if (mode !== 'enterprise' && !se.roles) return null;
+
+  // Helper untuk split baris dan filter kosong
+  const splitLines = function (text) {
+    if (!text) return [];
+    return text
+      .split('\n')
+      .map(function (line) {
+        // Hapus bullet/strip/asterisk/tanda pemisah di awal baris
+        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
+      })
+      .filter(function (line) { return line.length > 0; });
+  };
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
+      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+        {roles.length ? roles.map(function (r, i) {
+          const canItems = splitLines(r.can);
+          const cannotItems = splitLines(r.cannot);
+          return (
+            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
+              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
+              <div className="space-y-1">
+                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
+                </p>
+                {canItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
+                    {canItems.map(function (item, idx) {
+                      return <li key={idx}>{item}</li>;
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-slate-400 italic text-xs">-</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
+                </p>
+                {cannotItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
+                    {cannotItems.map(function (item, idx) {
+                      return <li key={idx}>{item}</li>;
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-slate-400 italic text-xs">-</p>
+                )}
+              </div>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
 ## File: src/components/preview/PreviewActions.jsx
 ````javascript
 import { useRef } from 'react';
@@ -2419,31 +2678,71 @@ export default defineConfig({
 });
 ````
 
-## File: src/components/editor/EditorPanel.jsx
+## File: src/components/editor/AiAnalysisCard.jsx
 ````javascript
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner, faTrash, faRobot } from '@fortawesome/free-solid-svg-icons';
+import { faWandMagicSparkles, faSpinner, faTrash, faRobot, faArrowDown, faCircleQuestion, faLightbulb } from '@fortawesome/free-solid-svg-icons';
 import ReactMarkdown from 'react-markdown';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
-import { useAutoSave } from '../../hooks/useAutoSave';
-import { useAutoResize } from '../../hooks/useAutoResize';
-import ModeBanner from './ModeBanner';
-import ExtrasPicker from './ExtrasPicker';
-import ProjectInfo from './sections/ProjectInfo';
-import ProblemGoal from './sections/ProblemGoal';
-import PersonaSection from './sections/PersonaSection';
-import BrandingSection from './sections/BrandingSection';
-import RolesSection from './sections/RolesSection';
-import FeaturesList from './sections/FeaturesList';
-import AcSection from './sections/AcSection';
-import TechStack from './sections/TechStack';
-import SchemaSection from './sections/SchemaSection';
-import NfrSection from './sections/NfrSection';
-import OutOfScope from './sections/OutOfScope';
 
-function AiAnalysisCard() {
+// ============================================================
+// KONFIGURASI PERFORMA:
+// Tick 60ms (sekitar 16 update per detik) bukan 15ms.
+// Kecepatan ketik TETAP sama karena dihitung dari timestamp,
+// tapi beban parse ReactMarkdown turun 4x lipat sehingga
+// animasi lain (toggle, progress bar, undo/redo) tidak frame drop.
+// ============================================================
+const CHARS_PER_MS = 0.2;
+const TICK_MS = 60;
+
+const BRIEF_EXAMPLES = [
+  'Aplikasi kasir untuk warung kopi',
+  'Sistem inventaris gudang UMKM',
+  'Aplikasi booking barbershop',
+  'Dashboard monitoring penjualan online shop',
+];
+
+// Komponen Markdown di luar komponen React agar referensi stabil
+// (mencegah remount DOM yang membatalkan seleksi teks user)
+const MARKDOWN_COMPONENTS = {
+  h1: function (props) {
+    return <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
+  },
+  h2: function (props) {
+    return <h2 className="font-bold text-sm text-purple-300 mt-4 mb-2 flex items-center gap-1.5" {...props} />;
+  },
+  h3: function (props) {
+    return <h3 className="font-semibold text-xs text-indigo-300 mt-3 mb-1 pl-2 border-l-2 border-indigo-500/60" {...props} />;
+  },
+  h4: function (props) {
+    return <h4 className="font-medium text-xs text-slate-300 mt-2 mb-1 italic" {...props} />;
+  },
+  p: function (props) {
+    return <p className="text-xs text-slate-200 leading-relaxed my-1" {...props} />;
+  },
+  ul: function (props) {
+    return <ul className="list-disc pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+  },
+  ol: function (props) {
+    return <ol className="list-decimal pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+  },
+  li: function (props) {
+    return <li className="text-slate-300 text-xs" {...props} />;
+  },
+  strong: function (props) {
+    return <strong className="font-bold text-white" {...props} />;
+  },
+  code: function (props) {
+    return <code className="bg-slate-800 text-amber-300 px-1 py-0.5 rounded font-mono text-[11px]" {...props} />;
+  },
+  hr: function (props) {
+    return <hr className="border-purple-900/50 my-3" {...props} />;
+  },
+};
+
+export default function AiAnalysisCard() {
   const analyzeWithAi = usePrdStore((s) => s.analyzeWithAi);
   const applyAiDraft = usePrdStore((s) => s.applyAiDraft);
   const rawAiFeedback = usePrdStore((s) => s.aiFeedback);
@@ -2451,52 +2750,158 @@ function AiAnalysisCard() {
   const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
   const aiError = usePrdStore((s) => s.aiError);
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
+
+  const isPrdEmpty = usePrdStore((s) => {
+    const f = s.fields;
+    return !(f.projectName || '').trim() &&
+      !(f.problemStatement || '').trim() &&
+      !(f.productGoal || '').trim() &&
+      s.features.length === 0;
+  });
+
   const showToast = useToast();
-  
+
   const feedbackBoxRef = useRef(null);
+  const briefRef = useRef(null);
+  const typewriterStartRef = useRef(null);
+  const userScrolledUpRef = useRef(false);
+  const rafScrollRef = useRef(null);
+
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingFinished, setIsTypingFinished] = useState(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
+  const [briefText, setBriefText] = useState('');
 
-  // Smooth Typewriter Engine
+  // Apakah box output sedang ter-render (untuk dependency effect listener)
+  const boxMounted = !!(displayedText || isAnalyzing);
+
+  // ============================================================
+  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
+  // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
       setDisplayedText('');
       setIsTypingFinished(true);
+      typewriterStartRef.current = null;
       return;
+    }
+
+    if (typewriterStartRef.current === null) {
+      typewriterStartRef.current = performance.now();
     }
 
     setIsTypingFinished(false);
 
     const timer = setInterval(() => {
+      const elapsed = performance.now() - typewriterStartRef.current;
+      const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
+      const targetLength = Math.min(expectedChars, rawAiFeedback.length);
+
       setDisplayedText((prev) => {
-        if (prev.length < rawAiFeedback.length) {
-          const step = Math.min(3, rawAiFeedback.length - prev.length);
-          return rawAiFeedback.slice(0, prev.length + step);
-        } else {
-          setIsTypingFinished(true);
-          clearInterval(timer);
-          return prev;
-        }
+        if (prev.length === targetLength) return prev;
+        return rawAiFeedback.slice(0, targetLength);
       });
-    }, 15);
+
+      if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
+        setIsTypingFinished(true);
+        clearInterval(timer);
+      }
+    }, TICK_MS);
 
     return () => clearInterval(timer);
-  }, [rawAiFeedback]);
+  }, [rawAiFeedback, isAnalyzing]);
 
-  // Smooth Auto-scroll
+  // ============================================================
+  // AUTO-SCROLL: instant, hanya jika user di bottom
+  // ============================================================
   useEffect(() => {
-    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current) {
-      feedbackBoxRef.current.scrollTo({
-        top: feedbackBoxRef.current.scrollHeight,
-        behavior: 'smooth'
+    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current && !userScrolledUpRef.current) {
+      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+      rafScrollRef.current = requestAnimationFrame(() => {
+        const el = feedbackBoxRef.current;
+        if (el && !userScrolledUpRef.current) {
+          el.scrollTop = el.scrollHeight;
+        }
       });
     }
   }, [displayedText, isAnalyzing, isTypingFinished]);
 
+  useEffect(() => {
+    return () => {
+      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+    };
+  }, []);
+
+  const handleUserScrollIntent = useCallback(() => {
+    if (!userScrolledUpRef.current) {
+      userScrolledUpRef.current = true;
+      setShowJumpButton(true);
+    }
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 15) {
+      if (userScrolledUpRef.current) {
+        userScrolledUpRef.current = false;
+        setShowJumpButton(false);
+      }
+    } else {
+      if (!userScrolledUpRef.current) {
+        userScrolledUpRef.current = true;
+        setShowJumpButton(true);
+      }
+    }
+  }, []);
+
+  // ============================================================
+  // FIX PERFORMA: dependency hanya boxMounted (boolean),
+  // BUKAN displayedText. Sebelumnya effect ini re-run tiap tick
+  // (66x per detik) untuk remove+add 3 listener, sangat boros.
+  // Sekarang hanya re-run saat box muncul/hilang.
+  // ============================================================
+  useEffect(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+    el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+    el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', handleUserScrollIntent);
+      el.removeEventListener('touchmove', handleUserScrollIntent);
+      el.removeEventListener('pointerdown', handleUserScrollIntent);
+    };
+  }, [handleUserScrollIntent, boxMounted]);
+
+  useEffect(() => {
+    if (isAnalyzing && displayedText === '') {
+      userScrolledUpRef.current = false;
+      setShowJumpButton(false);
+    }
+  }, [isAnalyzing, displayedText]);
+
+  const jumpToBottom = useCallback(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    userScrolledUpRef.current = false;
+    setShowJumpButton(false);
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
   const handleAnalyze = async () => {
+    if (isPrdEmpty && !briefText.trim()) {
+      showToast('Ceritakan dulu aplikasi yang ingin kamu buat', 'info');
+      if (briefRef.current) briefRef.current.focus();
+      return;
+    }
     try {
       setDisplayedText('');
-      await analyzeWithAi();
+      userScrolledUpRef.current = false;
+      setShowJumpButton(false);
+      typewriterStartRef.current = null;
+      await analyzeWithAi(briefText.trim() || null);
       showToast('Analisis AI selesai!', 'success');
     } catch (err) {
       showToast(err.message || 'Gagal menganalisis PRD', 'error');
@@ -2506,24 +2911,27 @@ function AiAnalysisCard() {
   const handleApplyDraft = () => {
     const ok = applyAiDraft();
     if (ok) {
-      showToast('Draf saran AI berhasil diterapkan ke formulir!', 'success');
+      showToast('Saran AI diterapkan', 'success');
     } else {
-      showToast('Tidak ada data draf yang bisa diterapkan', 'info');
+      showToast('Tidak ada draf AI', 'info');
     }
   };
 
   const isBusy = isAnalyzing || !isTypingFinished;
+  const hasDraft = !!aiDraft;
 
   return (
-    <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
-      <div className="flex justify-between items-center gap-2">
-        <div className="flex items-center space-x-2">
-          <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base" />
-          <div>
-            <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
-              Analisis PRD Berbasis AI
-              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono">
-                Gemini Flash
+    <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
+
+      {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+        <div className="flex items-start space-x-2.5 min-w-0">
+          <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base mt-1 shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
+              <span>Analisis PRD Berbasis AI</span>
+              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
+                Gemini AI
               </span>
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
@@ -2533,21 +2941,59 @@ function AiAnalysisCard() {
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
-          className="flex items-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 shrink-0 cursor-pointer"
+          className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 w-full md:w-auto md:shrink-0 cursor-pointer"
         >
           {isBusy ? (
             <>
               <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
-              <span>{isAnalyzing && !displayedText ? 'Memproses...' : 'Menulis...'}</span>
+              <span className="whitespace-nowrap">{isAnalyzing && !displayedText ? 'Memproses...' : 'Menulis...'}</span>
             </>
           ) : (
             <>
               <FontAwesomeIcon icon={faWandMagicSparkles} className="text-amber-300 text-xs" />
-              <span>Analisis PRD</span>
+              <span className="whitespace-nowrap">Analisis PRD</span>
             </>
           )}
         </button>
       </div>
+
+      {/* EMPTY STATE: muncul otomatis saat PRD masih kosong */}
+      {isPrdEmpty && (
+        <div className="space-y-2.5 pt-3 border-t border-purple-900/40">
+          <div className="flex items-start gap-2">
+            <FontAwesomeIcon icon={faCircleQuestion} className="text-amber-300 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-purple-200">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
+            </div>
+          </div>
+          <textarea
+            ref={briefRef}
+            value={briefText}
+            onChange={function (e) { setBriefText(e.target.value); }}
+            rows="3"
+            placeholder="Contoh: Aplikasi kasir untuk warung kopi dengan laporan penjualan harian dan manajemen stok bahan baku..."
+            className="w-full bg-slate-950/80 border border-purple-700/50 rounded-lg p-3 text-xs text-slate-100 focus:border-purple-500 focus:outline-none resize-none"
+          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
+              <FontAwesomeIcon icon={faLightbulb} className="text-amber-400" />
+              Contoh:
+            </span>
+            {BRIEF_EXAMPLES.map(function (ex) {
+              return (
+                <button
+                  key={ex}
+                  onClick={function () { setBriefText(ex); }}
+                  className="text-[10px] px-2 py-1 rounded-full border border-purple-700/50 text-purple-300 hover:bg-purple-600/20 transition cursor-pointer"
+                >
+                  {ex}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {aiError && (
         <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-300">
@@ -2557,117 +3003,99 @@ function AiAnalysisCard() {
 
       {(displayedText || isAnalyzing) && (
         <div className="space-y-3 pt-1 border-t border-purple-900/40">
-          <div className="flex justify-between items-center">
-            <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
+
+          {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+            <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
               Hasil Rekomendasi AI:
               {isBusy && (
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping shrink-0" />
                   {displayedText ? 'Sedang mengetik masukan...' : 'AI sedang membaca dokumen PRD...'}
                 </span>
               )}
             </span>
-            <div className="flex items-center gap-2">
-              {aiDraft && !isBusy && (
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isBusy && (
                 <button
                   onClick={handleApplyDraft}
-                  className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-2.5 py-1 rounded transition-all duration-200 flex items-center gap-1 cursor-pointer shadow-md hover:shadow-emerald-500/20"
-                  title="Isi otomatis bagian form yang kosong dengan saran AI"
+                  disabled={!hasDraft}
+                  className={`text-xs font-semibold px-2.5 py-1.5 rounded transition-all duration-200 inline-flex items-center gap-1.5 shadow-md whitespace-nowrap ${
+                    hasDraft
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer hover:shadow-emerald-500/20'
+                      : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                  title={hasDraft ? 'Isi otomatis bagian form dengan saran AI' : 'Tidak ada draf JSON dari AI'}
                 >
-                  <FontAwesomeIcon icon={faWandMagicSparkles} /> Terapkan ke Form
+                  <FontAwesomeIcon icon={faWandMagicSparkles} />
+                  <span>Terapkan ke Form</span>
                 </button>
               )}
               {!isBusy && (
                 <button
                   onClick={clearAiFeedback}
-                  className="text-[10px] text-slate-400 hover:text-rose-400 transition flex items-center gap-1 cursor-pointer"
+                  className="text-[10px] text-slate-400 hover:text-rose-400 transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap px-1 py-1.5"
                   title="Hapus hasil analisis"
                 >
-                  <FontAwesomeIcon icon={faTrash} /> Hapus
+                  <FontAwesomeIcon icon={faTrash} />
+                  <span>Hapus</span>
                 </button>
               )}
             </div>
           </div>
 
-          <div
-            ref={feedbackBoxRef}
-            className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
-          >
-            {isAnalyzing && !displayedText ? (
-              <div className="space-y-2.5 animate-pulse py-1">
-                <div className="h-3.5 bg-purple-900/40 rounded w-1/3" />
-                <div className="h-3 bg-slate-800/80 rounded w-full" />
-                <div className="h-3 bg-slate-800/80 rounded w-5/6" />
-                <div className="h-3 bg-slate-800/80 rounded w-4/6" />
-                <div className="flex items-center gap-2 pt-1">
-                  <FontAwesomeIcon icon={faSpinner} className="animate-spin text-purple-400 text-xs" />
-                  <span className="text-[11px] text-purple-300/80 font-mono">Menyiapkan ulasan spesifikasi produk...</span>
+          <div className="relative">
+            <div
+              ref={feedbackBoxRef}
+              onScroll={handleScroll}
+              className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
+              style={{
+                overscrollBehavior: 'contain',
+                // FIX PERFORMA: containment membuat perubahan layout & paint
+                // di dalam box tidak menyebar ke seluruh halaman, sehingga
+                // animasi di luar box (toggle, progress bar, dll) tetap mulus
+                contain: 'layout paint',
+              }}
+            >
+              {isAnalyzing && !displayedText ? (
+                <div className="space-y-2.5 animate-pulse py-1">
+                  <div className="h-3.5 bg-purple-900/40 rounded w-1/3" />
+                  <div className="h-3 bg-slate-800/80 rounded w-full" />
+                  <div className="h-3 bg-slate-800/80 rounded w-5/6" />
+                  <div className="h-3 bg-slate-800/80 rounded w-4/6" />
+                  <div className="flex items-center gap-2 pt-1">
+                    <FontAwesomeIcon icon={faSpinner} className="animate-spin text-purple-400 text-xs" />
+                    <span className="text-[11px] text-purple-300/80 font-mono">Menyiapkan ulasan spesifikasi produk...</span>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <>
-                <ReactMarkdown
-                  components={{
-                    h1: ({node, ...props}) => <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />,
-                    h2: ({node, ...props}) => <h2 className="font-bold text-sm text-purple-300 mt-4 mb-2 flex items-center gap-1.5" {...props} />,
-                    h3: ({node, ...props}) => <h3 className="font-semibold text-xs text-indigo-300 mt-3 mb-1 pl-2 border-l-2 border-indigo-500/60" {...props} />,
-                    h4: ({node, ...props}) => <h4 className="font-medium text-xs text-slate-300 mt-2 mb-1 italic" {...props} />,
-                    p: ({node, ...props}) => <p className="text-xs text-slate-200 leading-relaxed my-1" {...props} />,
-                    ul: ({node, ...props}) => <ul className="list-disc pl-5 space-y-1 my-1.5 text-slate-300" {...props} />,
-                    ol: ({node, ...props}) => <ol className="list-decimal pl-5 space-y-1 my-1.5 text-slate-300" {...props} />,
-                    li: ({node, ...props}) => <li className="text-slate-300 text-xs" {...props} />,
-                    strong: ({node, ...props}) => <strong className="font-bold text-white" {...props} />,
-                    code: ({node, ...props}) => <code className="bg-slate-800 text-amber-300 px-1 py-0.5 rounded font-mono text-[11px]" {...props} />,
-                    hr: ({node, ...props}) => <hr className="border-purple-900/50 my-3" {...props} />,
-                  }}
-                >
-                  {displayedText}
-                </ReactMarkdown>
-                {isBusy && (
-                  <span className="inline-block w-1.5 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
-                )}
-              </>
+              ) : (
+                <>
+                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+                    {displayedText}
+                  </ReactMarkdown>
+                  {isBusy && (
+                    <span className="inline-block w-1.5 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Tombol "Ikuti AI" muncul saat user scroll ke atas */}
+            {showJumpButton && !isTypingFinished && (
+              <button
+                onClick={jumpToBottom}
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold rounded-full shadow-lg transition-all duration-200 cursor-pointer z-10 whitespace-nowrap"
+                title="Kembali ke bawah dan lanjut auto-scroll"
+              >
+                <FontAwesomeIcon icon={faArrowDown} />
+                <span>Ikuti AI</span>
+              </button>
             )}
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-export default function EditorPanel() {
-  useAutoSave();
-  const ra = useAutoResize();
-
-  useEffect(function () {
-    const t = setTimeout(ra.resizeAll, 100);
-    function onInput(e) {
-      if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
-    }
-    document.addEventListener('input', onInput);
-    return function () {
-      clearTimeout(t);
-      document.removeEventListener('input', onInput);
-    };
-  }, [ra]);
-
-  return (
-    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-slate-800 bg-slate-900" style={{ height: '100%' }}>
-      <ModeBanner />
-      <ExtrasPicker />
-      <AiAnalysisCard />
-      <ProjectInfo />
-      <ProblemGoal />
-      <PersonaSection />
-      <BrandingSection />
-      <RolesSection />
-      <FeaturesList />
-      <AcSection />
-      <TechStack />
-      <SchemaSection />
-      <NfrSection />
-      <OutOfScope />
-    </section>
   );
 }
 ````
@@ -2862,25 +3290,6 @@ export default function IconButton(props) {
 }
 ````
 
-## File: src/services/exportService.js
-````javascript
-import { saveAs } from 'file-saver';
-import copyToClipboard from 'copy-to-clipboard';
-import { generateMarkdown } from '../utils/markdown';
-
-export const exportService = {
-  exportJSON: function (state) {
-    const data = { app: 'PRD Architect Pro', version: '3.3', mode: state.mode, state: state };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
-  },
-  copyMarkdown: function (state) {
-    copyToClipboard(generateMarkdown(state));
-  },
-  printDocument: function () { window.print(); },
-};
-````
-
 ## File: index.html
 ````html
 <!doctype html>
@@ -2974,6 +3383,25 @@ export const exportService = {
 }
 ````
 
+## File: src/services/exportService.js
+````javascript
+import { saveAs } from 'file-saver';
+import copyToClipboard from 'copy-to-clipboard';
+import { generateMarkdown } from '../utils/markdown';
+
+export const exportService = {
+  exportJSON: function (state) {
+    const data = { app: 'PRD Architect Pro', version: '3.4', mode: state.mode, state: state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
+  },
+  copyMarkdown: function (state) {
+    copyToClipboard(generateMarkdown(state));
+  },
+  printDocument: function () { window.print(); },
+};
+````
+
 ## File: .gitignore
 ````
 node_modules
@@ -2983,7 +3411,7 @@ dist-ssr
 .DS_Store
 .vscode
 .env
-prd-architec-v3.1.md
+repomix-output.md
 .repomixignore
 .vercel
 ````
@@ -3012,7 +3440,7 @@ export default function Header() {
       <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
         <div className="bg-blue-600 text-white p-2 rounded-lg shrink-0"><FontAwesomeIcon icon={faFileContract} className="text-lg md:text-xl" /></div>
         <div className="min-w-0">
-          <h1 className="font-bold text-base md:text-lg text-white leading-snug truncate py-0.5">PRD Architect <span className="align-middle whitespace-nowrap text-[10px] md:text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 md:px-2 py-0.5 rounded-full ml-1">Pro V3.3</span></h1>
+          <h1 className="font-bold text-base md:text-lg text-white leading-snug truncate py-0.5">PRD Architect <span className="align-middle whitespace-nowrap text-[10px] md:text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 md:px-2 py-0.5 rounded-full ml-1">Pro V3.4</span></h1>
           <p className="text-[11px] md:text-xs text-slate-400 mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
         </div>
       </div>
@@ -3031,18 +3459,75 @@ export default function Header() {
 }
 ````
 
+## File: src/components/editor/EditorPanel.jsx
+````javascript
+import { useEffect } from 'react';
+import { useAutoSave } from '../../hooks/useAutoSave';
+import { useAutoResize } from '../../hooks/useAutoResize';
+import ModeBanner from './ModeBanner';
+import ExtrasPicker from './ExtrasPicker';
+import AiAnalysisCard from './AiAnalysisCard';
+import ProjectInfo from './sections/ProjectInfo';
+import ProblemGoal from './sections/ProblemGoal';
+import PersonaSection from './sections/PersonaSection';
+import BrandingSection from './sections/BrandingSection';
+import RolesSection from './sections/RolesSection';
+import FeaturesList from './sections/FeaturesList';
+import AcSection from './sections/AcSection';
+import TechStack from './sections/TechStack';
+import SchemaSection from './sections/SchemaSection';
+import NfrSection from './sections/NfrSection';
+import OutOfScope from './sections/OutOfScope';
+
+export default function EditorPanel() {
+  useAutoSave();
+  const ra = useAutoResize();
+
+  useEffect(function () {
+    const t = setTimeout(ra.resizeAll, 100);
+    function onInput(e) {
+      if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
+    }
+    document.addEventListener('input', onInput);
+    return function () {
+      clearTimeout(t);
+      document.removeEventListener('input', onInput);
+    };
+  }, [ra]);
+
+  return (
+    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-slate-800 bg-slate-900" style={{ height: '100%' }}>
+      <ModeBanner />
+      <ExtrasPicker />
+      <AiAnalysisCard />
+      <ProjectInfo />
+      <ProblemGoal />
+      <PersonaSection />
+      <BrandingSection />
+      <RolesSection />
+      <FeaturesList />
+      <AcSection />
+      <TechStack />
+      <SchemaSection />
+      <NfrSection />
+      <OutOfScope />
+    </section>
+  );
+}
+````
+
 ## File: src/store/usePrdStore.js
 ````javascript
 import { create } from 'zustand';
 import { cloneDeep } from 'lodash';
 import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY } from '../utils/constants';
+import { buildAiPrompt } from '../utils/aiPrompts';
 
 const init = function () {
   return {
     mode: 'simple', simpleExtras: { ...INITIAL_SIMPLE_EXTRAS }, fields: { ...DEFAULT_FIELDS },
     features: [], palette: [], roles: [], schemaTables: [], acModules: [], techOptional: [],
     history: [], historyIndex: -1, saveIndicator: '',
-    // State untuk AI Analysis & Auto-fill Draft
     aiFeedback: '', aiDraft: null, isAnalyzing: false, aiError: null,
   };
 };
@@ -3054,7 +3539,6 @@ const stripNonUndo = function (snap) {
   return c;
 };
 
-// Helper untuk membersihkan simbol bullet/strip/nomor/tabel Markdown dari awal & isi baris
 const sanitizeMultiline = function (text) {
   if (!text || typeof text !== 'string') return text;
   return text
@@ -3071,10 +3555,8 @@ const sanitizeMultiline = function (text) {
     .join('\n');
 };
 
-// Helper khusus penanganan & pembersihan simbol/format LaTeX
 const cleanLatex = function (str) {
   if (!str || typeof str !== 'string') return str;
-
   return str
     .replace(/\\ge\b|\\geq\b/g, '≥')
     .replace(/\\le\b|\\leq\b/g, '≤')
@@ -3085,10 +3567,33 @@ const cleanLatex = function (str) {
     .replace(/\\pm\b/g, '±')
     .replace(/\\infty\b/g, '∞')
     .replace(/\$\\text\{([^}]+)\}\$/g, '$1')
-    .replace(/\\text\{([^}]+)\}/g, '$1')     .replace(/\$\$([^$]+)\$\$/g, '$1')     .replace(/\$([^$]+)\$/g, '$1')
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\$\$([^$]+)\$\$/g, '$1')
+    .replace(/\$([^$]+)\$/g, '$1')
     .replace(/\\([_#%&])/g, '$1')
     .trim();
 };
+
+function extractAiDraft(fullText) {
+  if (!fullText || typeof fullText !== 'string') return null;
+
+  let match = fullText.match(/```json_draft\s*\n?([\s\S]*?)\n?\s*```/);
+  if (match && match[1]) {
+    try { return JSON.parse(match[1].trim()); } catch (e) {}
+  }
+
+  match = fullText.match(/`{3,}\s*json_draft\s*([\s\S]*?)\s*`{3,}/i);
+  if (match && match[1]) {
+    try { return JSON.parse(match[1].trim()); } catch (e) {}
+  }
+
+  const jsonMatch = fullText.match(/\{[\s\S]*?"fields"\s*:\s*\{[\s\S]*?\}\s*\}/);
+  if (jsonMatch) {
+    try { return JSON.parse(jsonMatch[0]); } catch (e) {}
+  }
+
+  return null;
+}
 
 export const usePrdStore = create(function (set, get) {
   return {
@@ -3180,13 +3685,11 @@ export const usePrdStore = create(function (set, get) {
     restoreState: function (st) {
       const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
       const features = st.features || [];
-
       const isEmptyPrd =
         !(fields.projectName || '').trim() &&
         !(fields.problemStatement || '').trim() &&
         !(fields.productGoal || '').trim() &&
         features.length === 0;
-
       set({
         fields: fields,
         features: features,
@@ -3208,120 +3711,24 @@ export const usePrdStore = create(function (set, get) {
       });
     },
 
-    // Action STREAMING dengan Analisis Mendalam & Rekomendasi Solutif
-    analyzeWithAi: async function () {
+    // ============================================================
+    // ACTION ANALISIS AI
+    // Prompt diimpor dari utils/aiPrompts.js
+    // Streaming UI update di-throttle agar tidak membanjiri
+    // main thread dan menyebabkan frame drop pada animasi lain
+    // ============================================================
+    analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
-
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
 
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
 
-        const prompt = `Kamu adalah seorang Principal System Analyst dan VP of Product berpengalaman.
-Tugasmu adalah melakukan audit, analisis, SERTA MEMBERIKAN REKOMENDASI TERBAIK DAN SARAN STRATEGIS terhadap dokumen PRD (Product Requirement Document) berikut secara EKSTENSIF, DETAIL, KOMPREHENSIF, dan PROFESIONAL.
-
-PEDOMAN FORMATTING & GAYA BAHASA (WAJIB DIPATUHI):
-1. Tuliskan jawaban dalam bahasa Indonesia formal, taktis, mendalam, dan kaya akan terminologi industri perangkat lunak.
-2. DILARANG KERAS menggunakan format matematika LaTeX (seperti $...$, \\text{...}, \\ge, \\le). Gunakan simbol baku Unicode seperti ≥, ≤, ≈, atau teks biasa.
-3. Struktur teks HARUS menggunakan hirarki Markdown berikut:
-   - Seksi Utama: GUNAKAN LEVEL HEADING 2 (## 1. Analisis System Analyst, ## 2. Analisis Product Manager, ## 3. Saran Terbaik & Rekomendasi AI)
-   - Sub-Seksi: GUNAKAN LEVEL HEADING 3 (### A. ..., ### B. ..., dst)
-4. Setiap poin analisis WAJIB diawali dengan bullet point (*) dan teks tebal (**Bold Title**), diikuti oleh penjelasan komprehensif 2-3 kalimat per poin.
-
-TEMPLATE ANALISIS & REKOMENDASI LENGKAP:
-
-## 1. Analisis System Analyst
-
-### A. Evaluasi Kelengkapan Data & Arsitektur Sistem
-* **Status Kelengkapan Spesifikasi**: Audit mendalam mengenai kelengkapan komponen PRD (apakah empty state, partial, atau full) serta kesiapan tim pengembang.
-* **Evaluasi Frontend & User Interface**: Ulas opsi stack frontend (misal React/Next.js), arsitektur state management, serta pertimbangan SSR vs CSR.
-* **Evaluasi Backend & Microservices**: Ulas pilihan arsitektur backend, skalabilitas penanganan konkurensi (Node.js/Go/Python), serta desain REST API / GraphQL.
-
-### B. Analisis Basis Data, Caching & Infrastruktur Cloud
-* **Integritas Skema Basis Data**: Ulas struktur tabel (schemaTables), kebutuhan indexing, primary/foreign key constraints, dan potensi query bottleneck.
-* **Strategi Caching & Message Queue**: Ulas kebutuhan Redis untuk caching serta Kafka/RabbitMQ untuk pemrosesan asynchronous.
-* **Infrastruktur & Pipeline DevOps**: Rekomendasikan kontainerisasi (Docker/Kubernetes), CI/CD (GitHub Actions), serta manajemen cloud (AWS/GCP).
-
-### C. Spesifikasi Non-Fungsional (NFR) & Keamanan
-* **Keamanan & Manajemen Akses**: Audit sistem otentikasi (JWT, OAuth 2.0, 2FA), enkripsi data (at-rest & in-transit), dan mitigasi serangan cyber.
-* **Performa, Latensi & SLA**: Tentukan standar FCP, response time API, target uptime SLA (99.9%), dan kapasitas concurrent users.
-
-## 2. Analisis Product Manager
-
-### A. Value Proposition & Strategi Bisnis
-* **Kejelasan Problem Statement & Goals**: Evaluasi seberapa kuat pernyataan masalah dan tujuan produk dalam menjawab kebutuhan pasar dan ROI.
-* **Segmentasi User Persona**: Ulas ketajaman profil pengguna target, pain points mereka, dan kesesuaian alur penggunaan (userFlow).
-
-### B. Manajemen Ruang Lingkup (Scope Creep) & DoD
-* **Batasan Fitur (Out of Scope)**: Identifikasi risiko pembengkakan fitur (scope creep) dan evaluasi kejelasan batasan hal yang tidak dikerjakan.
-* **Kriteria Keberhasilan (Definition of Done)**: Ulas standar kualitas rilis (QA testing coverage, bug threshold, performance metrics) sebelum siap produksi.
-
-### C. Roadmap Pengembangan MVP & Success Metrics
-* **Prioritisasi Fitur MVP**: Rekomendasikan urutan eksekusi fitur inti (High Priority) untuk membentuk MVP yang fungsional.
-* **Metrik Keberhasilan Terukur**: Tentukan indikator kinerja utama / KPI (seperti DAU/MAU, Retention Rate, CSAT) yang dipantau pasca rilis.
-
-## 3. Saran Terbaik & Rekomendasi AI
-
-### A. Rekomendasi Arsitektur & Technology Stack Terbaik
-* **Rekomendasi Stack Ideal**: Berikan kombinasi teknologi (Frontend, Backend, DB, Cloud) paling ideal dan rasional untuk jenis proyek ini beserta alasan teknisnya.
-* **Standar Keamanan Utama**: Berikan rekomendasi langkah keamanan prioritas tinggi yang wajib langsung diimplementasikan pada sprint pertama.
-
-### B. Rekomendasi Eksekusi Produk & Langkah Selanjutnya
-* **Langkah Krusial Berikutnya (Next Action Items)**: Berikan daftar 3-5 langkah konkret yang harus dilakukan tim (PM/Dev) saat ini juga untuk mematangkan PRD ini.
-* **Strategi Mitigasi Risiko Bisnis**: Berikan masukan langsung mengenai potensi kendala operasional/pengguna beserta solusi pencegahannya.
-
-\`\`\`json_draft
-{
-  "fields": {
-    "projectName": "saran nama proyek draf jika kosong",
-    "problemStatement": "saran revisi/lengkapi masalah",
-    "productGoal": "saran revisi/lengkapi tujuan",
-    "userPersona": "saran revisi/lengkapi persona",
-    "userFlow": "saran revisi/lengkapi user flow",
-    "techFrontend": "saran stack frontend",
-    "techBackend": "saran stack backend",
-    "techDatabase": "saran stack database",
-    "techInfra": "saran infrastruktur cloud",
-    "outOfScope": "Item pertama\\nItem kedua\\nItem ketiga",
-    "defOfDone": "Kriteria pertama\\nKriteria kedua\\nKriteria ketiga",
-    "successMetrics": "saran metrik sukses terukur",
-    "nfrSpecs": "saran NFR keamanan dan spesifikasi",
-    "nfrPerformance": "saran NFR performa dan latency",
-    "riskMitigation": "saran mitigasi risiko utama"
-  },
-  "features": [
-    { "id": "F-01", "name": "Nama Fitur Inti", "story": "User story fitur", "priority": "High" }
-  ],
-  "roles": [
-    { "name": "Nama Peran", "can": "Hak akses diizinkan", "cannot": "Batasan akses" }
-  ],
-  "acModules": [
-    {
-      "title": "Nama Modul AC",
-      "items": [
-        { "title": "Skenario AC", "desc": "Deskripsi BDD Given-When-Then" }
-      ]
-    }
-  ],
-  "schemaTables": [
-    {
-      "name": "nama_tabel",
-      "desc": "Deskripsi fungsi tabel",
-      "fields": [
-        { "field": "nama_kolom", "type": "TIPE_DATA", "required": "Ya/Opsional", "note": "catatan/PK/FK" }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-Data PRD saat ini:
-${JSON.stringify(prdSnapshot, null, 2)}`;
+        const prompt = buildAiPrompt(prdSnapshot, userBrief);
 
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
@@ -3331,30 +3738,47 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: {
-                temperature: 0.3,
-                maxOutputTokens: 8192,
+                temperature: 0.4,
+                maxOutputTokens: 4096,
+                topP: 0.95,
               }
             })
           }
         );
 
         if (!response.ok) {
-          const errJson = await response.json();
+          const errJson = await response.json().catch(function () { return {}; });
           const errMsg = errJson.error?.message || '';
-
           if (response.status === 429 || errJson.error?.code === 429) {
             if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
-              throw new Error('Kuota harian (Free Tier) Gemini API telah habis. Silakan gunakan API Key baru atau tunggu reset kuota harian.');
+              throw new Error('Kuota harian (Free Tier) Gemini API telah habis.');
             }
-            throw new Error('Batas penggunaan AI sedang penuh. Silakan tunggu 30 detik lalu coba lagi.');
+            throw new Error('Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.');
           }
-
           throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
         }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullTextAccumulator = '';
+        // ============================================================
+        // FIX ANIMASI FRAME DROP:
+        // Throttle update store ke UI maksimal 1x per 80ms.
+        //
+        // MASALAH SEBELUMNYA:
+        // set({ aiFeedback }) dipanggil setiap token masuk dari API
+        // (bisa 30-50x per detik). Setiap panggilan set() memicu
+        // re-render seluruh subscriber Zustand, termasuk komponen
+        // yang punya animasi CSS (toggle switch, progress bar, dll).
+        // Main thread kewalahan dan animasi jadi patah-patah.
+        //
+        // SOLUSI:
+        // Token tetap dikumpulkan di variabel lokal (instant, tanpa
+        // re-render), tapi update ke store dibatasi tiap 80ms.
+        // Kecepatan streaming tetap sama, user tidak merasakan delay,
+        // tapi main thread punya waktu untuk menjalankan animasi.
+        // ============================================================
+        let lastUiPush = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -3373,30 +3797,26 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
 
-                const cleanDisplay = cleanLatex(
-                  fullTextAccumulator.replace(/```json_draft[\s\S]*?$/, '')
-                );
-
-                set({ aiFeedback: cleanDisplay });
-              } catch (e) {
-                // Ignore incomplete JSON chunks
-              }
+                // Throttle: hanya push ke UI setiap 80ms
+                const now = performance.now();
+                if (now - lastUiPush > 80) {
+                  lastUiPush = now;
+                  const cleanDisplay = cleanLatex(
+                    fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
+                  );
+                  set({ aiFeedback: cleanDisplay });
+                }
+              } catch (e) {}
             }
           }
         }
 
-        let extractedDraft = null;
-        const match = fullTextAccumulator.match(/```json_draft\s*([\s\S]*?)\s*```/);
-        if (match && match[1]) {
-          try {
-            extractedDraft = JSON.parse(match[1]);
-          } catch (e) {
-            console.warn('Gagal parse JSON draft dari AI:', e);
-          }
-        }
+        // Push terakhir: pastikan semua teks yang tersisa tampil
+        const extractedDraft = extractAiDraft(fullTextAccumulator);
+        console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
 
         const finalCleanFeedback = cleanLatex(
-          fullTextAccumulator.replace(/```json_draft[\s\S]*?```/, '')
+          fullTextAccumulator.replace(/`{3,}\s*json_draft[\s\S]*?`{3,}/gi, '')
         );
 
         set({
@@ -3412,6 +3832,10 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
       }
     },
 
+    // ============================================================
+    // ACTION APPLY DRAFT
+    // Otomatis mengaktifkan modul enterprise di Simple Mode
+    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -3419,24 +3843,38 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
 
       set(function (s) {
         const updateState = {};
+        const newSimpleExtras = { ...s.simpleExtras };
 
         if (draft.fields && typeof draft.fields === 'object') {
           updateState.fields = { ...s.fields };
           Object.keys(draft.fields).forEach((key) => {
-            if (draft.fields[key]) {
-              let val = draft.fields[key];
-
-              if (typeof val === 'string') {
-                val = sanitizeMultiline(cleanLatex(val));
+            const rawVal = draft.fields[key];
+            if (rawVal && typeof rawVal === 'string' && rawVal.trim()) {
+              const val = sanitizeMultiline(cleanLatex(rawVal));
+              if (val.trim()) {
+                updateState.fields[key] = val;
               }
-
-              updateState.fields[key] = val;
             }
           });
+
+          const personaKeys = ['userPersona', 'successMetrics'];
+          if (personaKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.persona = true;
+          }
+
+          const brandingKeys = ['brandTypography', 'brandLayout'];
+          if (brandingKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.branding = true;
+          }
+
+          const nfrKeys = ['nfrSpecs', 'nfrPerformance', 'nfrLocalization', 'nfrBrowser', 'figmaLink', 'riskMitigation'];
+          if (nfrKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
+            newSimpleExtras.nfr = true;
+          }
         }
 
         if (Array.isArray(draft.features) && draft.features.length > 0) {
-          updateState.features = draft.features.map(function(f, idx) {
+          updateState.features = draft.features.map(function (f, idx) {
             return {
               id: f.id || 'F-0' + (idx + 1),
               name: sanitizeMultiline(cleanLatex(f.name || '')),
@@ -3446,21 +3884,33 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           });
         }
 
+        if (Array.isArray(draft.palette) && draft.palette.length > 0) {
+          updateState.palette = draft.palette.map(function (p) {
+            return {
+              name: sanitizeMultiline(cleanLatex(p.name || '')),
+              hex: p.hex || '#C9A961',
+              usage: sanitizeMultiline(cleanLatex(p.usage || ''))
+            };
+          });
+          newSimpleExtras.branding = true;
+        }
+
         if (Array.isArray(draft.roles) && draft.roles.length > 0) {
-          updateState.roles = draft.roles.map(function(r) {
+          updateState.roles = draft.roles.map(function (r) {
             return {
               name: sanitizeMultiline(cleanLatex(r.name || '')),
               can: sanitizeMultiline(cleanLatex(r.can || '')),
               cannot: sanitizeMultiline(cleanLatex(r.cannot || ''))
             };
           });
+          newSimpleExtras.roles = true;
         }
 
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
-          updateState.acModules = draft.acModules.map(function(m) {
+          updateState.acModules = draft.acModules.map(function (m) {
             return {
               title: sanitizeMultiline(cleanLatex(m.title || '')),
-              items: Array.isArray(m.items) ? m.items.map(function(it) {
+              items: Array.isArray(m.items) ? m.items.map(function (it) {
                 return {
                   title: sanitizeMultiline(cleanLatex(it.title || '')),
                   desc: sanitizeMultiline(cleanLatex(it.desc || ''))
@@ -3468,14 +3918,15 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
               }) : []
             };
           });
+          newSimpleExtras.ac = true;
         }
 
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
-          updateState.schemaTables = draft.schemaTables.map(function(t) {
+          updateState.schemaTables = draft.schemaTables.map(function (t) {
             return {
               name: sanitizeMultiline(cleanLatex(t.name || '')),
               desc: sanitizeMultiline(cleanLatex(t.desc || '')),
-              fields: Array.isArray(t.fields) ? t.fields.map(function(fi) {
+              fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
                 return {
                   field: sanitizeMultiline(cleanLatex(fi.field || '')),
                   type: sanitizeMultiline(cleanLatex(fi.type || '')),
@@ -3485,12 +3936,16 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
               }) : []
             };
           });
+          newSimpleExtras.schema = true;
         }
+
+        updateState.simpleExtras = newSimpleExtras;
 
         return { ...updateState, aiDraft: null };
       });
 
       get().commitHistory();
+      console.log('[AI Draft] Apply selesai.');
       return true;
     },
 
@@ -3504,74 +3959,74 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
           fields: {
             projectName: 'Instagram', docVersion: 'v2.0 Final Draft', author: 'Tim Product Instagram',
             targetDate: '2026-12-15', targetDateFormat: 'full',
-            problemStatement: 'Pengguna membutuhkan platform untuk berbagi momen berupa foto dan video secara cepat, serta berinteraksi dengan komunitas melalui like, komentar, dan pesan langsung.',
-            productGoal: 'Membangun platform media sosial berbagi foto dan video dengan feed personal, stories 24 jam, dan sistem interaksi real-time.',
-            userFlow: 'Onboarding -> Login -> Home Feed -> Upload Post -> Edit & Filter -> Publish -> Like/Komentar -> Profile',
-            techFrontend: 'React Native, React, Redux Toolkit',
-            techBackend: 'Node.js, GraphQL, Django REST',
-            techDatabase: 'PostgreSQL, Redis, Cassandra',
-            techInfra: 'AWS (EC2, S3, CloudFront), Docker, Kubernetes',
-            techDomain: 'Route 53, Cloudflare DNS',
+            problemStatement: 'Pengguna butuh platform buat share foto & video cepet, plus interaksi lewat like, komentar, dan DM.',
+            productGoal: 'Platform social media foto/video dengan feed personal, stories 24 jam, dan interaksi real-time.',
+            userFlow: 'Onboarding → Login → Home Feed → Upload Post → Edit & Filter → Publish → Like/Komentar → Profile',
+            techFrontend: 'React Native + Redux Toolkit',
+            techBackend: 'Node.js + GraphQL',
+            techDatabase: 'PostgreSQL + Redis + Cassandra',
+            techInfra: 'AWS EC2 + S3 + CloudFront + Kubernetes',
+            techDomain: 'Route 53 + Cloudflare DNS',
             techVcs: 'GitHub',
-            techSecurity: 'OAuth 2.0, JWT + refresh token, bcrypt, 2FA',
+            techSecurity: 'OAuth 2.0 + JWT + bcrypt + 2FA',
             techStorage: 'AWS S3 + CloudFront CDN',
-            techThirdParty: 'Firebase Cloud Messaging, FFmpeg, Google Maps',
-            techDevOps: 'GitHub Actions CI/CD, Sentry',
-            techCaching: 'Redis, Memcached',
-            techQueue: 'Kafka, RabbitMQ',
-            techMonitoring: 'Sentry, Grafana, Prometheus',
-            techAnalytics: 'Amplitude, Google Analytics',
-            techTesting: 'Jest, Detox, Playwright',
+            techThirdParty: 'Firebase Cloud Messaging + FFmpeg + Google Maps',
+            techDevOps: 'GitHub Actions CI/CD + Sentry',
+            techCaching: 'Redis + Memcached',
+            techQueue: 'Kafka',
+            techMonitoring: 'Sentry + Grafana + Prometheus',
+            techAnalytics: 'Amplitude + Google Analytics',
+            techTesting: 'Jest + Detox + Playwright',
             dbSchema: 'users: id, username, email, password_hash, bio, profile_pic_url\nposts: id, user_id, media_url, caption, likes_count\ncomments: id, post_id, user_id, text\nfollows: follower_id, followee_id\nstories: id, user_id, media_url, expires_at',
             outOfScope: 'Live streaming\nVideo call\nMarketplace / jual beli',
-            defOfDone: 'Semua AC terpenuhi\nTidak ada bug critical\nFeed load < 2 detik\nUpload media sukses 99%',
-            userPersona: 'Gen Z & milenial 15-34 tahun, content creator, brand & bisnis',
-            successMetrics: 'DAU/MAU >= 0.6, Retention D30 >= 40%, avg session >= 15 menit',
-            brandTypography: 'System font (SF Pro / Roboto), Billabong untuk logo',
-            brandLayout: 'Mobile-first, grid gallery 3 kolom, infinite scroll',
+            defOfDone: 'Semua AC lulus\nZero critical bug\nFeed load < 2 detik\nUpload success rate 99%',
+            userPersona: 'Gen Z 15-24 tahun (content creator kasual), milenial 25-34 (brand/bisnis kecil)',
+            successMetrics: 'DAU/MAU ratio ≥ 0.6, D30 retention ≥ 40%, avg session ≥ 15 menit',
+            brandTypography: 'System font (SF Pro iOS / Roboto Android), Billabong untuk logo saja',
+            brandLayout: 'Mobile-first, grid 3 kolom, infinite scroll, thumb-friendly navigation',
             bpMobileOp: '≤', bpMobile: '640', bpMobileUnit: 'px',
             bpTabletOp: '≤', bpTablet: '1024', bpTabletUnit: 'px',
             bpDesktopOp: '≥', bpDesktop: '1024', bpDesktopUnit: 'px',
-            nfrSpecs: 'HTTPS/TLS 1.3, OAuth 2.0, rate limiting, enkripsi at-rest',
-            nfrPerformance: 'FCP < 1.2s, feed load < 2s, kompresi media otomatis',
-            nfrLocalization: 'Multi-bahasa (30+), format waktu & tanggal lokal',
-            nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge',
-            figmaLink: '[https://figma.com/file/instagram-clone](https://figma.com/file/instagram-clone)',
-            riskMitigation: 'Risiko konten ilegal & cyberbullying. Mitigasi: AI moderation, report & block, rate limiting.',
+            nfrSpecs: 'HTTPS/TLS 1.3 everywhere, OAuth 2.0, rate limit per IP, enkripsi at-rest (AES-256)',
+            nfrPerformance: 'FCP < 1.2s, feed load < 2s, image auto-compress WebP/AVIF',
+            nfrLocalization: '30+ bahasa, format waktu & tanggal lokal, RTL support',
+            nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
+            figmaLink: 'https://figma.com/file/instagram-clone',
+            riskMitigation: 'Konten ilegal & cyberbullying → AI moderation + report flow + rate limit upload',
           },
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
-            { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol primer & link' },
+            { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol utama & link aktif' },
             { name: 'Gradient Purple', hex: '#833AB4', usage: 'Gradient logo & stories ring' },
             { name: 'Gradient Pink', hex: '#E1306C', usage: 'Gradient logo & stories ring' },
-            { name: 'Gradient Orange', hex: '#F77737', usage: 'Gradient logo & accent' },
+            { name: 'Gradient Orange', hex: '#F77737', usage: 'Gradient accent' },
             { name: 'Neutral White', hex: '#FFFFFF', usage: 'Background utama' },
-            { name: 'Text Black', hex: '#262626', usage: 'Teks utama' },
+            { name: 'Text Black', hex: '#262626', usage: 'Teks body & heading' },
           ],
           roles: [
-            { name: 'User Reguler', can: 'Buat post & story\nLike, komentar, share, save\nFollow/unfollow\nDirect message', cannot: 'Hapus konten orang lain\nAkses insight analitik' },
-            { name: 'Content Creator (Pro)', can: 'Semua hak user reguler\nAkses insight & analitik\nMonetisasi & link di story', cannot: 'Hapus konten orang lain' },
-            { name: 'Admin / Moderator', can: 'Hapus konten melanggar\nSuspend/ban akun\nKelola laporan pengguna', cannot: 'Edit post milik pengguna' },
+            { name: 'User Reguler', can: 'Post & story\nLike, komentar, share, save\nFollow/unfollow\nDM', cannot: 'Hapus konten orang lain\nAkses insight' },
+            { name: 'Creator (Pro)', can: 'Semua hak user reguler\nInsight & analytics\nMonetisasi link story', cannot: 'Hapus konten orang lain' },
+            { name: 'Admin/Moderator', can: 'Hapus konten violating\nSuspend/ban akun\nHandle report queue', cannot: 'Edit post user' },
           ],
           schemaTables: [
-            { name: 'users', desc: 'Akun pengguna', fields: [
+            { name: 'users', desc: 'Akun pengguna + profil publik', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
-              { field: 'username', type: 'VARCHAR', required: 'Ya', note: 'unik, max 30' },
-              { field: 'email', type: 'VARCHAR', required: 'Ya', note: 'unik' },
-              { field: 'password_hash', type: 'VARCHAR', required: 'Ya', note: 'bcrypt' },
+              { field: 'username', type: 'VARCHAR', required: 'Ya', note: 'unik, max 30 char' },
+              { field: 'email', type: 'VARCHAR', required: 'Ya', note: 'unik, verified' },
+              { field: 'password_hash', type: 'VARCHAR', required: 'Ya', note: 'bcrypt 12 rounds' },
               { field: 'bio', type: 'TEXT', required: 'Opsional', note: 'max 150 karakter' },
               { field: 'profile_pic_url', type: 'VARCHAR', required: 'Opsional', note: 'URL S3' },
             ] },
-            { name: 'posts', desc: 'Post foto/video di feed', fields: [
+            { name: 'posts', desc: 'Post foto/video di feed utama', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
               { field: 'user_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
               { field: 'media_url', type: 'VARCHAR', required: 'Ya', note: 'URL S3/CDN' },
-              { field: 'caption', type: 'TEXT', required: 'Opsional', note: 'dengan hashtag' },
-              { field: 'likes_count', type: 'INT / INTEGER', required: 'Ya', note: 'default 0' },
-              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'untuk urutan feed' },
+              { field: 'caption', type: 'TEXT', required: 'Opsional', note: 'support hashtag & mention' },
+              { field: 'likes_count', type: 'INT', required: 'Ya', note: 'counter, default 0' },
+              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'index untuk feed ordering' },
             ] },
-            { name: 'comments', desc: 'Komentar pada post', fields: [
+            { name: 'comments', desc: 'Komentar di post', fields: [
               { field: 'id', type: 'BIGINT', required: 'Ya', note: 'PK' },
               { field: 'post_id', type: 'BIGINT', required: 'Ya', note: 'FK ke posts' },
               { field: 'user_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
@@ -3580,37 +4035,37 @@ ${JSON.stringify(prdSnapshot, null, 2)}`;
             { name: 'follows', desc: 'Relasi follow antar user', fields: [
               { field: 'follower_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
               { field: 'followee_id', type: 'BIGINT', required: 'Ya', note: 'FK ke users' },
-              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'PK komposit' },
+              { field: 'created_at', type: 'TIMESTAMP', required: 'Ya', note: 'composite PK' },
             ] },
           ],
           acModules: [
-            { title: 'Autentikasi & Onboarding', items: [
-              { title: 'Registrasi', desc: 'Daftar dengan email/username unik, password minimal 8 karakter, verifikasi email' },
-              { title: 'Login Aman', desc: 'Login dengan JWT + refresh token, dukungan 2FA dan logout semua perangkat' },
+            { title: 'Auth & Onboarding', items: [
+              { title: 'Register', desc: 'User submit email + username unik + password ≥ 8 char → email verifikasi terkirim < 5 detik' },
+              { title: 'Login', desc: 'Kredensial valid → mint JWT + refresh token, redirect ke home feed' },
             ] },
             { title: 'Feed & Post', items: [
-              { title: 'Home Feed', desc: 'Infinite scroll post dari akun yang diikuti dengan pull-to-refresh' },
-              { title: 'Upload Post', desc: 'Upload foto/video, crop, filter, caption + hashtag, lalu publish' },
-              { title: 'Like & Komentar', desc: 'Double-tap untuk like dengan animasi hati, komentar real-time dengan mention' },
+              { title: 'Home Feed', desc: 'Pull-to-refresh load post terbaru dari following, infinite scroll batch 20 post' },
+              { title: 'Upload Post', desc: 'Pilih foto/video → crop/filter → caption + hashtag → publish → muncul di feed follower dalam < 3 detik' },
+              { title: 'Like', desc: 'Double-tap post → animasi hati, counter increment, notifikasi ke owner' },
             ] },
             { title: 'Stories', items: [
-              { title: 'Buat Story', desc: 'Story foto/video 15 detik dengan stiker & teks, otomatis hilang setelah 24 jam' },
-              { title: 'Stories Ring', desc: 'Ring gradient pada avatar untuk story yang belum dilihat, abu-abu setelah dilihat' },
+              { title: 'Buat Story', desc: 'Capture foto/video ≤ 15 detik → tambah stiker/teks → publish → ring gradient muncul di avatar follower' },
+              { title: 'View Story', desc: 'Tap avatar → putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
             ] },
             { title: 'Profile & Follow', items: [
-              { title: 'Profile Grid', desc: 'Grid 3 kolom, tab Posts/Saved/Tagged, edit profile dan ganti foto' },
-              { title: 'Follow System', desc: 'Follow/unfollow dengan update count follower & following secara real-time' },
+              { title: 'Profile Grid', desc: 'Tab Posts/Saved/Tagged render grid 3 kolom, scroll infinite' },
+              { title: 'Follow/Unfollow', desc: 'Tap tombol → counter update real-time, feed algorithm adjust' },
             ] },
           ],
           features: [
-            { id: 'F-01', name: 'Autentikasi', story: 'Registrasi, login, logout dengan JWT dan 2FA', priority: 'High' },
-            { id: 'F-02', name: 'Upload Post', story: 'Upload foto/video dengan filter, crop, dan caption', priority: 'High' },
-            { id: 'F-03', name: 'Home Feed', story: 'Infinite scroll post dari akun yang diikuti', priority: 'High' },
-            { id: 'F-04', name: 'Interaksi Sosial', story: 'Like, komentar, share, dan save post', priority: 'High' },
-            { id: 'F-05', name: 'Stories', story: 'Story 24 jam dengan ring gradient dan stiker', priority: 'Medium' },
-            { id: 'F-06', name: 'Direct Message', story: 'Chat pribadi dengan kirim teks, foto, dan reaksi', priority: 'Medium' },
-            { id: 'F-07', name: 'Explore & Search', story: 'Rekomendasi konten berdasarkan minat dan tren', priority: 'Medium' },
-            { id: 'F-08', name: 'Notifikasi Push', story: 'Notifikasi like, komentar, follow via FCM', priority: 'Low' },
+            { id: 'F-01', name: 'Auth', story: 'User bisa login/logout pakai email + 2FA opsional, session persist 30 hari', priority: 'High' },
+            { id: 'F-02', name: 'Upload Post', story: 'User bisa upload foto/video dengan filter, crop, caption + hashtag', priority: 'High' },
+            { id: 'F-03', name: 'Home Feed', story: 'User lihat post terbaru dari following, infinite scroll, pull-to-refresh', priority: 'High' },
+            { id: 'F-04', name: 'Interaksi', story: 'User bisa like, komentar, share, save post. Counter real-time.', priority: 'High' },
+            { id: 'F-05', name: 'Stories', story: 'User bisa post story 24 jam dengan ring gradient, auto-expire', priority: 'Medium' },
+            { id: 'F-06', name: 'DM', story: 'User bisa chat privat (teks + foto + reaksi) dengan follower mutual', priority: 'Medium' },
+            { id: 'F-07', name: 'Explore', story: 'User dapat rekomendasi konten berdasarkan minat & trending', priority: 'Medium' },
+            { id: 'F-08', name: 'Push Notification', story: 'User dapat notifikasi like, komentar, follow via FCM', priority: 'Low' },
           ],
         };
       });

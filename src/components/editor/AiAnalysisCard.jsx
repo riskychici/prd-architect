@@ -103,29 +103,23 @@ export default function AiAnalysisCard() {
       typewriterStartRef.current = null;
       return;
     }
-
     if (typewriterStartRef.current === null) {
       typewriterStartRef.current = performance.now();
     }
-
     setIsTypingFinished(false);
-
     const timer = setInterval(() => {
       const elapsed = performance.now() - typewriterStartRef.current;
       const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
       const targetLength = Math.min(expectedChars, rawAiFeedback.length);
-
       setDisplayedText((prev) => {
         if (prev.length === targetLength) return prev;
         return rawAiFeedback.slice(0, targetLength);
       });
-
       if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
         setIsTypingFinished(true);
         clearInterval(timer);
       }
     }, TICK_MS);
-
     return () => clearInterval(timer);
   }, [rawAiFeedback, isAnalyzing]);
 
@@ -240,7 +234,6 @@ export default function AiAnalysisCard() {
 
   return (
     <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
-
       {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
         <div className="flex items-start space-x-2.5 min-w-0">
@@ -255,7 +248,6 @@ export default function AiAnalysisCard() {
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
         </div>
-
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
@@ -321,7 +313,6 @@ export default function AiAnalysisCard() {
 
       {(displayedText || isAnalyzing) && (
         <div className="space-y-3 pt-1 border-t border-purple-900/40">
-
           {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
             <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
@@ -333,7 +324,6 @@ export default function AiAnalysisCard() {
                 </span>
               )}
             </span>
-
             <div className="flex items-center gap-2 flex-wrap">
               {!isBusy && (
                 <button
@@ -369,7 +359,10 @@ export default function AiAnalysisCard() {
               onScroll={handleScroll}
               className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
               style={{
-                overscrollBehavior: 'contain',
+                // UBAH DI SINI: 'contain' mencegah scroll chaining ke parent.
+                // 'auto' memungkinkan halaman editor ikut ter-scroll saat
+                // kotak AI sudah mentok di bawah atau atas.
+                overscrollBehavior: 'auto',
                 // FIX PERFORMA: containment membuat perubahan layout & paint
                 // di dalam box tidak menyebar ke seluruh halaman, sehingga
                 // animasi di luar box (toggle, progress bar, dll) tetap mulus
