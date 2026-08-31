@@ -5,6 +5,7 @@ import { usePrdStore } from '../../../store/usePrdStore';
 import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
 import EditorSection from '../EditorSection';
 import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
 
 function FieldRow(props) {
   const def = props.def;
@@ -12,7 +13,6 @@ function FieldRow(props) {
   const onChange = props.onChange;
   const onRemove = props.onRemove;
   const fieldId = 'tech-' + def.key;
-
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -27,14 +27,17 @@ function FieldRow(props) {
           </button>
         )}
       </div>
-      <input
-        id={fieldId}
-        type="text"
-        value={value}
-        onChange={function (e) { onChange(e.target.value); }}
-        placeholder={def.ph || ''}
-        className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-100 focus:border-blue-500 focus:outline-none"
-      />
+      <div className="relative">
+        <input
+          id={fieldId}
+          type="text"
+          value={value}
+          onChange={function (e) { onChange(e.target.value); }}
+          placeholder={def.ph || ''}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none"
+        />
+        <AiRefineButton value={value} onApply={onChange} mode="technical" label={def.label} className="absolute right-2 top-1/2 -translate-y-1/2" />
+      </div>
     </div>
   );
 }
@@ -47,7 +50,6 @@ export default function TechStack() {
   const remTech = usePrdStore(function (s) { return s.removeTechExtra; });
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
-
   useEffect(function () {
     function onDoc(e) {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
@@ -55,11 +57,9 @@ export default function TechStack() {
     document.addEventListener('mousedown', onDoc);
     return function () { document.removeEventListener('mousedown', onDoc); };
   }, []);
-
   const availEssential = TECH_OPTIONAL.filter(function (d) { return d.category === 'Esensial' && !techOptional.includes(d.key); });
   const availAdvanced = TECH_OPTIONAL.filter(function (d) { return d.category === 'Lanjutan' && !techOptional.includes(d.key); });
   const addedOptional = TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); });
-
   return (
     <EditorSection
       title="4. Spesifikasi Tech Stack & Arsitektur"
@@ -102,7 +102,10 @@ export default function TechStack() {
       <div className="space-y-3 text-xs">
         <div>
           <label htmlFor="userFlow" className="block text-slate-300 font-medium mb-1">Alur Pengguna (User Flow)</label>
-          <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+          <div className="relative">
+            <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.userFlow} onApply={function (v) { set('userFlow', v); }} mode="flow" label="User Flow" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
           {TECH_REQUIRED.map(function (d) {

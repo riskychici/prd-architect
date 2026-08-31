@@ -62,7 +62,9 @@ export const DEFAULT_FIELDS = {
   outOfScope:'',defOfDone:'',
   coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
   coverKicker:'',coverFooterNote:'',coverShowFooter:true,
-  coverTagline:'',coverTaglineHash:'',
+  // SATU-SATUNYA sumber teks subtitle di sampul.
+  // Diisi manual oleh user atau lewat tombol "Pakai saran AI".
+  coverSubtitle:'',
 };
 
 export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});

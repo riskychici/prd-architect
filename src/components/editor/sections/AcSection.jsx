@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { usePrdStore } from '../../../store/usePrdStore';
 import EditorSection from '../EditorSection';
 import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
 
 export default function AcSection() {
   const mode = usePrdStore(function (s) { return s.mode; });
@@ -14,9 +15,7 @@ export default function AcSection() {
   const addI = usePrdStore(function (s) { return s.addAcItem; });
   const updI = usePrdStore(function (s) { return s.updateAcItem; });
   const remI = usePrdStore(function (s) { return s.removeAcItem; });
-
   if (mode !== 'enterprise' && !se.ac) return null;
-
   return (
     <EditorSection title="Acceptance Criteria per Modul" icon={faClipboardCheck} color="amber"
       action={<IconButton onClick={addM} variant="accent" ariaLabel="Tambah modul baru">+ Modul</IconButton>}>
@@ -25,8 +24,11 @@ export default function AcSection() {
           return (
             <div key={mi} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
               <div className="flex justify-between items-center">
-                <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
-                <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-semibold w-2/3" />
+                <div className="relative w-2/3">
+                  <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
+                  <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 font-semibold" />
+                  <AiRefineButton value={m.title} onApply={function (v) { updM(mi, { title: v }); }} mode="phrase" label={'nama modul ' + (mi + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
                 <button onClick={function () { remM(mi); }} aria-label={'Hapus modul ' + (m.title || (mi + 1))} className="text-rose-400 hover:text-rose-300">
                   <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
                 </button>
@@ -41,10 +43,16 @@ export default function AcSection() {
                           <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
                         </button>
                       </div>
-                      <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
-                      <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-                      <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
-                      <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
+                      <div className="relative">
+                        <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                        <AiRefineButton value={it.title} onApply={function (v) { updI(mi, ii, { title: v }); }} mode="phrase" label={'judul kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <div className="relative">
+                        <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
+                        <AiRefineButton value={it.desc} onApply={function (v) { updI(mi, ii, { desc: v }); }} mode="paragraph" label={'deskripsi kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1" />
+                      </div>
                     </div>
                   );
                 })}

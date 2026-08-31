@@ -34,7 +34,7 @@ export const buildBreakpoints = function (fields) {
     if (!num) return;
     parts.push(label + ' ' + (fields[key+'Op']||'') + num + (fields[key+'Unit']||''));
   });
-  return parts.join(' · ');
+  return parts.join(' \u00B7 ');
 };
 
 // ============================================================
@@ -210,11 +210,7 @@ export const resolveCoverTheme = function (fields, palette) {
 };
 
 // ============================================================
-// HASH CACHE UNTUK TAGLINE
-// hashText mendeteksi perubahan teks agar pemanggilan AI tidak
-// berulang untuk teks yang sama.
-// TAGLINE_HASH_VERSION dinaikkan setiap kali prompt AI berubah,
-// agar cache tagline lama otomatis dianggap basi dan dibuat ulang.
+// HASH CACHE (peninggalan fitur lama, aman dibiarkan)
 // ============================================================
 export const hashText = function (s) {
   let h = 5381;
@@ -232,10 +228,9 @@ export const taglineHash = function (text) {
 };
 
 // ============================================================
-// PERINGKAS TEKS SAMPUL (FALLBACK HEURISTIK)
-// Memotong di batas klausa alami (koma atau kata sambung) lalu
-// mengakhiri hasil dengan titik. TIDAK ADA elipsis, sehingga
-// sampul selalu terlihat bersih dan profesional.
+// PERINGKAS TEKS SAMPUL (FALLBACK HEURISTIK, peninggalan lama)
+// Memotong di batas klausa alami lalu mengakhiri dengan titik,
+// tanpa elipsis.
 // ============================================================
 const CLAUSE_MARKERS = [' dan ', ' serta ', ' atau ', ' sehingga ', ' agar ', ' untuk ', ' dengan ', ' yang '];
 

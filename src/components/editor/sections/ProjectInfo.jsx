@@ -1,9 +1,8 @@
 import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
 import { usePrdStore } from '../../../store/usePrdStore';
 import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
 
-// Opsi status dokumen yang umum dipakai di industri,
-// lengkap dengan keterangan agar maknanya jelas.
 const STATUS_OPTIONS = [
   { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
   { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
@@ -21,7 +20,10 @@ export default function ProjectInfo() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
         <div>
           <label htmlFor="projectName" className="block text-slate-300 font-medium mb-1">Nama Proyek / Aplikasi</label>
-          <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+          <div className="relative">
+            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
         </div>
         <div>
           <label htmlFor="docVersion" className="block text-slate-300 font-medium mb-1">Versi Dokumen</label>
@@ -29,7 +31,10 @@ export default function ProjectInfo() {
         </div>
         <div>
           <label htmlFor="author" className="block text-slate-300 font-medium mb-1">Penulis / Product Owner</label>
-          <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+          <div className="relative">
+            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
         </div>
         <div>
           <label htmlFor="docStatus" className="block text-slate-300 font-medium mb-1">Status Dokumen</label>

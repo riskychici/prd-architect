@@ -4,6 +4,7 @@ import { usePrdStore } from '../../../store/usePrdStore';
 import { liveHexColor, normalizeHex } from '../../../utils/helpers';
 import EditorSection from '../EditorSection';
 import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
 
 export default function BrandingSection() {
   const mode = usePrdStore(function (s) { return s.mode; });
@@ -14,15 +15,12 @@ export default function BrandingSection() {
   const addP = usePrdStore(function (s) { return s.addPalette; });
   const updP = usePrdStore(function (s) { return s.updatePalette; });
   const remP = usePrdStore(function (s) { return s.removePalette; });
-
   if (mode !== 'enterprise' && !se.branding) return null;
-
   const bps = [
     { l: 'Mobile', k: 'bpMobile' },
     { l: 'Tablet', k: 'bpTablet' },
     { l: 'Desktop', k: 'bpDesktop' },
   ];
-
   return (
     <EditorSection title="Branding & Design System" icon={faPalette} color="amber"
       action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
@@ -39,13 +37,16 @@ export default function BrandingSection() {
               <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
                 <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
-                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="C9A961" maxLength="6" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pl-6 pr-8 text-slate-100 font-mono focus:border-amber-500 focus:outline-none" />
+                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="FFFFFF" maxLength="6" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pl-6 pr-8 text-slate-100 font-mono focus:border-amber-500 focus:outline-none" />
                 <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
                 <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
                 <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
               </div>
               <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
-              <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="col-span-3 order-5 md:order-4 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
+              <div className="relative col-span-3 order-5 md:order-4">
+                <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                <AiRefineButton value={p.usage} onApply={function (v) { updP(i, { usage: v }); }} mode="phrase" label={'penggunaan warna ' + (p.name || (i + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+              </div>
               <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
                 <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
               </button>
@@ -56,11 +57,17 @@ export default function BrandingSection() {
       <div className="space-y-3 text-xs pt-2">
         <div>
           <label htmlFor="brandTypography" className="block text-slate-300 font-medium mb-1">Typography</label>
-          <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
+          <div className="relative">
+            <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none" />
+            <AiRefineButton value={f.brandTypography} onApply={function (v) { set('brandTypography', v); }} mode="phrase" label="Typography" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
         </div>
         <div>
           <label htmlFor="brandLayout" className="block text-slate-300 font-medium mb-1">Prinsip Layout</label>
-          <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+          <div className="relative">
+            <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.brandLayout} onApply={function (v) { set('brandLayout', v); }} mode="paragraph" label="Prinsip Layout" className="absolute right-2 top-2" />
+          </div>
         </div>
         <div>
           <span className="block text-slate-300 font-medium mb-1">Breakpoint Responsif</span>

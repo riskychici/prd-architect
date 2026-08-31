@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { useAutoResize } from '../../hooks/useAutoResize';
-import { useAutoTagline } from '../../hooks/useAutoTagline';
 import ModeBanner from './ModeBanner';
 import ExtrasPicker from './ExtrasPicker';
 import AiAnalysisCard from './AiAnalysisCard';
@@ -20,10 +19,8 @@ import OutOfScope from './sections/OutOfScope';
 
 // Bridge: langganan store yang berat dipisah ke komponen
 // yang me-render null, supaya EditorPanel tidak re-render tiap ketikan.
-// useAutoTagline berjalan di sini sebagai pekerja latar.
 function AutoSaveBridge() {
   useAutoSave();
-  useAutoTagline();
   return null;
 }
 

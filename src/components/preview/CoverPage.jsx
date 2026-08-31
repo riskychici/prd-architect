@@ -1,8 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles } from '@fortawesome/free-solid-svg-icons';
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { formatTargetDate, resolveCoverTheme, summarizeForCover, taglineHash, titleCaseForCover } from '../../utils/helpers';
+import { formatTargetDate, resolveCoverTheme, titleCaseForCover } from '../../utils/helpers';
 
 export default function CoverPage() {
   const f = usePrdStore(function (s) { return s.fields; });
@@ -18,37 +15,27 @@ export default function CoverPage() {
   const firstWord = words[0] || '';
   const restWords = words.slice(1).join(' ');
 
-  const goalText = (f.productGoal || '').trim();
-  const autoTagline = (f.coverTagline || '').trim();
-  const taglineValid = !!autoTagline && f.coverTaglineHash === taglineHash(goalText);
+  // SATU SUMBER KEBENARAN: sampul hanya membaca coverSubtitle.
+  // Apa yang diketik di field Subtitle Sampul, itu yang tampil.
+  // Jika kosong, tampilkan teks default yang netral.
+  const rawSubtitle = (f.coverSubtitle || '').trim();
+  const subtitle = rawSubtitle ? titleCaseForCover(rawSubtitle) : 'Dokumen Spesifikasi Produk';
 
-  // Subtitle mentah (heuristik atau AI), lalu diformat Title Case
-  // agar tampil seperti judul dokumen profesional.
-  const rawSubtitle = (taglineValid ? autoTagline : summarizeForCover(goalText, 90)) || 'Dokumen Spesifikasi Produk';
-  const subtitle = titleCaseForCover(rawSubtitle);
-
-  // Deteksi momen subtitle "naik kelas" dari heuristik ke hasil AI,
-  // supaya animasi transisi dijalankan tepat satu kali dan user
-  // menyadari bahwa ini fitur, bukan bug.
-  const [upgraded, setUpgraded] = useState(false);
-  const prevValidRef = useRef(false);
-
-  useEffect(function () {
-    if (taglineValid && !prevValidRef.current) {
-      prevValidRef.current = true;
-      setUpgraded(true);
-      const t = setTimeout(function () { setUpgraded(false); }, 800);
-      return function () { clearTimeout(t); };
-    }
-    if (!taglineValid) prevValidRef.current = false;
-    return undefined;
-  }, [taglineValid]);
-
+  // Baris fitur: ambil maksimal 4 nama fitur pertama.
+  // PERBAIKAN KECIL: nama yang terlalu panjang dipotong di
+  // batas kata (bukan di tengah kata) agar sampul tidak
+  // berantakan dan tetap terlihat profesional.
   const featureLine = features.length
-    ? features.slice(0, 4).map(function (ft) { return ft.name || ft.id; }).join(' · ')
+    ? features.slice(0, 4).map(function (ft) {
+        let name = (ft.name || ft.id || '').trim();
+        if (name.length > 25) {
+          const cut = name.slice(0, 22);
+          const lastSpace = cut.lastIndexOf(' ');
+          name = cut.slice(0, lastSpace > 12 ? lastSpace : 22).trimEnd() + '...';
+        }
+        return name;
+      }).join(' · ')
     : 'Overview · Fitur Utama · Tech Stack';
-
-  const descLine = summarizeForCover(f.problemStatement, 140) || 'Latar belakang masalah dan tujuan pengembangan produk.';
 
   const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
   const scope = ['Overview & Goals'];
@@ -87,34 +74,12 @@ export default function CoverPage() {
 
         <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
 
-        {/* Subtitle sampul berformat Title Case:
-            - key berubah saat sumber berganti (heuristik ke AI) agar
-              animasi fade-in jalan tepat pada momen pergantian.
-            - Saat user mengetik (heuristik), tidak ada animasi,
-              sehingga tidak ada flicker per ketikan.
-            - Chip AI hanya tampil di layar, hilang saat print. */}
-        <h2
-          key={(taglineValid ? 'ai-' : 'heur-') + subtitle}
-          className={'mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white' + (upgraded ? ' cover-subtitle-in' : '')}
-          title={f.productGoal || ''}
-        >
+        {/* Subtitle sampul: stabil, terkendali, satu sumber */}
+        <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white" title={rawSubtitle || 'Isi lewat section Sampul & Footer Dokumen'}>
           {subtitle}
-          {taglineValid && (
-            <span
-              className="cover-fade-in no-print ml-2 inline-flex items-center gap-1 align-middle text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40"
-              title="Subtitle ini diringkas otomatis oleh AI dari kolom Tujuan Utama Produk"
-            >
-              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-[8px]" />
-              AI
-            </span>
-          )}
         </h2>
 
         <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
-
-        <p className="mt-2 text-xs text-slate-400" title={f.problemStatement || ''}>
-          {descLine}
-        </p>
 
         <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
           <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
