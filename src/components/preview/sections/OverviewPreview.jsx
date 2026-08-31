@@ -1,4 +1,4 @@
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function OverviewPreview() {
   const f = usePrdStore(function (s) { return s.fields; });
   return (

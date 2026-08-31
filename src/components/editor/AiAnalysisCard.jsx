@@ -68,6 +68,8 @@ export default function AiAnalysisCard() {
   const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
   const aiError = usePrdStore((s) => s.aiError);
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
+  const aiTypewriterActive = usePrdStore((s) => s.aiTypewriterActive);
+  const setAiTypewriterActive = usePrdStore((s) => s.setAiTypewriterActive);
 
   const isPrdEmpty = usePrdStore((s) => {
     const f = s.fields;
@@ -78,7 +80,6 @@ export default function AiAnalysisCard() {
   });
 
   const showToast = useToast();
-
   const feedbackBoxRef = useRef(null);
   const briefRef = useRef(null);
   const typewriterStartRef = useRef(null);
@@ -94,34 +95,58 @@ export default function AiAnalysisCard() {
   const boxMounted = !!(displayedText || isAnalyzing);
 
   // ============================================================
-  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
+  // TYPEWRITER ENGINE
+  // Jika aiTypewriterActive false, teks langsung tampil penuh.
+  // Jika true, teks muncul huruf demi huruf seperti mengetik.
   // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
       setDisplayedText('');
       setIsTypingFinished(true);
       typewriterStartRef.current = null;
+
+      if (!isAnalyzing && aiTypewriterActive) {
+        setAiTypewriterActive(false);
+      }
+
       return;
     }
+
+    // Jika ini bukan output baru dari analisis AI yang sedang berjalan,
+    // tampilkan langsung seluruh teks tanpa efek mengetik.
+    // Kasus ini terjadi saat web dibuka ulang dan data diambil dari localStorage.
+    if (!aiTypewriterActive) {
+      setDisplayedText(rawAiFeedback);
+      setIsTypingFinished(true);
+      typewriterStartRef.current = null;
+      return;
+    }
+
     if (typewriterStartRef.current === null) {
       typewriterStartRef.current = performance.now();
     }
+
     setIsTypingFinished(false);
+
     const timer = setInterval(() => {
       const elapsed = performance.now() - typewriterStartRef.current;
       const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
       const targetLength = Math.min(expectedChars, rawAiFeedback.length);
+
       setDisplayedText((prev) => {
         if (prev.length === targetLength) return prev;
         return rawAiFeedback.slice(0, targetLength);
       });
+
       if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
         setIsTypingFinished(true);
         clearInterval(timer);
+        setAiTypewriterActive(false);
       }
     }, TICK_MS);
+
     return () => clearInterval(timer);
-  }, [rawAiFeedback, isAnalyzing]);
+  }, [rawAiFeedback, isAnalyzing, aiTypewriterActive, setAiTypewriterActive]);
 
   // ============================================================
   // AUTO-SCROLL: instant, hanya jika user di bottom
@@ -177,9 +202,11 @@ export default function AiAnalysisCard() {
   useEffect(() => {
     const el = feedbackBoxRef.current;
     if (!el) return;
+
     el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
     el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
     el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
+
     return () => {
       el.removeEventListener('wheel', handleUserScrollIntent);
       el.removeEventListener('touchmove', handleUserScrollIntent);
@@ -208,6 +235,7 @@ export default function AiAnalysisCard() {
       if (briefRef.current) briefRef.current.focus();
       return;
     }
+
     try {
       setDisplayedText('');
       userScrolledUpRef.current = false;
@@ -248,6 +276,7 @@ export default function AiAnalysisCard() {
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
         </div>
+
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
@@ -359,13 +388,7 @@ export default function AiAnalysisCard() {
               onScroll={handleScroll}
               className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
               style={{
-                // UBAH DI SINI: 'contain' mencegah scroll chaining ke parent.
-                // 'auto' memungkinkan halaman editor ikut ter-scroll saat
-                // kotak AI sudah mentok di bawah atau atas.
                 overscrollBehavior: 'auto',
-                // FIX PERFORMA: containment membuat perubahan layout & paint
-                // di dalam box tidak menyebar ke seluruh halaman, sehingga
-                // animasi di luar box (toggle, progress bar, dll) tetap mulus
                 contain: 'layout paint',
               }}
             >

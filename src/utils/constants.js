@@ -47,7 +47,7 @@ export const DATA_TYPES = [
 ];
 
 export const DEFAULT_FIELDS = {
-  projectName:'',docVersion:'v1.0',author:'',targetDate:'',targetDateFormat:'full',
+  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
   problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
   brandTypography:'',brandLayout:'',
   bpMobileOp:'\u2264',bpMobile:'',bpMobileUnit:'px',
@@ -60,6 +60,8 @@ export const DEFAULT_FIELDS = {
   dbSchema:'',
   nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
   outOfScope:'',defOfDone:'',
+  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
+  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
 };
 
 export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});

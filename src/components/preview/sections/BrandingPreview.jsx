@@ -1,4 +1,4 @@
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
 export default function BrandingPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });

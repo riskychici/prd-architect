@@ -1,4 +1,4 @@
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function PersonaPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });

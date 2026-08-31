@@ -1,14 +1,11 @@
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-
 export default function TechStackPreview() {
   const f = usePrdStore(function (s) { return s.fields; });
   const techOptional = usePrdStore(function (s) { return s.techOptional; });
-
   const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
     .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
     .map(function (d) { return { label: d.label, value: f[d.key] }; }));
-
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>

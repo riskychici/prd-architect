@@ -44,6 +44,7 @@ src/
       sections/
         AcSection.jsx
         BrandingSection.jsx
+        CoverFooterSection.jsx
         FeaturesList.jsx
         NfrSection.jsx
         OutOfScope.jsx
@@ -76,6 +77,8 @@ src/
         SchemaPreview.jsx
         ScopeDonePreview.jsx
         TechStackPreview.jsx
+      CoverPage.jsx
+      DocFooter.jsx
       PreviewActions.jsx
       PreviewDocument.jsx
       PreviewPanel.jsx
@@ -94,6 +97,7 @@ src/
     storageService.js
   store/
     usePrdStore.js
+    usePreviewStore.js
     useViewStore.js
   styles/
     globals.css
@@ -114,6 +118,266 @@ vite.config.js
 ````
 
 # Files
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { faBookOpen } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+function ColorField(props) {
+  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
+  return (
+    <div>
+      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input type="color" value={safe} onChange={function (e) { props.onChange(e.target.value); }} aria-label={props.label} className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0" />
+        <input type="text" value={props.value} onChange={function (e) { props.onChange(e.target.value); }} placeholder="#C9A961" className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-100 font-mono focus:border-blue-500 focus:outline-none" />
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const auto = f.coverThemeAuto !== false;
+
+  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
+  // ke field manual supaya tampilan tidak melompat.
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-slate-500">
+            {palette.length
+              ? 'Warna brand dipakai sebagai aksen saja: warna pertama palette yang layak menjadi warna utama, warna berikutnya dengan hue berbeda menjadi aksen kedua. Warna putih, hitam, abu, atau terlalu pucat otomatis dilewati, dan latar sampul dikunci charcoal agar selalu elegan.'
+              : 'Palette masih kosong, jadi aksen emas default yang dipakai. Isi section Branding untuk memakai warna brand.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+        <div>
+          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/preview/CoverPage.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { formatTargetDate, resolveCoverTheme } from '../../utils/helpers';
+
+// Ambil kalimat pertama secara utuh tanpa memotong kata di tengah.
+const firstSentence = function (text, max) {
+  if (!text || !text.trim()) return '';
+  let s = text.trim().split('\n')[0];
+  const idx = s.indexOf('. ');
+  if (idx > -1) s = s.slice(0, idx);
+  s = s.replace(/[.!?]$/, '').trim();
+  if (max && s.length > max) {
+    const cut = s.slice(0, max);
+    const lastSpace = cut.lastIndexOf(' ');
+    s = cut.slice(0, lastSpace > 40 ? lastSpace : max).trimEnd() + '...';
+  }
+  return s;
+};
+
+export default function CoverPage() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const features = usePrdStore(function (s) { return s.features; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+
+  const theme = resolveCoverTheme(f, palette);
+  const kicker = (f.coverKicker || '').trim() || 'PRODUCT REQUIREMENT DOCUMENT';
+
+  const words = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase().split(/\s+/).filter(Boolean);
+  const firstWord = words[0] || '';
+  const restWords = words.slice(1).join(' ');
+
+  const subtitle = firstSentence(f.productGoal, 220) || 'Dokumen Spesifikasi Produk';
+  const featureLine = features.length
+    ? features.slice(0, 4).map(function (ft) { return ft.name || ft.id; }).join(' · ')
+    : 'Overview · Fitur Utama · Tech Stack';
+  const descLine = firstSentence(f.problemStatement, 220) || 'Latar belakang masalah dan tujuan pengembangan produk.';
+
+  const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
+  const scope = ['Overview & Goals'];
+  if (vis('persona')) scope.push('Target User Persona & Success Metrics');
+  if (vis('branding')) scope.push('Branding & Design System');
+  if (vis('roles')) scope.push('Role & Permission Matrix');
+  scope.push('Fitur Utama & Requirements');
+  if (vis('ac')) scope.push('Acceptance Criteria per Modul');
+  scope.push('User Flow');
+  scope.push('Tech Stack & Arsitektur');
+  if (vis('schema')) scope.push('Schema Data');
+  if (vis('nfr')) scope.push('Non-Functional Requirements');
+  scope.push('Out of Scope & Definition of Done');
+
+  const today = new Date();
+  const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const createdDate = today.getDate() + ' ' + months[today.getMonth()] + ' ' + today.getFullYear();
+
+  const targetDate = formatTargetDate(f.targetDate, f.targetDateFormat);
+  const owner = (f.author || '').trim() || '-';
+  // Status kini dinamis, diambil dari field docStatus
+  const status = f.docStatus || 'Draft';
+
+  const labelCls = 'meta-label text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap';
+  const valueCls = 'mt-1 text-[11px] text-slate-400';
+
+  return (
+    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: theme.bg }}>
+      <div className="h-8 w-full" style={{ background: theme.primary }} />
+
+      <div className="cover-body flex-1 flex flex-col px-8 md:px-14 pt-16 md:pt-20 pb-8">
+        <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-wide text-white leading-tight">
+          {firstWord}
+          {restWords && <span style={{ color: theme.primary }}> {restWords}</span>}
+        </h1>
+        <div className="mt-5 h-[3px] w-16" style={{ background: theme.accent }} />
+
+        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
+        <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white">{subtitle}</h2>
+
+        <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
+        <p className="mt-2 text-xs text-slate-400">{descLine}</p>
+
+        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' · ')}</p>
+        </div>
+
+        <div className="flex-1 min-h-6" />
+
+        <div className="cover-meta grid grid-cols-2 md:grid-cols-3 gap-x-4 md:gap-x-6 gap-y-5 border-t border-slate-700 pt-4">
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Versi</p>
+            <p className={valueCls}>{f.docVersion || '1.0'}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Bahasa</p>
+            <p className={valueCls}>Indonesia</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Target Rilis</p>
+            <p className={valueCls}>{targetDate}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Tanggal Dibuat</p>
+            <p className={valueCls}>{createdDate}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Owner</p>
+            <p className={valueCls}>{owner}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Status</p>
+            <p className={valueCls}>{status}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-8 w-full" style={{ background: theme.accent }} />
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/DocFooter.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { resolveCoverTheme } from '../../utils/helpers';
+
+export default function DocFooter() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  if (f.coverShowFooter === false) return null;
+  const theme = resolveCoverTheme(f, palette);
+  const title = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase();
+  const docLabel = 'Product Requirement Document';
+  const note = (f.coverFooterNote || '').trim() || 'Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi.';
+  return (
+    <div className="doc-footer keep-together mt-8 pt-4 border-t-2 text-center space-y-1" style={{ borderColor: theme.primary }}>
+      <p className="text-[11px] text-slate-600">
+        <strong className="text-slate-900">{title}</strong>
+        <span>{' · '}{docLabel}{' · Versi '}{f.docVersion || '1.0'}</span>
+      </p>
+      <p className="text-[11px] text-slate-500">{note}</p>
+    </div>
+  );
+}
+````
+
+## File: src/store/usePreviewStore.js
+````javascript
+import { create } from 'zustand';
+import { usePrdStore } from './usePrdStore';
+
+// ============================================================
+// PREVIEW STORE (CERMIN DENGAN DELAY)
+// Menyalin state PRD ke store terpisah yang hanya diperbarui
+// 120ms setelah perubahan terakhir. Hasilnya panel preview tidak
+// lagi re-render pada setiap ketikan, sehingga mengetik di editor
+// terasa mulus. Preview tetap terasa live karena delay sangat kecil.
+// Export JSON, Markdown, dan Print tetap memakai store utama
+// sehingga hasilnya selalu data terbaru.
+// ============================================================
+const pick = function (s) {
+  return {
+    fields: s.fields,
+    features: s.features,
+    palette: s.palette,
+    roles: s.roles,
+    schemaTables: s.schemaTables,
+    acModules: s.acModules,
+    techOptional: s.techOptional,
+    simpleExtras: s.simpleExtras,
+    mode: s.mode,
+  };
+};
+
+export const usePreviewStore = create(function () {
+  return pick(usePrdStore.getState());
+});
+
+let timer = null;
+usePrdStore.subscribe(function () {
+  clearTimeout(timer);
+  timer = setTimeout(function () {
+    usePreviewStore.setState(pick(usePrdStore.getState()));
+  }, 120);
+});
+````
 
 ## File: public/logo-riskychici.svg
 ````xml
@@ -359,7 +623,7 @@ export default function MobileTabBar() {
 
 ## File: src/components/preview/sections/AcPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function AcPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
@@ -392,7 +656,7 @@ export default function AcPreview() {
 
 ## File: src/components/preview/sections/BrandingPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
 export default function BrandingPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
@@ -428,7 +692,7 @@ export default function BrandingPreview() {
 
 ## File: src/components/preview/sections/FeaturesPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function FeaturesPreview() {
   const features = usePrdStore(function (s) { return s.features; });
   return (
@@ -455,7 +719,7 @@ export default function FeaturesPreview() {
 
 ## File: src/components/preview/sections/OverviewPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function OverviewPreview() {
   const f = usePrdStore(function (s) { return s.fields; });
   return (
@@ -472,7 +736,7 @@ export default function OverviewPreview() {
 
 ## File: src/components/preview/sections/PersonaPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function PersonaPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
@@ -494,7 +758,7 @@ export default function PersonaPreview() {
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function SchemaPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
@@ -530,7 +794,7 @@ export default function SchemaPreview() {
 
 ## File: src/components/preview/sections/ScopeDonePreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function ScopeDonePreview() {
   const f = usePrdStore(function (s) { return s.fields; });
   const oos = (f.outOfScope || '').trim();
@@ -538,7 +802,7 @@ export default function ScopeDonePreview() {
   const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
   const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 keep-together">
+    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
       <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
         <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
         <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
@@ -554,17 +818,14 @@ export default function ScopeDonePreview() {
 
 ## File: src/components/preview/sections/TechStackPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-
 export default function TechStackPreview() {
   const f = usePrdStore(function (s) { return s.fields; });
   const techOptional = usePrdStore(function (s) { return s.techOptional; });
-
   const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
     .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
     .map(function (d) { return { label: d.label, value: f[d.key] }; }));
-
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
@@ -593,8 +854,10 @@ export default function TechStackPreview() {
 
 ## File: src/components/preview/PreviewDocument.jsx
 ````javascript
-import { usePrdStore } from '../../store/usePrdStore';
-import { formatTargetDate } from '../../utils/helpers';
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { resolveCoverTheme } from '../../utils/helpers';
+import CoverPage from './CoverPage';
+import DocFooter from './DocFooter';
 import OverviewPreview from './sections/OverviewPreview';
 import FeaturesPreview from './sections/FeaturesPreview';
 import TechStackPreview from './sections/TechStackPreview';
@@ -608,28 +871,30 @@ import ScopeDonePreview from './sections/ScopeDonePreview';
 
 export default function PreviewDocument() {
   const f = usePrdStore(function (s) { return s.fields; });
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const title = f.projectName || 'PROYEK TANPA NAMA';
-  const date = formatTargetDate(f.targetDate, f.targetDateFormat);
-  const ht = mode === 'enterprise' ? 'PRODUCT REQUIREMENT DOCUMENT (ENTERPRISE SPEC)' : 'PRODUCT REQUIREMENT DOCUMENT (SIMPLE MVP)';
-
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const theme = resolveCoverTheme(f, palette);
   return (
-    <div id="prdDocument" className="bg-white text-slate-900 p-8 rounded-lg shadow-2xl border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12">
-      <div className="border-b-2 border-blue-600 pb-4 keep-together">
-        <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tight">{title}</h1>
-        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mt-1">{ht}</p>
+    <>
+      <CoverPage />
+      <div
+        id="prdDocument"
+        className="bg-white text-slate-900 p-8 rounded-lg shadow-2xl border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
+        style={{
+          '--doc-primary': theme.primary,
+          '--doc-primary-text': theme.primaryText,
+          '--doc-accent': theme.accent,
+          '--doc-accent-text': theme.accentText,
+        }}
+      >
+        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
+        <div className="space-y-2 keep-together">
+          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">{f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}</div>
+        </div>
+        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
+        <DocFooter />
       </div>
-      <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack"><tbody>
-        <tr className="border-b border-slate-200"><td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/4">Owner</td><td className="p-2 w-1/4 text-slate-800">{f.author || '-'}</td><td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/4">Versi</td><td className="p-2 w-1/4 text-slate-800">{f.docVersion || 'v1.0'}</td></tr>
-        <tr><td className="p-2 font-bold bg-slate-100 text-slate-700">Target</td><td className="p-2 text-slate-800">{date}</td><td className="p-2 font-bold bg-slate-100 text-slate-700">Status</td><td className="p-2 text-slate-800 font-semibold text-blue-700">Approved / In Development</td></tr>
-      </tbody></table>
-      <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
-      <div className="space-y-2 keep-together">
-        <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
-        <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">{f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}</div>
-      </div>
-      <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
-    </div>
+    </>
   );
 }
 ````
@@ -674,7 +939,7 @@ export default function ToastContainer() {
 
 ## File: src/hooks/useAutoResize.js
 ````javascript
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 
 export const useAutoResize = function () {
   const resize = useCallback(function (el) {
@@ -691,15 +956,24 @@ export const useAutoResize = function () {
     el.style.height = 'auto';
     el.style.height = Math.max(min, el.scrollHeight + 2) + 'px';
   }, []);
+
   const resizeAll = useCallback(function () {
     document.querySelectorAll('textarea').forEach(resize);
   }, [resize]);
+
   useEffect(function () {
     resizeAll();
     window.addEventListener('resize', resizeAll);
     return function () { window.removeEventListener('resize', resizeAll); };
   }, [resizeAll]);
-  return { resize: resize, resizeAll: resizeAll };
+
+  // Objek return dibuat stabil dengan useMemo.
+  // Sebelumnya objek baru dibuat tiap render, sehingga effect di
+  // EditorPanel bongkar pasang listener setiap ketikan dan membuat
+  // ketikan terasa patah-patah.
+  return useMemo(function () {
+    return { resize: resize, resizeAll: resizeAll };
+  }, [resize, resizeAll]);
 };
 ````
 
@@ -1059,7 +1333,7 @@ export const DATA_TYPES = [
 ];
 
 export const DEFAULT_FIELDS = {
-  projectName:'',docVersion:'v1.0',author:'',targetDate:'',targetDateFormat:'full',
+  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
   problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
   brandTypography:'',brandLayout:'',
   bpMobileOp:'\u2264',bpMobile:'',bpMobileUnit:'px',
@@ -1072,6 +1346,8 @@ export const DEFAULT_FIELDS = {
   dbSchema:'',
   nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
   outOfScope:'',defOfDone:'',
+  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
+  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
 };
 
 export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
@@ -1080,9 +1356,7 @@ export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) {
 ## File: src/utils/helpers.js
 ````javascript
 export const escapeHtml = function (s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-
 export const isValidHex = function (s) { return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test((s||'').trim()); };
-
 export const normalizeHex = function (h) {
   if (!h) return '#000000';
   let s = h.trim();
@@ -1091,7 +1365,6 @@ export const normalizeHex = function (h) {
   if (/^#[0-9A-Fa-f]{3}$/.test(s)) return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
   return '#000000';
 };
-
 export const liveHexColor = function (digits) {
   let s = (digits||'').replace(/[^0-9A-Fa-f]/g,'');
   if (!s) return null;
@@ -1099,7 +1372,6 @@ export const liveHexColor = function (digits) {
   if (s.length!==6) { let o=''; while (o.length<6) o+=s; s = o.slice(0,6); }
   return '#' + s;
 };
-
 export const formatTargetDate = function (value, format) {
   if (!value) return '-';
   const d = new Date(value+'T00:00:00');
@@ -1110,7 +1382,6 @@ export const formatTargetDate = function (value, format) {
   if (format==='quarter') return 'Q' + (Math.floor(d.getMonth()/3)+1) + ' ' + year;
   return d.getDate() + ' ' + month + ' ' + year;
 };
-
 export const buildBreakpoints = function (fields) {
   const pairs=[['Mobile','bpMobile'],['Tablet','bpTablet'],['Desktop','bpDesktop']];
   const parts=[];
@@ -1121,6 +1392,189 @@ export const buildBreakpoints = function (fields) {
     parts.push(label + ' ' + (fields[key+'Op']||'') + num + (fields[key+'Unit']||''));
   });
   return parts.join(' \u00B7 ');
+};
+
+// ============================================================
+// UTILITAS WARNA (hex, RGB, HSL)
+// ============================================================
+const hexToRgb = function (hex) {
+  const h = normalizeHex(hex);
+  return {
+    r: parseInt(h.slice(1, 3), 16),
+    g: parseInt(h.slice(3, 5), 16),
+    b: parseInt(h.slice(5, 7), 16),
+  };
+};
+
+const rgbToHex = function (r, g, b) {
+  const to2 = function (c) {
+    const v = Math.max(0, Math.min(255, Math.round(c)));
+    return v.toString(16).padStart(2, '0');
+  };
+  return '#' + to2(r) + to2(g) + to2(b);
+};
+
+const rgbToHsl = function (r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+    else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+    else h = ((rn - gn) / d + 4) / 6;
+  }
+  return { h: h, s: s, l: l };
+};
+
+const hslToRgb = function (h, s, l) {
+  if (s === 0) {
+    const v = l * 255;
+    return { r: v, g: v, b: v };
+  }
+  const hue2rgb = function (p, q, t) {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return {
+    r: hue2rgb(p, q, h + 1 / 3) * 255,
+    g: hue2rgb(p, q, h) * 255,
+    b: hue2rgb(p, q, h - 1 / 3) * 255,
+  };
+};
+
+// Gelapkan warna hex dengan faktor 0 sampai 1 (0 = hitam pekat)
+export const shadeHex = function (hex, factor) {
+  const h = normalizeHex(hex);
+  const r = parseInt(h.slice(1, 3), 16);
+  const g = parseInt(h.slice(3, 5), 16);
+  const b = parseInt(h.slice(5, 7), 16);
+  const to2 = function (c) {
+    const v = Math.max(0, Math.min(255, Math.round(c * factor)));
+    return v.toString(16).padStart(2, '0');
+  };
+  return '#' + to2(r) + to2(g) + to2(b);
+};
+
+// Versi warna yang aman dibaca sebagai teks di latar putih.
+// Warna terang digelapkan lebih kuat agar kontras tetap terjaga.
+export const textSafeHex = function (hex) {
+  const h = normalizeHex(hex);
+  const r = parseInt(h.slice(1, 3), 16) / 255;
+  const g = parseInt(h.slice(3, 5), 16) / 255;
+  const b = parseInt(h.slice(5, 7), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const factor = lum > 0.65 ? 0.55 : lum > 0.45 ? 0.7 : 0.85;
+  return shadeHex(h, factor);
+};
+
+// ============================================================
+// SANITASI AKSEN (PENDEKATAN 2)
+// Warna brand boleh masuk sampul hanya sebagai aksen, dan harus
+// dinormalisasi agar tidak norak, tidak menyilaukan, dan tetap
+// terlihat jelas di atas latar gelap.
+// ============================================================
+const sanitizeAccent = function (hex) {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  const s = Math.max(0.35, Math.min(0.85, hsl.s));
+  const l = Math.max(0.45, Math.min(0.68, hsl.l));
+  const out = hslToRgb(hsl.h, s, l);
+  return rgbToHex(out.r, out.g, out.b);
+};
+
+// Turunan nada gelap dari satu warna, untuk aksen sekunder
+// (bar bawah) agar seragam dengan warna utama.
+const deriveDarkTone = function (hex) {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  const s = Math.max(0.3, Math.min(0.75, hsl.s));
+  const l = Math.max(0.3, Math.min(0.45, hsl.l));
+  const out = hslToRgb(hsl.h, s, l);
+  return rgbToHex(out.r, out.g, out.b);
+};
+
+// ============================================================
+// RESOLVER TEMA SAMPUL, FOOTER, & DOKUMEN
+// MODE OTOMATIS (PENDEKATAN 2):
+// 1. Latar sampul dikunci ke charcoal #15171C, tidak ikut brand,
+//    sehingga teks putih/abu selalu terbaca dan tampil elegan.
+// 2. Warna brand hanya jadi aksen tipis (bar, garis, label).
+// 3. Warna tidak layak (putih, hitam, abu, terlalu pucat atau
+//    terlalu gelap) otomatis dilewati.
+// 4. Warna utama = warna layak pertama sesuai urutan palette
+//    (menghormati hierarki brand), aksen sekunder = warna layak
+//    berikutnya dengan hue berbeda. Jika tidak ada, dipakai
+//    nada gelap dari warna utama.
+// 5. Jika tidak ada warna layak sama sekali, fallback ke emas
+//    #C9A961 yang selalu aman di latar gelap.
+// MODE MANUAL: pilihan user dihormati apa adanya.
+// ============================================================
+export const resolveCoverTheme = function (fields, palette) {
+  const FALLBACK = '#C9A961';
+  const FIXED_BG = '#15171C';
+  const f = fields || {};
+
+  if (f.coverThemeAuto === false) {
+    const primary = isValidHex(f.coverPrimary) ? normalizeHex(f.coverPrimary) : FALLBACK;
+    const accent = isValidHex(f.coverAccent) ? normalizeHex(f.coverAccent) : deriveDarkTone(primary);
+    const bg = isValidHex(f.coverBg) ? normalizeHex(f.coverBg) : FIXED_BG;
+    return {
+      primary: primary,
+      accent: accent,
+      bg: bg,
+      primaryText: textSafeHex(primary),
+      accentText: textSafeHex(accent),
+    };
+  }
+
+  const suitable = [];
+  (palette || []).forEach(function (p) {
+    if (!isValidHex(p.hex)) return;
+    const hex = normalizeHex(p.hex);
+    const rgb = hexToRgb(hex);
+    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    // Lewati abu-abu/putih/hitam (saturation rendah)
+    // dan warna terlalu gelap atau terlalu pucat.
+    if (hsl.s >= 0.22 && hsl.l >= 0.22 && hsl.l <= 0.88) {
+      suitable.push({ hex: hex, hsl: hsl });
+    }
+  });
+
+  let primary = FALLBACK;
+  if (suitable.length) primary = sanitizeAccent(suitable[0].hex);
+
+  let accent = '';
+  for (let i = 1; i < suitable.length; i++) {
+    const dh = Math.abs(suitable[i].hsl.h - suitable[0].hsl.h);
+    const hueDist = Math.min(dh, 1 - dh);
+    if (hueDist > 0.08) {
+      accent = sanitizeAccent(suitable[i].hex);
+      break;
+    }
+  }
+  if (!accent) accent = deriveDarkTone(primary);
+
+  return {
+    primary: primary,
+    accent: accent,
+    bg: FIXED_BG,
+    primaryText: textSafeHex(primary),
+    accentText: textSafeHex(accent),
+  };
 };
 ````
 
@@ -1758,10 +2212,20 @@ import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
 import { usePrdStore } from '../../../store/usePrdStore';
 import EditorSection from '../EditorSection';
 
+// Opsi status dokumen yang umum dipakai di industri,
+// lengkap dengan keterangan agar maknanya jelas.
+const STATUS_OPTIONS = [
+  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
+  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
+  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
+  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
+  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
+  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
+];
+
 export default function ProjectInfo() {
   const f = usePrdStore(function (s) { return s.fields; });
   const set = usePrdStore(function (s) { return s.setField; });
-
   return (
     <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -1778,10 +2242,18 @@ export default function ProjectInfo() {
           <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
         </div>
         <div>
+          <label htmlFor="docStatus" className="block text-slate-300 font-medium mb-1">Status Dokumen</label>
+          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
+            {STATUS_OPTIONS.map(function (o) {
+              return <option key={o.value} value={o.value}>{o.label}</option>;
+            })}
+          </select>
+        </div>
+        <div>
           <label htmlFor="targetDate" className="block text-slate-300 font-medium mb-1">Target Rilis</label>
           <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
         </div>
-        <div className="md:col-span-2">
+        <div>
           <label htmlFor="targetDateFormat" className="block text-slate-300 font-medium mb-1">Format Tampilan Target Rilis</label>
           <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
             <option value="full">Tanggal Lengkap</option>
@@ -2045,17 +2517,13 @@ export default function TechStack() {
 
 ## File: src/components/preview/sections/NfrPreview.jsx
 ````javascript
-import { usePrdStore } from '../../../store/usePrdStore';
-
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function NfrPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const f = usePrdStore(function (s) { return s.fields; });
-
   if (mode !== 'enterprise' && !se.nfr) return null;
-
   const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
-
   return (
     <div className="space-y-2 keep-together">
       <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.2 NFR, Prototype & Analisis Risiko</h3>
@@ -2085,31 +2553,25 @@ export default function NfrPreview() {
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function RolesPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const roles = usePrdStore(function (s) { return s.roles; });
-
   if (mode !== 'enterprise' && !se.roles) return null;
-
-  // Helper untuk split baris dan filter kosong
   const splitLines = function (text) {
     if (!text) return [];
     return text
       .split('\n')
       .map(function (line) {
-        // Hapus bullet/strip/asterisk/tanda pemisah di awal baris
         return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
       })
       .filter(function (line) { return line.length > 0; });
   };
-
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
-      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
         {roles.length ? roles.map(function (r, i) {
           const canItems = splitLines(r.can);
           const cannotItems = splitLines(r.cannot);
@@ -2122,13 +2584,9 @@ export default function RolesPreview() {
                 </p>
                 {canItems.length > 0 ? (
                   <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
-                    {canItems.map(function (item, idx) {
-                      return <li key={idx}>{item}</li>;
-                    })}
+                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
                   </ul>
-                ) : (
-                  <p className="text-slate-400 italic text-xs">-</p>
-                )}
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
               </div>
               <div className="space-y-1">
                 <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
@@ -2136,13 +2594,9 @@ export default function RolesPreview() {
                 </p>
                 {cannotItems.length > 0 ? (
                   <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
-                    {cannotItems.map(function (item, idx) {
-                      return <li key={idx}>{item}</li>;
-                    })}
+                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
                   </ul>
-                ) : (
-                  <p className="text-slate-400 italic text-xs">-</p>
-                )}
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
               </div>
             </div>
           );
@@ -2407,13 +2861,11 @@ export const useAutoSave = function () {
 :root { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
-
 * { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
 *::-webkit-scrollbar-thumb:hover { background: #64748b; }
-
 textarea { overflow-y: hidden; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
 
@@ -2453,11 +2905,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
 }
 #panelSlider.slide-preview { transform: translateX(-50%); }
 #panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
-
 @media (min-width: 1024px) {
   #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
 }
-
 @media (max-width: 1023.98px) {
   html, body { overflow: hidden; }
   body { height: 100vh; height: 100dvh; min-height: 0 !important; }
@@ -2476,6 +2926,27 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
 #prdDocument table { table-layout: fixed; width: 100%; }
 #prdDocument th, #prdDocument td { overflow-wrap: break-word; }
 #prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+/* ============================================================
+   TEMA DOKUMEN
+   Warna heading & aksen dokumen mengikuti tema sampul/footer.
+   Nilai fallback sama dengan palet biru/amber lama, lalu
+   ditimpa lewat CSS variables inline dari PreviewDocument.
+   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
+   ============================================================ */
+#prdDocument {
+  --doc-primary: #2563eb;
+  --doc-primary-text: #1e40af;
+  --doc-accent: #f59e0b;
+  --doc-accent-text: #b45309;
+}
+#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
+#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
+#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
+#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
+#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
 
 @media screen and (max-width: 640px) {
   #prdDocument { padding: 1.5rem 1rem; }
@@ -2498,6 +2969,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
 }
 
 @page { size: A4; margin: 14mm 12mm; }
+/* HALAMAN PERTAMA (SAMPUL): margin 0 agar bar warna bisa full-bleed */
+@page :first { margin: 0; }
 
 @media print {
   .no-print, nav, header { display: none !important; }
@@ -2519,6 +2992,29 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
     height: auto !important; max-height: none !important;
     overflow: visible !important; background: #ffffff !important; padding: 0 !important;
   }
+
+  /* SAMPUL: tepat satu halaman penuh, lalu pindah halaman */
+  .doc-cover {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: 296mm;
+    margin: 0 !important;
+    overflow: hidden;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  /* Proporsi sampul saat print: margin kiri-kanan lebih rapat */
+  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
+  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
+  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
+  /* Meta sampul: paksa 3 kolom saat print, sama seperti preview desktop */
+  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .cover-meta .meta-label { font-size: 10px !important; }
+
   #prdDocument {
     max-width: 100% !important; margin: 0 !important; padding: 0 !important;
     border: none !important; border-radius: 0 !important;
@@ -2676,428 +3172,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
 });
-````
-
-## File: src/components/editor/AiAnalysisCard.jsx
-````javascript
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner, faTrash, faRobot, faArrowDown, faCircleQuestion, faLightbulb } from '@fortawesome/free-solid-svg-icons';
-import ReactMarkdown from 'react-markdown';
-import { usePrdStore } from '../../store/usePrdStore';
-import { useToast } from '../../hooks/useToast';
-
-// ============================================================
-// KONFIGURASI PERFORMA:
-// Tick 60ms (sekitar 16 update per detik) bukan 15ms.
-// Kecepatan ketik TETAP sama karena dihitung dari timestamp,
-// tapi beban parse ReactMarkdown turun 4x lipat sehingga
-// animasi lain (toggle, progress bar, undo/redo) tidak frame drop.
-// ============================================================
-const CHARS_PER_MS = 0.2;
-const TICK_MS = 60;
-
-const BRIEF_EXAMPLES = [
-  'Aplikasi kasir untuk warung kopi',
-  'Sistem inventaris gudang UMKM',
-  'Aplikasi booking barbershop',
-  'Dashboard monitoring penjualan online shop',
-];
-
-// Komponen Markdown di luar komponen React agar referensi stabil
-// (mencegah remount DOM yang membatalkan seleksi teks user)
-const MARKDOWN_COMPONENTS = {
-  h1: function (props) {
-    return <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
-  },
-  h2: function (props) {
-    return <h2 className="font-bold text-sm text-purple-300 mt-4 mb-2 flex items-center gap-1.5" {...props} />;
-  },
-  h3: function (props) {
-    return <h3 className="font-semibold text-xs text-indigo-300 mt-3 mb-1 pl-2 border-l-2 border-indigo-500/60" {...props} />;
-  },
-  h4: function (props) {
-    return <h4 className="font-medium text-xs text-slate-300 mt-2 mb-1 italic" {...props} />;
-  },
-  p: function (props) {
-    return <p className="text-xs text-slate-200 leading-relaxed my-1" {...props} />;
-  },
-  ul: function (props) {
-    return <ul className="list-disc pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
-  },
-  ol: function (props) {
-    return <ol className="list-decimal pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
-  },
-  li: function (props) {
-    return <li className="text-slate-300 text-xs" {...props} />;
-  },
-  strong: function (props) {
-    return <strong className="font-bold text-white" {...props} />;
-  },
-  code: function (props) {
-    return <code className="bg-slate-800 text-amber-300 px-1 py-0.5 rounded font-mono text-[11px]" {...props} />;
-  },
-  hr: function (props) {
-    return <hr className="border-purple-900/50 my-3" {...props} />;
-  },
-};
-
-export default function AiAnalysisCard() {
-  const analyzeWithAi = usePrdStore((s) => s.analyzeWithAi);
-  const applyAiDraft = usePrdStore((s) => s.applyAiDraft);
-  const rawAiFeedback = usePrdStore((s) => s.aiFeedback);
-  const aiDraft = usePrdStore((s) => s.aiDraft);
-  const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
-  const aiError = usePrdStore((s) => s.aiError);
-  const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
-
-  const isPrdEmpty = usePrdStore((s) => {
-    const f = s.fields;
-    return !(f.projectName || '').trim() &&
-      !(f.problemStatement || '').trim() &&
-      !(f.productGoal || '').trim() &&
-      s.features.length === 0;
-  });
-
-  const showToast = useToast();
-
-  const feedbackBoxRef = useRef(null);
-  const briefRef = useRef(null);
-  const typewriterStartRef = useRef(null);
-  const userScrolledUpRef = useRef(false);
-  const rafScrollRef = useRef(null);
-
-  const [displayedText, setDisplayedText] = useState('');
-  const [isTypingFinished, setIsTypingFinished] = useState(true);
-  const [showJumpButton, setShowJumpButton] = useState(false);
-  const [briefText, setBriefText] = useState('');
-
-  // Apakah box output sedang ter-render (untuk dependency effect listener)
-  const boxMounted = !!(displayedText || isAnalyzing);
-
-  // ============================================================
-  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
-  // ============================================================
-  useEffect(() => {
-    if (!rawAiFeedback) {
-      setDisplayedText('');
-      setIsTypingFinished(true);
-      typewriterStartRef.current = null;
-      return;
-    }
-
-    if (typewriterStartRef.current === null) {
-      typewriterStartRef.current = performance.now();
-    }
-
-    setIsTypingFinished(false);
-
-    const timer = setInterval(() => {
-      const elapsed = performance.now() - typewriterStartRef.current;
-      const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
-      const targetLength = Math.min(expectedChars, rawAiFeedback.length);
-
-      setDisplayedText((prev) => {
-        if (prev.length === targetLength) return prev;
-        return rawAiFeedback.slice(0, targetLength);
-      });
-
-      if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
-        setIsTypingFinished(true);
-        clearInterval(timer);
-      }
-    }, TICK_MS);
-
-    return () => clearInterval(timer);
-  }, [rawAiFeedback, isAnalyzing]);
-
-  // ============================================================
-  // AUTO-SCROLL: instant, hanya jika user di bottom
-  // ============================================================
-  useEffect(() => {
-    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current && !userScrolledUpRef.current) {
-      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
-      rafScrollRef.current = requestAnimationFrame(() => {
-        const el = feedbackBoxRef.current;
-        if (el && !userScrolledUpRef.current) {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
-    }
-  }, [displayedText, isAnalyzing, isTypingFinished]);
-
-  useEffect(() => {
-    return () => {
-      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
-    };
-  }, []);
-
-  const handleUserScrollIntent = useCallback(() => {
-    if (!userScrolledUpRef.current) {
-      userScrolledUpRef.current = true;
-      setShowJumpButton(true);
-    }
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    const el = feedbackBoxRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom < 15) {
-      if (userScrolledUpRef.current) {
-        userScrolledUpRef.current = false;
-        setShowJumpButton(false);
-      }
-    } else {
-      if (!userScrolledUpRef.current) {
-        userScrolledUpRef.current = true;
-        setShowJumpButton(true);
-      }
-    }
-  }, []);
-
-  // ============================================================
-  // FIX PERFORMA: dependency hanya boxMounted (boolean),
-  // BUKAN displayedText. Sebelumnya effect ini re-run tiap tick
-  // (66x per detik) untuk remove+add 3 listener, sangat boros.
-  // Sekarang hanya re-run saat box muncul/hilang.
-  // ============================================================
-  useEffect(() => {
-    const el = feedbackBoxRef.current;
-    if (!el) return;
-    el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
-    el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
-    el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
-    return () => {
-      el.removeEventListener('wheel', handleUserScrollIntent);
-      el.removeEventListener('touchmove', handleUserScrollIntent);
-      el.removeEventListener('pointerdown', handleUserScrollIntent);
-    };
-  }, [handleUserScrollIntent, boxMounted]);
-
-  useEffect(() => {
-    if (isAnalyzing && displayedText === '') {
-      userScrolledUpRef.current = false;
-      setShowJumpButton(false);
-    }
-  }, [isAnalyzing, displayedText]);
-
-  const jumpToBottom = useCallback(() => {
-    const el = feedbackBoxRef.current;
-    if (!el) return;
-    userScrolledUpRef.current = false;
-    setShowJumpButton(false);
-    el.scrollTop = el.scrollHeight;
-  }, []);
-
-  const handleAnalyze = async () => {
-    if (isPrdEmpty && !briefText.trim()) {
-      showToast('Ceritakan dulu aplikasi yang ingin kamu buat', 'info');
-      if (briefRef.current) briefRef.current.focus();
-      return;
-    }
-    try {
-      setDisplayedText('');
-      userScrolledUpRef.current = false;
-      setShowJumpButton(false);
-      typewriterStartRef.current = null;
-      await analyzeWithAi(briefText.trim() || null);
-      showToast('Analisis AI selesai!', 'success');
-    } catch (err) {
-      showToast(err.message || 'Gagal menganalisis PRD', 'error');
-    }
-  };
-
-  const handleApplyDraft = () => {
-    const ok = applyAiDraft();
-    if (ok) {
-      showToast('Saran AI diterapkan', 'success');
-    } else {
-      showToast('Tidak ada draf AI', 'info');
-    }
-  };
-
-  const isBusy = isAnalyzing || !isTypingFinished;
-  const hasDraft = !!aiDraft;
-
-  return (
-    <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
-
-      {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-        <div className="flex items-start space-x-2.5 min-w-0">
-          <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base mt-1 shrink-0" />
-          <div className="min-w-0">
-            <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
-              <span>Analisis PRD Berbasis AI</span>
-              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
-                Gemini AI
-              </span>
-            </h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
-          </div>
-        </div>
-
-        <button
-          onClick={handleAnalyze}
-          disabled={isBusy}
-          className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 w-full md:w-auto md:shrink-0 cursor-pointer"
-        >
-          {isBusy ? (
-            <>
-              <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
-              <span className="whitespace-nowrap">{isAnalyzing && !displayedText ? 'Memproses...' : 'Menulis...'}</span>
-            </>
-          ) : (
-            <>
-              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-amber-300 text-xs" />
-              <span className="whitespace-nowrap">Analisis PRD</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* EMPTY STATE: muncul otomatis saat PRD masih kosong */}
-      {isPrdEmpty && (
-        <div className="space-y-2.5 pt-3 border-t border-purple-900/40">
-          <div className="flex items-start gap-2">
-            <FontAwesomeIcon icon={faCircleQuestion} className="text-amber-300 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-xs font-semibold text-purple-200">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
-            </div>
-          </div>
-          <textarea
-            ref={briefRef}
-            value={briefText}
-            onChange={function (e) { setBriefText(e.target.value); }}
-            rows="3"
-            placeholder="Contoh: Aplikasi kasir untuk warung kopi dengan laporan penjualan harian dan manajemen stok bahan baku..."
-            className="w-full bg-slate-950/80 border border-purple-700/50 rounded-lg p-3 text-xs text-slate-100 focus:border-purple-500 focus:outline-none resize-none"
-          />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
-              <FontAwesomeIcon icon={faLightbulb} className="text-amber-400" />
-              Contoh:
-            </span>
-            {BRIEF_EXAMPLES.map(function (ex) {
-              return (
-                <button
-                  key={ex}
-                  onClick={function () { setBriefText(ex); }}
-                  className="text-[10px] px-2 py-1 rounded-full border border-purple-700/50 text-purple-300 hover:bg-purple-600/20 transition cursor-pointer"
-                >
-                  {ex}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {aiError && (
-        <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-300">
-          ⚠️ {aiError}
-        </div>
-      )}
-
-      {(displayedText || isAnalyzing) && (
-        <div className="space-y-3 pt-1 border-t border-purple-900/40">
-
-          {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
-              Hasil Rekomendasi AI:
-              {isBusy && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping shrink-0" />
-                  {displayedText ? 'Sedang mengetik masukan...' : 'AI sedang membaca dokumen PRD...'}
-                </span>
-              )}
-            </span>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {!isBusy && (
-                <button
-                  onClick={handleApplyDraft}
-                  disabled={!hasDraft}
-                  className={`text-xs font-semibold px-2.5 py-1.5 rounded transition-all duration-200 inline-flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                    hasDraft
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer hover:shadow-emerald-500/20'
-                      : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
-                  }`}
-                  title={hasDraft ? 'Isi otomatis bagian form dengan saran AI' : 'Tidak ada draf JSON dari AI'}
-                >
-                  <FontAwesomeIcon icon={faWandMagicSparkles} />
-                  <span>Terapkan ke Form</span>
-                </button>
-              )}
-              {!isBusy && (
-                <button
-                  onClick={clearAiFeedback}
-                  className="text-[10px] text-slate-400 hover:text-rose-400 transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap px-1 py-1.5"
-                  title="Hapus hasil analisis"
-                >
-                  <FontAwesomeIcon icon={faTrash} />
-                  <span>Hapus</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="relative">
-            <div
-              ref={feedbackBoxRef}
-              onScroll={handleScroll}
-              className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
-              style={{
-                overscrollBehavior: 'contain',
-                // FIX PERFORMA: containment membuat perubahan layout & paint
-                // di dalam box tidak menyebar ke seluruh halaman, sehingga
-                // animasi di luar box (toggle, progress bar, dll) tetap mulus
-                contain: 'layout paint',
-              }}
-            >
-              {isAnalyzing && !displayedText ? (
-                <div className="space-y-2.5 animate-pulse py-1">
-                  <div className="h-3.5 bg-purple-900/40 rounded w-1/3" />
-                  <div className="h-3 bg-slate-800/80 rounded w-full" />
-                  <div className="h-3 bg-slate-800/80 rounded w-5/6" />
-                  <div className="h-3 bg-slate-800/80 rounded w-4/6" />
-                  <div className="flex items-center gap-2 pt-1">
-                    <FontAwesomeIcon icon={faSpinner} className="animate-spin text-purple-400 text-xs" />
-                    <span className="text-[11px] text-purple-300/80 font-mono">Menyiapkan ulasan spesifikasi produk...</span>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>
-                    {displayedText}
-                  </ReactMarkdown>
-                  {isBusy && (
-                    <span className="inline-block w-1.5 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Tombol "Ikuti AI" muncul saat user scroll ke atas */}
-            {showJumpButton && !isTypingFinished && (
-              <button
-                onClick={jumpToBottom}
-                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold rounded-full shadow-lg transition-all duration-200 cursor-pointer z-10 whitespace-nowrap"
-                title="Kembali ke bawah dan lanjut auto-scroll"
-              >
-                <FontAwesomeIcon icon={faArrowDown} />
-                <span>Ikuti AI</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 ````
 
 ## File: src/components/header/ModeSwitcher.jsx
@@ -3383,6 +3457,421 @@ export default function IconButton(props) {
 }
 ````
 
+## File: src/components/editor/AiAnalysisCard.jsx
+````javascript
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faWandMagicSparkles, faSpinner, faTrash, faRobot, faArrowDown, faCircleQuestion, faLightbulb } from '@fortawesome/free-solid-svg-icons';
+import ReactMarkdown from 'react-markdown';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useToast } from '../../hooks/useToast';
+
+// ============================================================
+// KONFIGURASI PERFORMA:
+// Tick 60ms (sekitar 16 update per detik) bukan 15ms.
+// Kecepatan ketik TETAP sama karena dihitung dari timestamp,
+// tapi beban parse ReactMarkdown turun 4x lipat sehingga
+// animasi lain (toggle, progress bar, undo/redo) tidak frame drop.
+// ============================================================
+const CHARS_PER_MS = 0.2;
+const TICK_MS = 60;
+
+const BRIEF_EXAMPLES = [
+  'Aplikasi kasir untuk warung kopi',
+  'Sistem inventaris gudang UMKM',
+  'Aplikasi booking barbershop',
+  'Dashboard monitoring penjualan online shop',
+];
+
+// Komponen Markdown di luar komponen React agar referensi stabil
+// (mencegah remount DOM yang membatalkan seleksi teks user)
+const MARKDOWN_COMPONENTS = {
+  h1: function (props) {
+    return <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
+  },
+  h2: function (props) {
+    return <h2 className="font-bold text-sm text-purple-300 mt-4 mb-2 flex items-center gap-1.5" {...props} />;
+  },
+  h3: function (props) {
+    return <h3 className="font-semibold text-xs text-indigo-300 mt-3 mb-1 pl-2 border-l-2 border-indigo-500/60" {...props} />;
+  },
+  h4: function (props) {
+    return <h4 className="font-medium text-xs text-slate-300 mt-2 mb-1 italic" {...props} />;
+  },
+  p: function (props) {
+    return <p className="text-xs text-slate-200 leading-relaxed my-1" {...props} />;
+  },
+  ul: function (props) {
+    return <ul className="list-disc pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+  },
+  ol: function (props) {
+    return <ol className="list-decimal pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+  },
+  li: function (props) {
+    return <li className="text-slate-300 text-xs" {...props} />;
+  },
+  strong: function (props) {
+    return <strong className="font-bold text-white" {...props} />;
+  },
+  code: function (props) {
+    return <code className="bg-slate-800 text-amber-300 px-1 py-0.5 rounded font-mono text-[11px]" {...props} />;
+  },
+  hr: function (props) {
+    return <hr className="border-purple-900/50 my-3" {...props} />;
+  },
+};
+
+export default function AiAnalysisCard() {
+  const analyzeWithAi = usePrdStore((s) => s.analyzeWithAi);
+  const applyAiDraft = usePrdStore((s) => s.applyAiDraft);
+  const rawAiFeedback = usePrdStore((s) => s.aiFeedback);
+  const aiDraft = usePrdStore((s) => s.aiDraft);
+  const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
+  const aiError = usePrdStore((s) => s.aiError);
+  const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
+
+  const isPrdEmpty = usePrdStore((s) => {
+    const f = s.fields;
+    return !(f.projectName || '').trim() &&
+      !(f.problemStatement || '').trim() &&
+      !(f.productGoal || '').trim() &&
+      s.features.length === 0;
+  });
+
+  const showToast = useToast();
+
+  const feedbackBoxRef = useRef(null);
+  const briefRef = useRef(null);
+  const typewriterStartRef = useRef(null);
+  const userScrolledUpRef = useRef(false);
+  const rafScrollRef = useRef(null);
+
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTypingFinished, setIsTypingFinished] = useState(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
+  const [briefText, setBriefText] = useState('');
+
+  // Apakah box output sedang ter-render (untuk dependency effect listener)
+  const boxMounted = !!(displayedText || isAnalyzing);
+
+  // ============================================================
+  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
+  // ============================================================
+  useEffect(() => {
+    if (!rawAiFeedback) {
+      setDisplayedText('');
+      setIsTypingFinished(true);
+      typewriterStartRef.current = null;
+      return;
+    }
+    if (typewriterStartRef.current === null) {
+      typewriterStartRef.current = performance.now();
+    }
+    setIsTypingFinished(false);
+    const timer = setInterval(() => {
+      const elapsed = performance.now() - typewriterStartRef.current;
+      const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
+      const targetLength = Math.min(expectedChars, rawAiFeedback.length);
+      setDisplayedText((prev) => {
+        if (prev.length === targetLength) return prev;
+        return rawAiFeedback.slice(0, targetLength);
+      });
+      if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
+        setIsTypingFinished(true);
+        clearInterval(timer);
+      }
+    }, TICK_MS);
+    return () => clearInterval(timer);
+  }, [rawAiFeedback, isAnalyzing]);
+
+  // ============================================================
+  // AUTO-SCROLL: instant, hanya jika user di bottom
+  // ============================================================
+  useEffect(() => {
+    if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current && !userScrolledUpRef.current) {
+      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+      rafScrollRef.current = requestAnimationFrame(() => {
+        const el = feedbackBoxRef.current;
+        if (el && !userScrolledUpRef.current) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    }
+  }, [displayedText, isAnalyzing, isTypingFinished]);
+
+  useEffect(() => {
+    return () => {
+      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
+    };
+  }, []);
+
+  const handleUserScrollIntent = useCallback(() => {
+    if (!userScrolledUpRef.current) {
+      userScrolledUpRef.current = true;
+      setShowJumpButton(true);
+    }
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 15) {
+      if (userScrolledUpRef.current) {
+        userScrolledUpRef.current = false;
+        setShowJumpButton(false);
+      }
+    } else {
+      if (!userScrolledUpRef.current) {
+        userScrolledUpRef.current = true;
+        setShowJumpButton(true);
+      }
+    }
+  }, []);
+
+  // ============================================================
+  // FIX PERFORMA: dependency hanya boxMounted (boolean),
+  // BUKAN displayedText. Sebelumnya effect ini re-run tiap tick
+  // (66x per detik) untuk remove+add 3 listener, sangat boros.
+  // Sekarang hanya re-run saat box muncul/hilang.
+  // ============================================================
+  useEffect(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
+    el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
+    el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', handleUserScrollIntent);
+      el.removeEventListener('touchmove', handleUserScrollIntent);
+      el.removeEventListener('pointerdown', handleUserScrollIntent);
+    };
+  }, [handleUserScrollIntent, boxMounted]);
+
+  useEffect(() => {
+    if (isAnalyzing && displayedText === '') {
+      userScrolledUpRef.current = false;
+      setShowJumpButton(false);
+    }
+  }, [isAnalyzing, displayedText]);
+
+  const jumpToBottom = useCallback(() => {
+    const el = feedbackBoxRef.current;
+    if (!el) return;
+    userScrolledUpRef.current = false;
+    setShowJumpButton(false);
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const handleAnalyze = async () => {
+    if (isPrdEmpty && !briefText.trim()) {
+      showToast('Ceritakan dulu aplikasi yang ingin kamu buat', 'info');
+      if (briefRef.current) briefRef.current.focus();
+      return;
+    }
+    try {
+      setDisplayedText('');
+      userScrolledUpRef.current = false;
+      setShowJumpButton(false);
+      typewriterStartRef.current = null;
+      await analyzeWithAi(briefText.trim() || null);
+      showToast('Analisis AI selesai!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Gagal menganalisis PRD', 'error');
+    }
+  };
+
+  const handleApplyDraft = () => {
+    const ok = applyAiDraft();
+    if (ok) {
+      showToast('Saran AI diterapkan', 'success');
+    } else {
+      showToast('Tidak ada draf AI', 'info');
+    }
+  };
+
+  const isBusy = isAnalyzing || !isTypingFinished;
+  const hasDraft = !!aiDraft;
+
+  return (
+    <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
+      {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+        <div className="flex items-start space-x-2.5 min-w-0">
+          <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base mt-1 shrink-0" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
+              <span>Analisis PRD Berbasis AI</span>
+              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
+                Gemini AI
+              </span>
+            </h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
+          </div>
+        </div>
+        <button
+          onClick={handleAnalyze}
+          disabled={isBusy}
+          className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 w-full md:w-auto md:shrink-0 cursor-pointer"
+        >
+          {isBusy ? (
+            <>
+              <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+              <span className="whitespace-nowrap">{isAnalyzing && !displayedText ? 'Memproses...' : 'Menulis...'}</span>
+            </>
+          ) : (
+            <>
+              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-amber-300 text-xs" />
+              <span className="whitespace-nowrap">Analisis PRD</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* EMPTY STATE: muncul otomatis saat PRD masih kosong */}
+      {isPrdEmpty && (
+        <div className="space-y-2.5 pt-3 border-t border-purple-900/40">
+          <div className="flex items-start gap-2">
+            <FontAwesomeIcon icon={faCircleQuestion} className="text-amber-300 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-purple-200">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
+            </div>
+          </div>
+          <textarea
+            ref={briefRef}
+            value={briefText}
+            onChange={function (e) { setBriefText(e.target.value); }}
+            rows="3"
+            placeholder="Contoh: Aplikasi kasir untuk warung kopi dengan laporan penjualan harian dan manajemen stok bahan baku..."
+            className="w-full bg-slate-950/80 border border-purple-700/50 rounded-lg p-3 text-xs text-slate-100 focus:border-purple-500 focus:outline-none resize-none"
+          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
+              <FontAwesomeIcon icon={faLightbulb} className="text-amber-400" />
+              Contoh:
+            </span>
+            {BRIEF_EXAMPLES.map(function (ex) {
+              return (
+                <button
+                  key={ex}
+                  onClick={function () { setBriefText(ex); }}
+                  className="text-[10px] px-2 py-1 rounded-full border border-purple-700/50 text-purple-300 hover:bg-purple-600/20 transition cursor-pointer"
+                >
+                  {ex}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-300">
+          ⚠️ {aiError}
+        </div>
+      )}
+
+      {(displayedText || isAnalyzing) && (
+        <div className="space-y-3 pt-1 border-t border-purple-900/40">
+          {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+            <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
+              Hasil Rekomendasi AI:
+              {isBusy && (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
+                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping shrink-0" />
+                  {displayedText ? 'Sedang mengetik masukan...' : 'AI sedang membaca dokumen PRD...'}
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isBusy && (
+                <button
+                  onClick={handleApplyDraft}
+                  disabled={!hasDraft}
+                  className={`text-xs font-semibold px-2.5 py-1.5 rounded transition-all duration-200 inline-flex items-center gap-1.5 shadow-md whitespace-nowrap ${
+                    hasDraft
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer hover:shadow-emerald-500/20'
+                      : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                  }`}
+                  title={hasDraft ? 'Isi otomatis bagian form dengan saran AI' : 'Tidak ada draf JSON dari AI'}
+                >
+                  <FontAwesomeIcon icon={faWandMagicSparkles} />
+                  <span>Terapkan ke Form</span>
+                </button>
+              )}
+              {!isBusy && (
+                <button
+                  onClick={clearAiFeedback}
+                  className="text-[10px] text-slate-400 hover:text-rose-400 transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap px-1 py-1.5"
+                  title="Hapus hasil analisis"
+                >
+                  <FontAwesomeIcon icon={faTrash} />
+                  <span>Hapus</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="relative">
+            <div
+              ref={feedbackBoxRef}
+              onScroll={handleScroll}
+              className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
+              style={{
+                // UBAH DI SINI: 'contain' mencegah scroll chaining ke parent.
+                // 'auto' memungkinkan halaman editor ikut ter-scroll saat
+                // kotak AI sudah mentok di bawah atau atas.
+                overscrollBehavior: 'auto',
+                // FIX PERFORMA: containment membuat perubahan layout & paint
+                // di dalam box tidak menyebar ke seluruh halaman, sehingga
+                // animasi di luar box (toggle, progress bar, dll) tetap mulus
+                contain: 'layout paint',
+              }}
+            >
+              {isAnalyzing && !displayedText ? (
+                <div className="space-y-2.5 animate-pulse py-1">
+                  <div className="h-3.5 bg-purple-900/40 rounded w-1/3" />
+                  <div className="h-3 bg-slate-800/80 rounded w-full" />
+                  <div className="h-3 bg-slate-800/80 rounded w-5/6" />
+                  <div className="h-3 bg-slate-800/80 rounded w-4/6" />
+                  <div className="flex items-center gap-2 pt-1">
+                    <FontAwesomeIcon icon={faSpinner} className="animate-spin text-purple-400 text-xs" />
+                    <span className="text-[11px] text-purple-300/80 font-mono">Menyiapkan ulasan spesifikasi produk...</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>
+                    {displayedText}
+                  </ReactMarkdown>
+                  {isBusy && (
+                    <span className="inline-block w-1.5 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Tombol "Ikuti AI" muncul saat user scroll ke atas */}
+            {showJumpButton && !isTypingFinished && (
+              <button
+                onClick={jumpToBottom}
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold rounded-full shadow-lg transition-all duration-200 cursor-pointer z-10 whitespace-nowrap"
+                title="Kembali ke bawah dan lanjut auto-scroll"
+              >
+                <FontAwesomeIcon icon={faArrowDown} />
+                <span>Ikuti AI</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
 ## File: src/services/exportService.js
 ````javascript
 import { saveAs } from 'file-saver';
@@ -3471,6 +3960,7 @@ import ProjectInfo from './sections/ProjectInfo';
 import ProblemGoal from './sections/ProblemGoal';
 import PersonaSection from './sections/PersonaSection';
 import BrandingSection from './sections/BrandingSection';
+import CoverFooterSection from './sections/CoverFooterSection';
 import RolesSection from './sections/RolesSection';
 import FeaturesList from './sections/FeaturesList';
 import AcSection from './sections/AcSection';
@@ -3479,27 +3969,31 @@ import SchemaSection from './sections/SchemaSection';
 import NfrSection from './sections/NfrSection';
 import OutOfScope from './sections/OutOfScope';
 
-export default function EditorPanel() {
+// Bridge auto-save: langganan store yang berat dipisah ke komponen
+// yang me-render null, supaya EditorPanel tidak re-render tiap ketikan.
+function AutoSaveBridge() {
   useAutoSave();
+  return null;
+}
+
+export default function EditorPanel() {
   const ra = useAutoResize();
 
   useEffect(function () {
-    const t = setTimeout(ra.resizeAll, 100);
     function onInput(e) {
       if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
     }
     document.addEventListener('input', onInput);
-    return function () {
-      clearTimeout(t);
-      document.removeEventListener('input', onInput);
-    };
-  }, [ra]);
+    return function () { document.removeEventListener('input', onInput); };
+  }, [ra.resize]);
 
   return (
     <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-slate-800 bg-slate-900" style={{ height: '100%' }}>
+      <AutoSaveBridge />
       <ModeBanner />
       <ExtrasPicker />
       <AiAnalysisCard />
+      <CoverFooterSection />
       <ProjectInfo />
       <ProblemGoal />
       <PersonaSection />
@@ -3576,22 +4070,18 @@ const cleanLatex = function (str) {
 
 function extractAiDraft(fullText) {
   if (!fullText || typeof fullText !== 'string') return null;
-
   let match = fullText.match(/```json_draft\s*\n?([\s\S]*?)\n?\s*```/);
   if (match && match[1]) {
     try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
-
   match = fullText.match(/`{3,}\s*json_draft\s*([\s\S]*?)\s*`{3,}/i);
   if (match && match[1]) {
     try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
-
   const jsonMatch = fullText.match(/\{[\s\S]*?"fields"\s*:\s*\{[\s\S]*?\}\s*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch (e) {}
   }
-
   return null;
 }
 
@@ -3710,26 +4200,16 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, base, { mode: s.mode, history: s.history, historyIndex: s.historyIndex, saveIndicator: s.saveIndicator });
       });
     },
-
-    // ============================================================
-    // ACTION ANALISIS AI
-    // Prompt diimpor dari utils/aiPrompts.js
-    // Streaming UI update di-throttle agar tidak membanjiri
-    // main thread dan menyebabkan frame drop pada animasi lain
-    // ============================================================
     analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
       set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
-
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
-
         const prompt = buildAiPrompt(prdSnapshot, userBrief);
-
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
           {
@@ -3745,7 +4225,6 @@ export const usePrdStore = create(function (set, get) {
             })
           }
         );
-
         if (!response.ok) {
           const errJson = await response.json().catch(function () { return {}; });
           const errMsg = errJson.error?.message || '';
@@ -3757,47 +4236,23 @@ export const usePrdStore = create(function (set, get) {
           }
           throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
         }
-
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullTextAccumulator = '';
-        // ============================================================
-        // FIX ANIMASI FRAME DROP:
-        // Throttle update store ke UI maksimal 1x per 80ms.
-        //
-        // MASALAH SEBELUMNYA:
-        // set({ aiFeedback }) dipanggil setiap token masuk dari API
-        // (bisa 30-50x per detik). Setiap panggilan set() memicu
-        // re-render seluruh subscriber Zustand, termasuk komponen
-        // yang punya animasi CSS (toggle switch, progress bar, dll).
-        // Main thread kewalahan dan animasi jadi patah-patah.
-        //
-        // SOLUSI:
-        // Token tetap dikumpulkan di variabel lokal (instant, tanpa
-        // re-render), tapi update ke store dibatasi tiap 80ms.
-        // Kecepatan streaming tetap sama, user tidak merasakan delay,
-        // tapi main thread punya waktu untuk menjalankan animasi.
-        // ============================================================
         let lastUiPush = 0;
-
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
           const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split('\n');
-
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const jsonStr = line.replace('data: ', '').trim();
               if (jsonStr === '[DONE]') continue;
-
               try {
                 const parsed = JSON.parse(jsonStr);
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
-
-                // Throttle: hanya push ke UI setiap 80ms
                 const now = performance.now();
                 if (now - lastUiPush > 80) {
                   lastUiPush = now;
@@ -3810,41 +4265,29 @@ export const usePrdStore = create(function (set, get) {
             }
           }
         }
-
-        // Push terakhir: pastikan semua teks yang tersisa tampil
         const extractedDraft = extractAiDraft(fullTextAccumulator);
         console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
-
         const finalCleanFeedback = cleanLatex(
           fullTextAccumulator.replace(/`{3,}\s*json_draft[\s\S]*?`{3,}/gi, '')
         );
-
         set({
           aiFeedback: finalCleanFeedback,
           aiDraft: extractedDraft,
           isAnalyzing: false
         });
-
         return finalCleanFeedback;
       } catch (err) {
         set({ aiError: err.message, isAnalyzing: false });
         throw err;
       }
     },
-
-    // ============================================================
-    // ACTION APPLY DRAFT
-    // Otomatis mengaktifkan modul enterprise di Simple Mode
-    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
       if (!draft) return false;
-
       set(function (s) {
         const updateState = {};
         const newSimpleExtras = { ...s.simpleExtras };
-
         if (draft.fields && typeof draft.fields === 'object') {
           updateState.fields = { ...s.fields };
           Object.keys(draft.fields).forEach((key) => {
@@ -3856,23 +4299,19 @@ export const usePrdStore = create(function (set, get) {
               }
             }
           });
-
           const personaKeys = ['userPersona', 'successMetrics'];
           if (personaKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.persona = true;
           }
-
           const brandingKeys = ['brandTypography', 'brandLayout'];
           if (brandingKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.branding = true;
           }
-
           const nfrKeys = ['nfrSpecs', 'nfrPerformance', 'nfrLocalization', 'nfrBrowser', 'figmaLink', 'riskMitigation'];
           if (nfrKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.nfr = true;
           }
         }
-
         if (Array.isArray(draft.features) && draft.features.length > 0) {
           updateState.features = draft.features.map(function (f, idx) {
             return {
@@ -3883,7 +4322,6 @@ export const usePrdStore = create(function (set, get) {
             };
           });
         }
-
         if (Array.isArray(draft.palette) && draft.palette.length > 0) {
           updateState.palette = draft.palette.map(function (p) {
             return {
@@ -3894,7 +4332,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.branding = true;
         }
-
         if (Array.isArray(draft.roles) && draft.roles.length > 0) {
           updateState.roles = draft.roles.map(function (r) {
             return {
@@ -3905,7 +4342,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.roles = true;
         }
-
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
           updateState.acModules = draft.acModules.map(function (m) {
             return {
@@ -3920,7 +4356,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.ac = true;
         }
-
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
           updateState.schemaTables = draft.schemaTables.map(function (t) {
             return {
@@ -3938,30 +4373,31 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.schema = true;
         }
-
         updateState.simpleExtras = newSimpleExtras;
-
         return { ...updateState, aiDraft: null };
       });
-
       get().commitHistory();
       console.log('[AI Draft] Apply selesai.');
       return true;
     },
-
     clearAiFeedback: function () {
       set({ aiFeedback: '', aiDraft: null, aiError: null });
     },
-
     loadSampleData: function () {
-      set(function () {
+      set(function (s) {
+        // Opsi A: pertahankan setting sampul & footer yang sudah ada
+        const keepCover = {};
+        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter'];
+        coverKeys.forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(s.fields, k)) keepCover[k] = s.fields[k];
+        });
         return {
-          fields: {
-            projectName: 'Instagram', docVersion: 'v2.0 Final Draft', author: 'Tim Product Instagram',
+          fields: Object.assign({
+            projectName: 'Instagram', docVersion: '2.0 Final Draft', docStatus: 'In Development', author: 'Tim Product Instagram',
             targetDate: '2026-12-15', targetDateFormat: 'full',
             problemStatement: 'Pengguna butuh platform buat share foto & video cepet, plus interaksi lewat like, komentar, dan DM.',
             productGoal: 'Platform social media foto/video dengan feed personal, stories 24 jam, dan interaksi real-time.',
-            userFlow: 'Onboarding → Login → Home Feed → Upload Post → Edit & Filter → Publish → Like/Komentar → Profile',
+            userFlow: 'Onboarding \u2192 Login \u2192 Home Feed \u2192 Upload Post \u2192 Edit & Filter \u2192 Publish \u2192 Like/Komentar \u2192 Profile',
             techFrontend: 'React Native + Redux Toolkit',
             techBackend: 'Node.js + GraphQL',
             techDatabase: 'PostgreSQL + Redis + Cassandra',
@@ -3981,19 +4417,19 @@ export const usePrdStore = create(function (set, get) {
             outOfScope: 'Live streaming\nVideo call\nMarketplace / jual beli',
             defOfDone: 'Semua AC lulus\nZero critical bug\nFeed load < 2 detik\nUpload success rate 99%',
             userPersona: 'Gen Z 15-24 tahun (content creator kasual), milenial 25-34 (brand/bisnis kecil)',
-            successMetrics: 'DAU/MAU ratio ≥ 0.6, D30 retention ≥ 40%, avg session ≥ 15 menit',
+            successMetrics: 'DAU/MAU ratio \u2265 0.6, D30 retention \u2265 40%, avg session \u2265 15 menit',
             brandTypography: 'System font (SF Pro iOS / Roboto Android), Billabong untuk logo saja',
             brandLayout: 'Mobile-first, grid 3 kolom, infinite scroll, thumb-friendly navigation',
-            bpMobileOp: '≤', bpMobile: '640', bpMobileUnit: 'px',
-            bpTabletOp: '≤', bpTablet: '1024', bpTabletUnit: 'px',
-            bpDesktopOp: '≥', bpDesktop: '1024', bpDesktopUnit: 'px',
+            bpMobileOp: '\u2264', bpMobile: '640', bpMobileUnit: 'px',
+            bpTabletOp: '\u2264', bpTablet: '1024', bpTabletUnit: 'px',
+            bpDesktopOp: '\u2265', bpDesktop: '1024', bpDesktopUnit: 'px',
             nfrSpecs: 'HTTPS/TLS 1.3 everywhere, OAuth 2.0, rate limit per IP, enkripsi at-rest (AES-256)',
             nfrPerformance: 'FCP < 1.2s, feed load < 2s, image auto-compress WebP/AVIF',
             nfrLocalization: '30+ bahasa, format waktu & tanggal lokal, RTL support',
             nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
             figmaLink: 'https://figma.com/file/instagram-clone',
-            riskMitigation: 'Konten ilegal & cyberbullying → AI moderation + report flow + rate limit upload',
-          },
+            riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
+          }, keepCover),
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
@@ -4040,21 +4476,21 @@ export const usePrdStore = create(function (set, get) {
           ],
           acModules: [
             { title: 'Auth & Onboarding', items: [
-              { title: 'Register', desc: 'User submit email + username unik + password ≥ 8 char → email verifikasi terkirim < 5 detik' },
-              { title: 'Login', desc: 'Kredensial valid → mint JWT + refresh token, redirect ke home feed' },
+              { title: 'Register', desc: 'User submit email + username unik + password \u2265 8 char \u2192 email verifikasi terkirim < 5 detik' },
+              { title: 'Login', desc: 'Kredensial valid \u2192 mint JWT + refresh token, redirect ke home feed' },
             ] },
             { title: 'Feed & Post', items: [
               { title: 'Home Feed', desc: 'Pull-to-refresh load post terbaru dari following, infinite scroll batch 20 post' },
-              { title: 'Upload Post', desc: 'Pilih foto/video → crop/filter → caption + hashtag → publish → muncul di feed follower dalam < 3 detik' },
-              { title: 'Like', desc: 'Double-tap post → animasi hati, counter increment, notifikasi ke owner' },
+              { title: 'Upload Post', desc: 'Pilih foto/video \u2192 crop/filter \u2192 caption + hashtag \u2192 publish \u2192 muncul di feed follower dalam < 3 detik' },
+              { title: 'Like', desc: 'Double-tap post \u2192 animasi hati, counter increment, notifikasi ke owner' },
             ] },
             { title: 'Stories', items: [
-              { title: 'Buat Story', desc: 'Capture foto/video ≤ 15 detik → tambah stiker/teks → publish → ring gradient muncul di avatar follower' },
-              { title: 'View Story', desc: 'Tap avatar → putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
+              { title: 'Buat Story', desc: 'Capture foto/video \u2264 15 detik \u2192 tambah stiker/teks \u2192 publish \u2192 ring gradient muncul di avatar follower' },
+              { title: 'View Story', desc: 'Tap avatar \u2192 putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
             ] },
             { title: 'Profile & Follow', items: [
               { title: 'Profile Grid', desc: 'Tab Posts/Saved/Tagged render grid 3 kolom, scroll infinite' },
-              { title: 'Follow/Unfollow', desc: 'Tap tombol → counter update real-time, feed algorithm adjust' },
+              { title: 'Follow/Unfollow', desc: 'Tap tombol \u2192 counter update real-time, feed algorithm adjust' },
             ] },
           ],
           features: [

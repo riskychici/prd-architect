@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 
 export const useAutoResize = function () {
   const resize = useCallback(function (el) {
@@ -15,13 +15,22 @@ export const useAutoResize = function () {
     el.style.height = 'auto';
     el.style.height = Math.max(min, el.scrollHeight + 2) + 'px';
   }, []);
+
   const resizeAll = useCallback(function () {
     document.querySelectorAll('textarea').forEach(resize);
   }, [resize]);
+
   useEffect(function () {
     resizeAll();
     window.addEventListener('resize', resizeAll);
     return function () { window.removeEventListener('resize', resizeAll); };
   }, [resizeAll]);
-  return { resize: resize, resizeAll: resizeAll };
+
+  // Objek return dibuat stabil dengan useMemo.
+  // Sebelumnya objek baru dibuat tiap render, sehingga effect di
+  // EditorPanel bongkar pasang listener setiap ketikan dan membuat
+  // ketikan terasa patah-patah.
+  return useMemo(function () {
+    return { resize: resize, resizeAll: resizeAll };
+  }, [resize, resizeAll]);
 };

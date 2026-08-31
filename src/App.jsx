@@ -66,7 +66,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
+    <div className="app-shell flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
       <a
         href="#editorPanel"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
@@ -85,7 +85,7 @@ export default function App() {
           <div><EditorPanel /></div>
           <div>
             <Suspense fallback={
-              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center" style={{ height: '100%' }}>
+              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center h-full">
                 <div className="text-slate-400 text-sm">Memuat preview...</div>
               </div>
             }>

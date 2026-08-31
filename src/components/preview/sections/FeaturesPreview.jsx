@@ -1,4 +1,4 @@
-import { usePrdStore } from '../../../store/usePrdStore';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 export default function FeaturesPreview() {
   const features = usePrdStore(function (s) { return s.features; });
   return (

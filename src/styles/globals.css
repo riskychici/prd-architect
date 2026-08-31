@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
-:root { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+:root {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -12,6 +15,16 @@ button:disabled { cursor: not-allowed; }
 
 textarea { overflow-y: hidden; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+
+/* ============================================================
+   FIX TINGGI ROOT: gunakan dvh dengan fallback vh.
+   100dvh mengikuti viewport aktual browser mobile (address bar
+   expand/collapse), sehingga tidak ada area terpotong di bawah.
+   ============================================================ */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
 
 /* Skip link utility */
 .sr-only {
@@ -41,37 +54,108 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ============================================================
+   PANEL SLIDER LAYOUT
+   min-height: 0 ditambahkan di panelSlider agar kalkulasi tinggi
+   flex tidak overflow. Height 100% di semua level memastikan
+   section fill penuh area yang tersedia.
+   ============================================================ */
 #panelSlider {
-  display: flex; flex-direction: row; height: 100%;
-  width: 200%; transform: translateX(0);
-  transition: transform 0.55s cubic-bezier(0.22,0.61,0.36,1);
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-height: 0;
+  width: 200%;
+  transform: translateX(0);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
 }
 #panelSlider.slide-preview { transform: translateX(-50%); }
-#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
-
-@media (min-width: 1024px) {
-  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
+#panelSlider > div {
+  width: 50%;
+  height: 100%;
+  flex-shrink: 0;
+  min-height: 0;
 }
 
+/* ============================================================
+   DESKTOP (min 1024px): split view editor + preview
+   ============================================================ */
+@media (min-width: 1024px) {
+  #panelSlider {
+    width: 100% !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  #panelSlider > div {
+    width: 50%;
+  }
+}
+
+/* ============================================================
+   MOBILE & TABLET (max 1023.98px): slide view + tab bar
+   padding-bottom mengompensasi MobileTabBar yang fixed di bawah.
+   ============================================================ */
 @media (max-width: 1023.98px) {
-  html, body { overflow: hidden; }
-  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
+  html, body {
+    overflow: hidden;
+  }
+  body {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0 !important;
+  }
   #panelSlider {
     height: 100%;
     padding-bottom: calc(56px + env(safe-area-inset-bottom));
     box-sizing: border-box;
   }
   #panelSlider > div > section {
-    max-height: none !important; height: 100% !important;
-    min-height: 0; overflow-y: auto !important;
+    max-height: none !important;
+    height: 100% !important;
+    min-height: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
   }
+}
+
+/* ============================================================
+   SECTION EDITOR & PREVIEW
+   Pastikan kedua section selalu fill tinggi parent dan bisa
+   scroll internal tanpa memengaruhi layout luar.
+   ============================================================ */
+#editorPanel,
+#previewPanel {
+  height: 100%;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 #prdDocument { min-width: 0; }
 #prdDocument table { table-layout: fixed; width: 100%; }
 #prdDocument th, #prdDocument td { overflow-wrap: break-word; }
 #prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+/* ============================================================
+   TEMA DOKUMEN
+   Warna heading & aksen dokumen mengikuti tema sampul/footer.
+   Nilai fallback sama dengan palet biru/amber lama, lalu
+   ditimpa lewat CSS variables inline dari PreviewDocument.
+   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
+   ============================================================ */
+#prdDocument {
+  --doc-primary: #2563eb;
+  --doc-primary-text: #1e40af;
+  --doc-accent: #f59e0b;
+  --doc-accent-text: #b45309;
+}
+#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
+#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
+#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
+#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
+#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
 
 @media screen and (max-width: 640px) {
   #prdDocument { padding: 1.5rem 1rem; }
@@ -93,7 +177,11 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   }
 }
 
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
 @page { size: A4; margin: 14mm 12mm; }
+@page :first { margin: 0; }
 
 @media print {
   .no-print, nav, header { display: none !important; }
@@ -115,6 +203,23 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
     height: auto !important; max-height: none !important;
     overflow: visible !important; background: #ffffff !important; padding: 0 !important;
   }
+  .doc-cover {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: 296mm;
+    margin: 0 !important;
+    overflow: hidden;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
+  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
+  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
+  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .cover-meta .meta-label { font-size: 10px !important; }
   #prdDocument {
     max-width: 100% !important; margin: 0 !important; padding: 0 !important;
     border: none !important; border-radius: 0 !important;

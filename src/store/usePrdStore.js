@@ -9,6 +9,7 @@ const init = function () {
     features: [], palette: [], roles: [], schemaTables: [], acModules: [], techOptional: [],
     history: [], historyIndex: -1, saveIndicator: '',
     aiFeedback: '', aiDraft: null, isAnalyzing: false, aiError: null,
+    aiTypewriterActive: false,
   };
 };
 
@@ -56,33 +57,33 @@ const cleanLatex = function (str) {
 
 function extractAiDraft(fullText) {
   if (!fullText || typeof fullText !== 'string') return null;
-
   let match = fullText.match(/```json_draft\s*\n?([\s\S]*?)\n?\s*```/);
   if (match && match[1]) {
     try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
-
   match = fullText.match(/`{3,}\s*json_draft\s*([\s\S]*?)\s*`{3,}/i);
   if (match && match[1]) {
     try { return JSON.parse(match[1].trim()); } catch (e) {}
   }
-
   const jsonMatch = fullText.match(/\{[\s\S]*?"fields"\s*:\s*\{[\s\S]*?\}\s*\}/);
   if (jsonMatch) {
     try { return JSON.parse(jsonMatch[0]); } catch (e) {}
   }
-
   return null;
 }
 
 export const usePrdStore = create(function (set, get) {
   return {
     ...init(),
+
     setMode: function (mode) { set({ mode: mode }); },
     setField: function (key, value) { set(function (s) { return { fields: Object.assign({}, s.fields, { [key]: value }) }; }); },
     setSaveIndicator: function (t) { set({ saveIndicator: t }); },
+    setAiTypewriterActive: function (v) { set({ aiTypewriterActive: v }); },
+
     toggleSimpleExtra: function (key, value) { set(function (s) { return { simpleExtras: Object.assign({}, s.simpleExtras, { [key]: value }) }; }); },
     resetAllExtras: function () { set({ simpleExtras: { ...INITIAL_SIMPLE_EXTRAS } }); },
+
     addTechExtra: function (key) {
       set(function (s) {
         if (s.techOptional.includes(key)) return {};
@@ -94,27 +95,33 @@ export const usePrdStore = create(function (set, get) {
         return { techOptional: s.techOptional.filter(function (k) { return k !== key; }) };
       });
     },
+
     addFeature: function () { set(function (s) { return { features: s.features.concat([{ id: 'F-0' + (s.features.length + 1), name: '', story: '', priority: 'High' }]) }; }); },
     updateFeature: function (i, p) { set(function (s) { const f = s.features.slice(); f[i] = Object.assign({}, f[i], p); return { features: f }; }); },
     removeFeature: function (i) { set(function (s) { return { features: s.features.filter(function (_, x) { return x !== i; }).map(function (f, x) { return Object.assign({}, f, { id: 'F-0' + (x + 1) }); }) }; }); },
+
     addPalette: function () { set(function (s) { return { palette: s.palette.concat([{ name: '', hex: '#C9A961', usage: '' }]) }; }); },
     updatePalette: function (i, p) { set(function (s) { const a = s.palette.slice(); a[i] = Object.assign({}, a[i], p); return { palette: a }; }); },
     removePalette: function (i) { set(function (s) { return { palette: s.palette.filter(function (_, x) { return x !== i; }) }; }); },
+
     addRole: function () { set(function (s) { return { roles: s.roles.concat([{ name: '', can: '', cannot: '' }]) }; }); },
     updateRole: function (i, p) { set(function (s) { const a = s.roles.slice(); a[i] = Object.assign({}, a[i], p); return { roles: a }; }); },
     removeRole: function (i) { set(function (s) { return { roles: s.roles.filter(function (_, x) { return x !== i; }) }; }); },
+
     addSchemaTable: function () { set(function (s) { return { schemaTables: s.schemaTables.concat([{ name: '', desc: '', fields: [{ field: '', type: '', required: 'Ya', note: '' }] }]) }; }); },
     updateSchemaTable: function (i, p) { set(function (s) { const a = s.schemaTables.slice(); a[i] = Object.assign({}, a[i], p); return { schemaTables: a }; }); },
     removeSchemaTable: function (i) { set(function (s) { return { schemaTables: s.schemaTables.filter(function (_, x) { return x !== i; }) }; }); },
     addSchemaField: function (ti) { set(function (s) { const a = s.schemaTables.slice(); a[ti] = Object.assign({}, a[ti], { fields: a[ti].fields.concat([{ field: '', type: '', required: 'Ya', note: '' }]) }); return { schemaTables: a }; }); },
     updateSchemaField: function (ti, fi, p) { set(function (s) { const a = s.schemaTables.slice(); const f = a[ti].fields.slice(); f[fi] = Object.assign({}, f[fi], p); a[ti] = Object.assign({}, a[ti], { fields: f }); return { schemaTables: a }; }); },
     removeSchemaField: function (ti, fi) { set(function (s) { const a = s.schemaTables.slice(); a[ti] = Object.assign({}, a[ti], { fields: a[ti].fields.filter(function (_, x) { return x !== fi; }) }); return { schemaTables: a }; }); },
+
     addAcModule: function () { set(function (s) { return { acModules: s.acModules.concat([{ title: '', items: [{ title: '', desc: '' }] }]) }; }); },
     updateAcModule: function (i, p) { set(function (s) { const a = s.acModules.slice(); a[i] = Object.assign({}, a[i], p); return { acModules: a }; }); },
     removeAcModule: function (i) { set(function (s) { return { acModules: s.acModules.filter(function (_, x) { return x !== i; }) }; }); },
     addAcItem: function (mi) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.concat([{ title: '', desc: '' }]) }); return { acModules: a }; }); },
     updateAcItem: function (mi, ii, p) { set(function (s) { const a = s.acModules.slice(); const it = a[mi].items.slice(); it[ii] = Object.assign({}, it[ii], p); a[mi] = Object.assign({}, a[mi], { items: it }); return { acModules: a }; }); },
     removeAcItem: function (mi, ii) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.filter(function (_, x) { return x !== ii; }) }); return { acModules: a }; }); },
+
     getSnapshot: (function () {
       let cache = null;
       let last = null;
@@ -135,6 +142,7 @@ export const usePrdStore = create(function (set, get) {
         return cache;
       };
     })(),
+
     commitHistory: function () {
       set(function (s) {
         const snap = get().getSnapshot();
@@ -146,6 +154,7 @@ export const usePrdStore = create(function (set, get) {
         return { history: h, historyIndex: h.length - 1 };
       });
     },
+
     undo: function () {
       set(function (s) {
         if (s.historyIndex <= 0) return {};
@@ -154,6 +163,7 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
+
     redo: function () {
       set(function (s) {
         if (s.historyIndex >= s.history.length - 1) return {};
@@ -162,6 +172,7 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
+
     restoreState: function (st) {
       const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
       const features = st.features || [];
@@ -170,6 +181,7 @@ export const usePrdStore = create(function (set, get) {
         !(fields.problemStatement || '').trim() &&
         !(fields.productGoal || '').trim() &&
         features.length === 0;
+
       set({
         fields: fields,
         features: features,
@@ -182,8 +194,10 @@ export const usePrdStore = create(function (set, get) {
         aiFeedback: isEmptyPrd ? '' : (st.aiFeedback || ''),
         aiDraft: isEmptyPrd ? null : (st.aiDraft || null),
         mode: st.mode || 'simple',
+        aiTypewriterActive: false,
       });
     },
+
     clearAll: function () {
       set(function (s) {
         const base = init();
@@ -191,16 +205,17 @@ export const usePrdStore = create(function (set, get) {
       });
     },
 
-    // ============================================================
-    // ACTION ANALISIS AI
-    // Prompt diimpor dari utils/aiPrompts.js
-    // Streaming UI update di-throttle agar tidak membanjiri
-    // main thread dan menyebabkan frame drop pada animasi lain
-    // ============================================================
     analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
-      set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
+
+      set({
+        isAnalyzing: true,
+        aiError: null,
+        aiFeedback: '',
+        aiDraft: null,
+        aiTypewriterActive: true,
+      });
 
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -241,29 +256,11 @@ export const usePrdStore = create(function (set, get) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullTextAccumulator = '';
-        // ============================================================
-        // FIX ANIMASI FRAME DROP:
-        // Throttle update store ke UI maksimal 1x per 80ms.
-        //
-        // MASALAH SEBELUMNYA:
-        // set({ aiFeedback }) dipanggil setiap token masuk dari API
-        // (bisa 30-50x per detik). Setiap panggilan set() memicu
-        // re-render seluruh subscriber Zustand, termasuk komponen
-        // yang punya animasi CSS (toggle switch, progress bar, dll).
-        // Main thread kewalahan dan animasi jadi patah-patah.
-        //
-        // SOLUSI:
-        // Token tetap dikumpulkan di variabel lokal (instant, tanpa
-        // re-render), tapi update ke store dibatasi tiap 80ms.
-        // Kecepatan streaming tetap sama, user tidak merasakan delay,
-        // tapi main thread punya waktu untuk menjalankan animasi.
-        // ============================================================
         let lastUiPush = 0;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
           const chunk = decoder.decode(value, { stream: true });
           const lines = chunk.split('\n');
 
@@ -271,13 +268,11 @@ export const usePrdStore = create(function (set, get) {
             if (line.startsWith('data: ')) {
               const jsonStr = line.replace('data: ', '').trim();
               if (jsonStr === '[DONE]') continue;
-
               try {
                 const parsed = JSON.parse(jsonStr);
                 const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 fullTextAccumulator += textChunk;
 
-                // Throttle: hanya push ke UI setiap 80ms
                 const now = performance.now();
                 if (now - lastUiPush > 80) {
                   lastUiPush = now;
@@ -291,7 +286,6 @@ export const usePrdStore = create(function (set, get) {
           }
         }
 
-        // Push terakhir: pastikan semua teks yang tersisa tampil
         const extractedDraft = extractAiDraft(fullTextAccumulator);
         console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
 
@@ -302,7 +296,7 @@ export const usePrdStore = create(function (set, get) {
         set({
           aiFeedback: finalCleanFeedback,
           aiDraft: extractedDraft,
-          isAnalyzing: false
+          isAnalyzing: false,
         });
 
         return finalCleanFeedback;
@@ -312,10 +306,6 @@ export const usePrdStore = create(function (set, get) {
       }
     },
 
-    // ============================================================
-    // ACTION APPLY DRAFT
-    // Otomatis mengaktifkan modul enterprise di Simple Mode
-    // ============================================================
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -341,12 +331,10 @@ export const usePrdStore = create(function (set, get) {
           if (personaKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.persona = true;
           }
-
           const brandingKeys = ['brandTypography', 'brandLayout'];
           if (brandingKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.branding = true;
           }
-
           const nfrKeys = ['nfrSpecs', 'nfrPerformance', 'nfrLocalization', 'nfrBrowser', 'figmaLink', 'riskMitigation'];
           if (nfrKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.nfr = true;
@@ -420,7 +408,6 @@ export const usePrdStore = create(function (set, get) {
         }
 
         updateState.simpleExtras = newSimpleExtras;
-
         return { ...updateState, aiDraft: null };
       });
 
@@ -430,18 +417,29 @@ export const usePrdStore = create(function (set, get) {
     },
 
     clearAiFeedback: function () {
-      set({ aiFeedback: '', aiDraft: null, aiError: null });
+      set({
+        aiFeedback: '',
+        aiDraft: null,
+        aiError: null,
+        aiTypewriterActive: false,
+      });
     },
 
     loadSampleData: function () {
-      set(function () {
+      set(function (s) {
+        const keepCover = {};
+        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter'];
+        coverKeys.forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(s.fields, k)) keepCover[k] = s.fields[k];
+        });
+
         return {
-          fields: {
-            projectName: 'Instagram', docVersion: 'v2.0 Final Draft', author: 'Tim Product Instagram',
+          fields: Object.assign({
+            projectName: 'Instagram', docVersion: '2.0 Final Draft', docStatus: 'In Development', author: 'Tim Product Instagram',
             targetDate: '2026-12-15', targetDateFormat: 'full',
             problemStatement: 'Pengguna butuh platform buat share foto & video cepet, plus interaksi lewat like, komentar, dan DM.',
             productGoal: 'Platform social media foto/video dengan feed personal, stories 24 jam, dan interaksi real-time.',
-            userFlow: 'Onboarding → Login → Home Feed → Upload Post → Edit & Filter → Publish → Like/Komentar → Profile',
+            userFlow: 'Onboarding \u2192 Login \u2192 Home Feed \u2192 Upload Post \u2192 Edit & Filter \u2192 Publish \u2192 Like/Komentar \u2192 Profile',
             techFrontend: 'React Native + Redux Toolkit',
             techBackend: 'Node.js + GraphQL',
             techDatabase: 'PostgreSQL + Redis + Cassandra',
@@ -461,19 +459,19 @@ export const usePrdStore = create(function (set, get) {
             outOfScope: 'Live streaming\nVideo call\nMarketplace / jual beli',
             defOfDone: 'Semua AC lulus\nZero critical bug\nFeed load < 2 detik\nUpload success rate 99%',
             userPersona: 'Gen Z 15-24 tahun (content creator kasual), milenial 25-34 (brand/bisnis kecil)',
-            successMetrics: 'DAU/MAU ratio ≥ 0.6, D30 retention ≥ 40%, avg session ≥ 15 menit',
+            successMetrics: 'DAU/MAU ratio \u2265 0.6, D30 retention \u2265 40%, avg session \u2265 15 menit',
             brandTypography: 'System font (SF Pro iOS / Roboto Android), Billabong untuk logo saja',
             brandLayout: 'Mobile-first, grid 3 kolom, infinite scroll, thumb-friendly navigation',
-            bpMobileOp: '≤', bpMobile: '640', bpMobileUnit: 'px',
-            bpTabletOp: '≤', bpTablet: '1024', bpTabletUnit: 'px',
-            bpDesktopOp: '≥', bpDesktop: '1024', bpDesktopUnit: 'px',
+            bpMobileOp: '\u2264', bpMobile: '640', bpMobileUnit: 'px',
+            bpTabletOp: '\u2264', bpTablet: '1024', bpTabletUnit: 'px',
+            bpDesktopOp: '\u2265', bpDesktop: '1024', bpDesktopUnit: 'px',
             nfrSpecs: 'HTTPS/TLS 1.3 everywhere, OAuth 2.0, rate limit per IP, enkripsi at-rest (AES-256)',
             nfrPerformance: 'FCP < 1.2s, feed load < 2s, image auto-compress WebP/AVIF',
             nfrLocalization: '30+ bahasa, format waktu & tanggal lokal, RTL support',
             nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
             figmaLink: 'https://figma.com/file/instagram-clone',
-            riskMitigation: 'Konten ilegal & cyberbullying → AI moderation + report flow + rate limit upload',
-          },
+            riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
+          }, keepCover),
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
@@ -520,21 +518,21 @@ export const usePrdStore = create(function (set, get) {
           ],
           acModules: [
             { title: 'Auth & Onboarding', items: [
-              { title: 'Register', desc: 'User submit email + username unik + password ≥ 8 char → email verifikasi terkirim < 5 detik' },
-              { title: 'Login', desc: 'Kredensial valid → mint JWT + refresh token, redirect ke home feed' },
+              { title: 'Register', desc: 'User submit email + username unik + password \u2265 8 char \u2192 email verifikasi terkirim < 5 detik' },
+              { title: 'Login', desc: 'Kredensial valid \u2192 mint JWT + refresh token, redirect ke home feed' },
             ] },
             { title: 'Feed & Post', items: [
               { title: 'Home Feed', desc: 'Pull-to-refresh load post terbaru dari following, infinite scroll batch 20 post' },
-              { title: 'Upload Post', desc: 'Pilih foto/video → crop/filter → caption + hashtag → publish → muncul di feed follower dalam < 3 detik' },
-              { title: 'Like', desc: 'Double-tap post → animasi hati, counter increment, notifikasi ke owner' },
+              { title: 'Upload Post', desc: 'Pilih foto/video \u2192 crop/filter \u2192 caption + hashtag \u2192 publish \u2192 muncul di feed follower dalam < 3 detik' },
+              { title: 'Like', desc: 'Double-tap post \u2192 animasi hati, counter increment, notifikasi ke owner' },
             ] },
             { title: 'Stories', items: [
-              { title: 'Buat Story', desc: 'Capture foto/video ≤ 15 detik → tambah stiker/teks → publish → ring gradient muncul di avatar follower' },
-              { title: 'View Story', desc: 'Tap avatar → putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
+              { title: 'Buat Story', desc: 'Capture foto/video \u2264 15 detik \u2192 tambah stiker/teks \u2192 publish \u2192 ring gradient muncul di avatar follower' },
+              { title: 'View Story', desc: 'Tap avatar \u2192 putar story, auto-next, ring jadi abu-abu setelah semua story dilihat' },
             ] },
             { title: 'Profile & Follow', items: [
               { title: 'Profile Grid', desc: 'Tab Posts/Saved/Tagged render grid 3 kolom, scroll infinite' },
-              { title: 'Follow/Unfollow', desc: 'Tap tombol → counter update real-time, feed algorithm adjust' },
+              { title: 'Follow/Unfollow', desc: 'Tap tombol \u2192 counter update real-time, feed algorithm adjust' },
             ] },
           ],
           features: [
