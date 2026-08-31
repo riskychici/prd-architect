@@ -62,6 +62,7 @@ export const DEFAULT_FIELDS = {
   outOfScope:'',defOfDone:'',
   coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
   coverKicker:'',coverFooterNote:'',coverShowFooter:true,
+  coverTagline:'',coverTaglineHash:'',
 };
 
 export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});

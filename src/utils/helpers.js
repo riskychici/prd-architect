@@ -34,7 +34,7 @@ export const buildBreakpoints = function (fields) {
     if (!num) return;
     parts.push(label + ' ' + (fields[key+'Op']||'') + num + (fields[key+'Unit']||''));
   });
-  return parts.join(' \u00B7 ');
+  return parts.join(' · ');
 };
 
 // ============================================================
@@ -48,7 +48,6 @@ const hexToRgb = function (hex) {
     b: parseInt(h.slice(5, 7), 16),
   };
 };
-
 const rgbToHex = function (r, g, b) {
   const to2 = function (c) {
     const v = Math.max(0, Math.min(255, Math.round(c)));
@@ -56,7 +55,6 @@ const rgbToHex = function (r, g, b) {
   };
   return '#' + to2(r) + to2(g) + to2(b);
 };
-
 const rgbToHsl = function (r, g, b) {
   const rn = r / 255;
   const gn = g / 255;
@@ -75,7 +73,6 @@ const rgbToHsl = function (r, g, b) {
   }
   return { h: h, s: s, l: l };
 };
-
 const hslToRgb = function (h, s, l) {
   if (s === 0) {
     const v = l * 255;
@@ -98,7 +95,6 @@ const hslToRgb = function (h, s, l) {
     b: hue2rgb(p, q, h - 1 / 3) * 255,
   };
 };
-
 // Gelapkan warna hex dengan faktor 0 sampai 1 (0 = hitam pekat)
 export const shadeHex = function (hex, factor) {
   const h = normalizeHex(hex);
@@ -111,7 +107,6 @@ export const shadeHex = function (hex, factor) {
   };
   return '#' + to2(r) + to2(g) + to2(b);
 };
-
 // Versi warna yang aman dibaca sebagai teks di latar putih.
 // Warna terang digelapkan lebih kuat agar kontras tetap terjaga.
 export const textSafeHex = function (hex) {
@@ -138,7 +133,6 @@ const sanitizeAccent = function (hex) {
   const out = hslToRgb(hsl.h, s, l);
   return rgbToHex(out.r, out.g, out.b);
 };
-
 // Turunan nada gelap dari satu warna, untuk aksen sekunder
 // (bar bawah) agar seragam dengan warna utama.
 const deriveDarkTone = function (hex) {
@@ -170,7 +164,6 @@ export const resolveCoverTheme = function (fields, palette) {
   const FALLBACK = '#C9A961';
   const FIXED_BG = '#15171C';
   const f = fields || {};
-
   if (f.coverThemeAuto === false) {
     const primary = isValidHex(f.coverPrimary) ? normalizeHex(f.coverPrimary) : FALLBACK;
     const accent = isValidHex(f.coverAccent) ? normalizeHex(f.coverAccent) : deriveDarkTone(primary);
@@ -183,7 +176,6 @@ export const resolveCoverTheme = function (fields, palette) {
       accentText: textSafeHex(accent),
     };
   }
-
   const suitable = [];
   (palette || []).forEach(function (p) {
     if (!isValidHex(p.hex)) return;
@@ -196,10 +188,8 @@ export const resolveCoverTheme = function (fields, palette) {
       suitable.push({ hex: hex, hsl: hsl });
     }
   });
-
   let primary = FALLBACK;
   if (suitable.length) primary = sanitizeAccent(suitable[0].hex);
-
   let accent = '';
   for (let i = 1; i < suitable.length; i++) {
     const dh = Math.abs(suitable[i].hsl.h - suitable[0].hsl.h);
@@ -210,7 +200,6 @@ export const resolveCoverTheme = function (fields, palette) {
     }
   }
   if (!accent) accent = deriveDarkTone(primary);
-
   return {
     primary: primary,
     accent: accent,
@@ -218,4 +207,93 @@ export const resolveCoverTheme = function (fields, palette) {
     primaryText: textSafeHex(primary),
     accentText: textSafeHex(accent),
   };
+};
+
+// ============================================================
+// HASH CACHE UNTUK TAGLINE
+// hashText mendeteksi perubahan teks agar pemanggilan AI tidak
+// berulang untuk teks yang sama.
+// TAGLINE_HASH_VERSION dinaikkan setiap kali prompt AI berubah,
+// agar cache tagline lama otomatis dianggap basi dan dibuat ulang.
+// ============================================================
+export const hashText = function (s) {
+  let h = 5381;
+  const str = (s || '');
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  return 'h' + (h >>> 0).toString(36) + '-' + str.length;
+};
+
+export const TAGLINE_HASH_VERSION = 'v3';
+
+export const taglineHash = function (text) {
+  return hashText((text || '') + '|' + TAGLINE_HASH_VERSION);
+};
+
+// ============================================================
+// PERINGKAS TEKS SAMPUL (FALLBACK HEURISTIK)
+// Memotong di batas klausa alami (koma atau kata sambung) lalu
+// mengakhiri hasil dengan titik. TIDAK ADA elipsis, sehingga
+// sampul selalu terlihat bersih dan profesional.
+// ============================================================
+const CLAUSE_MARKERS = [' dan ', ' serta ', ' atau ', ' sehingga ', ' agar ', ' untuk ', ' dengan ', ' yang '];
+
+export const summarizeForCover = function (text, max) {
+  if (!text || !text.trim()) return '';
+  let s = text.trim().split('\n')[0];
+  const sentenceEnd = s.indexOf('. ');
+  if (sentenceEnd > -1) s = s.slice(0, sentenceEnd);
+  s = s.replace(/[.!?]+$/, '').trim();
+  if (!s) return '';
+  if (s.length <= max) return s + '.';
+  const cut = s.slice(0, max);
+  let pos = cut.lastIndexOf(',');
+  if (pos < 40) {
+    CLAUSE_MARKERS.forEach(function (w) {
+      const p = cut.lastIndexOf(w);
+      if (p > pos) pos = p;
+    });
+  }
+  if (pos < 40) pos = cut.lastIndexOf(' ');
+  const clean = s.slice(0, pos).replace(/[\s,;:]+$/, '').trim();
+  return (clean || cut.trim()) + '.';
+};
+
+// ============================================================
+// TITLE CASE UNTUK SUBTITLE SAMPUL
+// Mengkapitalisasi huruf awal setiap kata, kecuali kata
+// penghubung, kata depan, dan partikel (dan, untuk, di, yang,
+// hingga, dll) sesuai kaidah judul EYD.
+// Kata pertama dan terakhir selalu dikapitalisasi.
+// Kata ber-hyphen dikapitalisasi per bagiannya, sehingga
+// "real-time" menjadi "Real-Time".
+// ============================================================
+const TITLE_SMALL_WORDS = {
+  dan: 1, atau: 1, serta: 1, tetapi: 1, tapi: 1, sedangkan: 1, melainkan: 1, padahal: 1,
+  bahwa: 1, karena: 1, sebab: 1, sehingga: 1, hingga: 1, agar: 1, supaya: 1,
+  jika: 1, kalau: 1, bila: 1, ketika: 1, saat: 1, sejak: 1, semenjak: 1, selama: 1,
+  setelah: 1, sesudah: 1, sebelum: 1, maka: 1, yaitu: 1, yakni: 1, yang: 1,
+  di: 1, ke: 1, dari: 1, pada: 1, kepada: 1, dalam: 1, bagi: 1, untuk: 1, buat: 1,
+  tentang: 1, mengenai: 1, oleh: 1, terhadap: 1, menurut: 1, berdasarkan: 1,
+  sekitar: 1, sepanjang: 1, menjelang: 1, menuju: 1,
+  pun: 1, per: 1, si: 1, sang: 1,
+};
+
+const capWord = function (w) {
+  return w.split('-').map(function (part) {
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  }).join('-');
+};
+
+export const titleCaseForCover = function (text) {
+  const s = (text || '').trim();
+  if (!s) return '';
+  const tokens = s.split(/\s+/);
+  return tokens.map(function (w, i) {
+    const lower = w.toLowerCase();
+    const isSmall = Object.prototype.hasOwnProperty.call(TITLE_SMALL_WORDS, lower);
+    if (isSmall && i !== 0 && i !== tokens.length - 1) return lower;
+    return capWord(w);
+  }).join(' ');
 };

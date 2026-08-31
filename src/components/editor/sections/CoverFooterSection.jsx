@@ -1,6 +1,6 @@
 import { faBookOpen } from '@fortawesome/free-solid-svg-icons';
 import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
+import { resolveCoverTheme, taglineHash, titleCaseForCover } from '../../../utils/helpers';
 import EditorSection from '../EditorSection';
 import ToggleSwitch from '../../shared/ToggleSwitch';
 
@@ -23,8 +23,6 @@ export default function CoverFooterSection() {
   const palette = usePrdStore(function (s) { return s.palette; });
   const auto = f.coverThemeAuto !== false;
 
-  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
-  // ke field manual supaya tampilan tidak melompat.
   const handleToggleAuto = function (v) {
     if (!v) {
       const t = resolveCoverTheme(f, palette);
@@ -34,6 +32,8 @@ export default function CoverFooterSection() {
     }
     set('coverThemeAuto', v);
   };
+
+  const taglineValid = !!(f.coverTagline || '').trim() && f.coverTaglineHash === taglineHash((f.productGoal || '').trim());
 
   return (
     <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
@@ -56,6 +56,14 @@ export default function CoverFooterSection() {
           <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
           <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
         </div>
+
+        {taglineValid && (
+          <div className="p-2.5 bg-purple-950/30 border border-purple-800/50 rounded-lg">
+            <p className="text-[10px] text-purple-300 font-semibold uppercase tracking-wider mb-1">Ringkasan Cerdas Sampul (AI)</p>
+            <p className="text-[11px] text-slate-300 italic">{titleCaseForCover(f.coverTagline)}</p>
+          </div>
+        )}
+
         <div>
           <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
           <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />

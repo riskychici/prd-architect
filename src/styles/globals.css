@@ -232,3 +232,16 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
   .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
 }
+
+/* ============================================================
+   TRANSISI SUBTITLE SAMPUL
+   Animasi hanya dijalankan pada momen subtitle naik kelas dari
+   heuristik ke hasil AI, sehingga perubahan teks terlihat seperti
+   fitur yang disengaja, bukan bug.
+   ============================================================ */
+@keyframes coverSubtitleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
+.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
