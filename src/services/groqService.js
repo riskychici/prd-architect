@@ -4,8 +4,15 @@
 // Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
 // ============================================================
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
+// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
 export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
+
+// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
+// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
+// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
+const NO_THINK_SUFFIX =
+  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
+  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
 
 const callGroq = async function (apiKey, model, prompt, maxTokens) {
   const res = await fetch(GROQ_ENDPOINT, {
@@ -45,22 +52,182 @@ export const callGroqWithFallback = async function (prompt, maxTokens) {
   }
 };
 
+// ============================================================
+// PEMBERSIH BLOK THINKING (3 LAPIS)
+// 1. Buang blok think yang utuh (ada pembuka dan penutup).
+// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
+//    tidak pernah muncul karena output habis token).
+// 3. Buang sisa penutup tanpa pembuka, jika ada.
+// ============================================================
 const cleanThink = function (t) {
-  return (t || '').replace(/[\s\S]*<\/think>\s*/g, '').trim();
+  let s = (t || '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*$/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  return s.trim();
+};
+
+// Panggil AI lalu bersihkan blok thinking.
+// Jika hasil bersih kosong (artinya seluruh token model habis
+// untuk berpikir), ulangi SEKALI dengan penekanan agar model
+// langsung menulis hasil akhir.
+const callGroqClean = async function (prompt, maxTokens) {
+  const raw = await callGroqWithFallback(prompt, maxTokens);
+  let out = cleanThink(raw).trim();
+  if (!out) {
+    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
+      maxTokens
+    );
+    out = cleanThink(raw2).trim();
+  }
+  return out;
 };
 
 // ============================================================
-// UTILITAS PERBAIKAN JSON
-// Model bahasa kadang mengembalikan JSON yang sedikit cacat:
-// kutip ganda lupa di-escape, koma trailing, atau output terpotong
-// batas token. Lapisan ini memperbaiki kasus umum sebelum
-// JSON.parse dipanggil, plus menyelamatkan hasil parsial.
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
 // ============================================================
+export const generateCoverTagline = async function (goalText) {
+  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + goalText + '"""\n' +
+    'Tagline:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 2048);
+  return out
+    .split('\n')[0]
+    .replace(/^tagline\s*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/["']/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+};
 
-// Mengamankan kutip ganda di dalam string. Kutip yang TIDAK diikuti
-// karakter struktural (, } ] :) dianggap kutip internal, lalu
-// di-escape agar JSON tetap valid. JSON yang sudah valid lolos
-// tanpa perubahan sama sekali.
+// ============================================================
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
+// KALIBRASI "KE INTI": hasil harus profesional, jelas, dan padat.
+// Model dilarang memperpanjang draf atau menulis basa-basi,
+// tetapi juga dilarang membuang fakta penting.
+// ============================================================
+const MODE_INSTRUCTIONS = {
+  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
+    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
+    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
+    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
+  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
+    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
+  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
+  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
+  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
+  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
+};
+
+// ============================================================
+// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
+// Parameter context berisi nama kolom tujuan (misalnya
+// "Problem Statement"), sehingga AI membingkai ulang tulisan
+// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
+// ============================================================
+export const refineText = async function (text, mode, context) {
+  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
+  const example = mode === 'paragraph'
+    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
+      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
+      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
+      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
+      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
+    : '';
+  const contextRule = context
+    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
+      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
+      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
+      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
+      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
+    : '';
+  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
+    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
+    'Aturan khusus:\n' + instruction + '\n' +
+    example +
+    'Aturan umum:\n' +
+    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
+    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
+    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
+    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
+    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
+    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
+    contextRule +
+    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 4096);
+  return out
+    .replace(/^hasil\s*:\s*/i, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+};
+
+// ============================================================
+// GENERATOR SCHEMA DARI USER FLOW
+// ============================================================
+export const generateSchemaFromFlow = async function (flowText) {
+  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
+    'Aturan:\n' +
+    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
+    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
+    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
+    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
+    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
+    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
+    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
+    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
+    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+  let raw = await callGroqWithFallback(prompt, 4096);
+  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
+  // ulangi sekali dengan instruksi langsung.
+  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
+    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
+      4096
+    );
+  }
+  const tables = parseSchemaJson(raw);
+  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  return tables.map(function (t, ti) {
+    return {
+      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
+      desc: String(t.desc || ''),
+      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
+        return {
+          field: String(fi.field || 'kolom'),
+          type: String(fi.type || 'VARCHAR'),
+          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
+          note: String(fi.note || ''),
+        };
+      }) : [],
+    };
+  });
+};
+
+// ============================================================
+// PARSER JSON SCHEMA YANG TAHAN BANTING
+// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
+// output yang terpotong batas token.
+// ============================================================
 const repairInnerQuotes = function (text) {
   let out = '';
   let inString = false;
@@ -97,8 +264,6 @@ const removeTrailingCommas = function (text) {
   return text.replace(/,\s*([}\]])/g, '$1');
 };
 
-// Menutup kurung yang masih terbuka berdasarkan stack, dipakai
-// untuk menyelamatkan JSON yang terpotong di tengah jalan.
 const closeOpenStructures = function (text) {
   const stack = [];
   let inString = false;
@@ -122,9 +287,6 @@ const closeOpenStructures = function (text) {
   return out;
 };
 
-// Memotong output di batas objek utuh terakhir lalu menutup semua
-// kurung, supaya tabel yang sudah lengkap tetap bisa dipakai walau
-// output AI terpotong batas token.
 const salvageTruncated = function (text) {
   let search = text;
   while (search.length) {
@@ -167,99 +329,4 @@ const parseSchemaJson = function (rawText) {
 
   console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
   throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
-};
-
-// ============================================================
-// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
-// ============================================================
-export const generateCoverTagline = async function (goalText) {
-  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
-    'Aturan wajib:\n' +
-    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
-    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
-    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
-    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
-    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
-    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
-    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Contoh 1:\n' +
-    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
-    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
-    'Contoh 2:\n' +
-    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
-    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
-    'Contoh 3:\n' +
-    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
-    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
-    'Teks: """' + goalText + '"""\nTagline:';
-  const raw = await callGroqWithFallback(prompt, 80);
-  return cleanThink(raw)
-    .split('\n')[0]
-    .replace(/^tagline\s*:\s*/i, '')
-    .replace(/\*\*/g, '')
-    .replace(/["']/g, '')
-    .replace(/[.!?]+$/, '')
-    .trim();
-};
-
-// ============================================================
-// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
-// ============================================================
-const MODE_INSTRUCTIONS = {
-  paragraph: 'Tulis ulang sebagai paragraf profesional bergaya dokumentasi Product Manager. Bahasa Indonesia formal, jelas, dan enak dibaca. Jangan mengubah makna.',
-  list: 'Tulis ulang setiap baris menjadi poin profesional bergaya dokumentasi produk. Pertahankan jumlah poin dan urutan baris. Satu poin per baris, tanpa bullet, tanpa nomor.',
-  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 12 kata, tanpa titik di akhir.',
-  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
-  technical: 'Tulis ulang sebagai spesifikasi teknis profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Pertahankan format singkat.',
-  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah profesional. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
-};
-
-export const refineText = async function (text, mode) {
-  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
-  const prompt = 'Kamu editor profesional dokumen Product Requirement Document berbahasa Indonesia.\n' +
-    'Tugasmu: perhalus draf kasar berikut menjadi tulisan profesional berstandar dokumentasi Product Manager.\n' +
-    'Aturan khusus:\n' + instruction + '\n' +
-    'Aturan umum:\n' +
-    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
-    '2. Jangan menghapus poin penting dari draf.\n' +
-    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n\n' +
-    'Draf kasar: """' + text + '"""\nHasil:';
-  const raw = await callGroqWithFallback(prompt, 400);
-  return cleanThink(raw).replace(/^["']+|["']+$/g, '').trim();
-};
-
-// ============================================================
-// GENERATOR SCHEMA DARI USER FLOW
-// Kini tahan banting: JSON cacat diperbaiki dulu, JSON terpotong
-// diselamatkan sebagian, dan pesan error dibuat ramah user.
-// ============================================================
-export const generateSchemaFromFlow = async function (flowText) {
-  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
-    'Aturan:\n' +
-    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
-    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
-    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
-    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
-    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
-    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
-    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
-    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
-    'User flow: """' + flowText + '"""\nJSON:';
-  const raw = await callGroqWithFallback(prompt, 1600);
-  const tables = parseSchemaJson(raw);
-  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
-  return tables.map(function (t, ti) {
-    return {
-      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
-      desc: String(t.desc || ''),
-      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
-        return {
-          field: String(fi.field || 'kolom'),
-          type: String(fi.type || 'VARCHAR'),
-          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
-          note: String(fi.note || ''),
-        };
-      }) : [],
-    };
-  });
 };

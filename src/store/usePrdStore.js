@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { cloneDeep } from 'lodash';
 import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY } from '../utils/constants';
 import { buildAiPrompt } from '../utils/aiPrompts';
 
@@ -72,6 +71,83 @@ function extractAiDraft(fullText) {
   return null;
 }
 
+// ============================================================
+// DUAL MODEL GEMINI UNTUK ANALISIS PRD
+// ============================================================
+const GEMINI_PRIMARY_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
+
+const describeGeminiError = function (err) {
+  if (err && err.status === 429) {
+    const m = err.message || '';
+    if (m.includes('Quota exceeded') || m.includes('free_tier')) {
+      return 'Kuota harian (Free Tier) Gemini API telah habis.';
+    }
+    return 'Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.';
+  }
+  if (err && err.status >= 500) {
+    return 'Server Gemini sedang bermasalah. Coba lagi sebentar lagi.';
+  }
+  if (err && !err.status && /fetch|network/i.test(err.message || '')) {
+    return 'Koneksi ke server Gemini gagal. Periksa koneksi internetmu lalu coba lagi.';
+  }
+  return (err && err.message) || 'Gagal memproses request ke Gemini API';
+};
+
+const streamGeminiAnalysis = async function (apiKey, model, prompt, onDisplay) {
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?key=' + apiKey + '&alt=sse',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 8192,
+          topP: 0.95,
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(function () { return {}; });
+    const err = new Error(errJson.error && errJson.error.message ? errJson.error.message : '');
+    err.status = response.status;
+    throw err;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let lastUiPush = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonStr = line.replace('data: ', '').trim();
+        if (jsonStr === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          fullText += textChunk;
+          const now = performance.now();
+          if (now - lastUiPush > 80) {
+            lastUiPush = now;
+            onDisplay(fullText);
+          }
+        } catch (e) {}
+      }
+    }
+  }
+  return fullText;
+};
+
 export const usePrdStore = create(function (set, get) {
   return {
     ...init(),
@@ -80,6 +156,7 @@ export const usePrdStore = create(function (set, get) {
     setField: function (key, value) { set(function (s) { return { fields: Object.assign({}, s.fields, { [key]: value }) }; }); },
     setSaveIndicator: function (t) { set({ saveIndicator: t }); },
     setAiTypewriterActive: function (v) { set({ aiTypewriterActive: v }); },
+    setSchemaTables: function (tables) { set({ schemaTables: tables }); },
 
     toggleSimpleExtra: function (key, value) { set(function (s) { return { simpleExtras: Object.assign({}, s.simpleExtras, { [key]: value }) }; }); },
     resetAllExtras: function () { set({ simpleExtras: { ...INITIAL_SIMPLE_EXTRAS } }); },
@@ -100,7 +177,7 @@ export const usePrdStore = create(function (set, get) {
     updateFeature: function (i, p) { set(function (s) { const f = s.features.slice(); f[i] = Object.assign({}, f[i], p); return { features: f }; }); },
     removeFeature: function (i) { set(function (s) { return { features: s.features.filter(function (_, x) { return x !== i; }).map(function (f, x) { return Object.assign({}, f, { id: 'F-0' + (x + 1) }); }) }; }); },
 
-    addPalette: function () { set(function (s) { return { palette: s.palette.concat([{ name: '', hex: '', usage: '' }]) }; }); },
+    addPalette: function () { set(function (s) { return { palette: s.palette.concat([{ name: '', hex: '#C9A961', usage: '' }]) }; }); },
     updatePalette: function (i, p) { set(function (s) { const a = s.palette.slice(); a[i] = Object.assign({}, a[i], p); return { palette: a }; }); },
     removePalette: function (i) { set(function (s) { return { palette: s.palette.filter(function (_, x) { return x !== i; }) }; }); },
 
@@ -109,7 +186,6 @@ export const usePrdStore = create(function (set, get) {
     removeRole: function (i) { set(function (s) { return { roles: s.roles.filter(function (_, x) { return x !== i; }) }; }); },
 
     addSchemaTable: function () { set(function (s) { return { schemaTables: s.schemaTables.concat([{ name: '', desc: '', fields: [{ field: '', type: '', required: 'Ya', note: '' }] }]) }; }); },
-    setSchemaTables: function (tables) { set({ schemaTables: tables }); },
     updateSchemaTable: function (i, p) { set(function (s) { const a = s.schemaTables.slice(); a[i] = Object.assign({}, a[i], p); return { schemaTables: a }; }); },
     removeSchemaTable: function (i) { set(function (s) { return { schemaTables: s.schemaTables.filter(function (_, x) { return x !== i; }) }; }); },
     addSchemaField: function (ti) { set(function (s) { const a = s.schemaTables.slice(); a[ti] = Object.assign({}, a[ti], { fields: a[ti].fields.concat([{ field: '', type: '', required: 'Ya', note: '' }]) }); return { schemaTables: a }; }); },
@@ -123,6 +199,13 @@ export const usePrdStore = create(function (set, get) {
     updateAcItem: function (mi, ii, p) { set(function (s) { const a = s.acModules.slice(); const it = a[mi].items.slice(); it[ii] = Object.assign({}, it[ii], p); a[mi] = Object.assign({}, a[mi], { items: it }); return { acModules: a }; }); },
     removeAcItem: function (mi, ii) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.filter(function (_, x) { return x !== ii; }) }); return { acModules: a }; }); },
 
+    // ============================================================
+    // FIX PERFORMA: getSnapshot menyimpan REFERENSI langsung,
+    // BUKAN cloneDeep. Semua mutasi store memakai pola immutable
+    // (concat, slice, Object.assign), jadi objek lama tidak pernah
+    // berubah dan history tetap aman tanpa deep copy. Ini menghapus
+    // pekerjaan sinkron terberat yang membuat klik terasa macet.
+    // ============================================================
     getSnapshot: (function () {
       let cache = null;
       let last = null;
@@ -136,9 +219,9 @@ export const usePrdStore = create(function (set, get) {
         }
         last = { fields: st.fields, features: st.features, palette: st.palette, roles: st.roles, schemaTables: st.schemaTables, acModules: st.acModules, simpleExtras: st.simpleExtras, techOptional: st.techOptional, mode: st.mode };
         cache = {
-          fields: cloneDeep(st.fields), features: cloneDeep(st.features), palette: cloneDeep(st.palette),
-          roles: cloneDeep(st.roles), schemaTables: cloneDeep(st.schemaTables), acModules: cloneDeep(st.acModules),
-          simpleExtras: cloneDeep(st.simpleExtras), techOptional: cloneDeep(st.techOptional), mode: st.mode,
+          fields: st.fields, features: st.features, palette: st.palette,
+          roles: st.roles, schemaTables: st.schemaTables, acModules: st.acModules,
+          simpleExtras: st.simpleExtras, techOptional: st.techOptional, mode: st.mode,
         };
         return cache;
       };
@@ -182,7 +265,6 @@ export const usePrdStore = create(function (set, get) {
         !(fields.problemStatement || '').trim() &&
         !(fields.productGoal || '').trim() &&
         features.length === 0;
-
       set({
         fields: fields,
         features: features,
@@ -209,81 +291,34 @@ export const usePrdStore = create(function (set, get) {
     analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
-
-      set({
-        isAnalyzing: true,
-        aiError: null,
-        aiFeedback: '',
-        aiDraft: null,
-        aiTypewriterActive: true,
-      });
-
+      set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null, aiTypewriterActive: true });
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
-
         const prompt = buildAiPrompt(prdSnapshot, userBrief);
 
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.4,
-                maxOutputTokens: 4096,
-                topP: 0.95,
-              }
-            })
-          }
-        );
+        const pushDisplay = function (fullText) {
+          const cleanDisplay = cleanLatex(
+            fullText.replace(/```json_draft[\s\S]*$/, '')
+          );
+          set({ aiFeedback: cleanDisplay });
+        };
 
-        if (!response.ok) {
-          const errJson = await response.json().catch(function () { return {}; });
-          const errMsg = errJson.error?.message || '';
-          if (response.status === 429 || errJson.error?.code === 429) {
-            if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
-              throw new Error('Kuota harian (Free Tier) Gemini API telah habis.');
-            }
-            throw new Error('Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.');
-          }
-          throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         let fullTextAccumulator = '';
-        let lastUiPush = 0;
+        try {
+          fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_PRIMARY_MODEL, prompt, pushDisplay);
+        } catch (primaryErr) {
+          const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
+          if (!retryable) throw primaryErr;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.replace('data: ', '').trim();
-              if (jsonStr === '[DONE]') continue;
-              try {
-                const parsed = JSON.parse(jsonStr);
-                const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                fullTextAccumulator += textChunk;
-
-                const now = performance.now();
-                if (now - lastUiPush > 80) {
-                  lastUiPush = now;
-                  const cleanDisplay = cleanLatex(
-                    fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
-                  );
-                  set({ aiFeedback: cleanDisplay });
-                }
-              } catch (e) {}
-            }
+          console.warn('[Gemini] Model utama gagal, memakai cadangan:', primaryErr.message);
+          set({ aiFeedback: '' });
+          try {
+            fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_FALLBACK_MODEL, prompt, pushDisplay);
+          } catch (fallbackErr) {
+            throw new Error(describeGeminiError(fallbackErr));
           }
         }
 
@@ -297,13 +332,14 @@ export const usePrdStore = create(function (set, get) {
         set({
           aiFeedback: finalCleanFeedback,
           aiDraft: extractedDraft,
-          isAnalyzing: false,
+          isAnalyzing: false
         });
 
         return finalCleanFeedback;
       } catch (err) {
-        set({ aiError: err.message, isAnalyzing: false });
-        throw err;
+        const friendly = describeGeminiError(err);
+        set({ aiError: friendly, isAnalyzing: false });
+        throw new Error(friendly);
       }
     },
 
@@ -311,11 +347,9 @@ export const usePrdStore = create(function (set, get) {
       const state = get();
       const draft = state.aiDraft;
       if (!draft) return false;
-
       set(function (s) {
         const updateState = {};
         const newSimpleExtras = { ...s.simpleExtras };
-
         if (draft.fields && typeof draft.fields === 'object') {
           updateState.fields = { ...s.fields };
           Object.keys(draft.fields).forEach((key) => {
@@ -327,7 +361,6 @@ export const usePrdStore = create(function (set, get) {
               }
             }
           });
-
           const personaKeys = ['userPersona', 'successMetrics'];
           if (personaKeys.some(function (k) { return draft.fields[k] && draft.fields[k].trim(); })) {
             newSimpleExtras.persona = true;
@@ -341,7 +374,6 @@ export const usePrdStore = create(function (set, get) {
             newSimpleExtras.nfr = true;
           }
         }
-
         if (Array.isArray(draft.features) && draft.features.length > 0) {
           updateState.features = draft.features.map(function (f, idx) {
             return {
@@ -352,7 +384,6 @@ export const usePrdStore = create(function (set, get) {
             };
           });
         }
-
         if (Array.isArray(draft.palette) && draft.palette.length > 0) {
           updateState.palette = draft.palette.map(function (p) {
             return {
@@ -363,7 +394,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.branding = true;
         }
-
         if (Array.isArray(draft.roles) && draft.roles.length > 0) {
           updateState.roles = draft.roles.map(function (r) {
             return {
@@ -374,7 +404,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.roles = true;
         }
-
         if (Array.isArray(draft.acModules) && draft.acModules.length > 0) {
           updateState.acModules = draft.acModules.map(function (m) {
             return {
@@ -389,7 +418,6 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.ac = true;
         }
-
         if (Array.isArray(draft.schemaTables) && draft.schemaTables.length > 0) {
           updateState.schemaTables = draft.schemaTables.map(function (t) {
             return {
@@ -399,7 +427,7 @@ export const usePrdStore = create(function (set, get) {
                 return {
                   field: sanitizeMultiline(cleanLatex(fi.field || '')),
                   type: sanitizeMultiline(cleanLatex(fi.type || '')),
-                  required: fi.required || 'Ya',
+                  required: fi.required === 'Ya' ? 'Ya' : 'Opsional',
                   note: sanitizeMultiline(cleanLatex(fi.note || ''))
                 };
               }) : []
@@ -407,33 +435,25 @@ export const usePrdStore = create(function (set, get) {
           });
           newSimpleExtras.schema = true;
         }
-
         updateState.simpleExtras = newSimpleExtras;
         return { ...updateState, aiDraft: null };
       });
-
       get().commitHistory();
       console.log('[AI Draft] Apply selesai.');
       return true;
     },
 
     clearAiFeedback: function () {
-      set({
-        aiFeedback: '',
-        aiDraft: null,
-        aiError: null,
-        aiTypewriterActive: false,
-      });
+      set({ aiFeedback: '', aiDraft: null, aiError: null, aiTypewriterActive: false });
     },
 
     loadSampleData: function () {
       set(function (s) {
         const keepCover = {};
-        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter'];
+        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter', 'coverSubtitle'];
         coverKeys.forEach(function (k) {
           if (Object.prototype.hasOwnProperty.call(s.fields, k)) keepCover[k] = s.fields[k];
         });
-
         return {
           fields: Object.assign({
             projectName: 'Instagram', docVersion: '2.0 Final Draft', docStatus: 'In Development', author: 'Tim Product Instagram',

@@ -8,8 +8,10 @@ export default function ComboBox(props) {
   const onChange = props.onChange;
   const placeholder = props.placeholder || 'Tipe data';
   const label = props.label || 'Tipe data';
-  const inputId = 'combo-' + (label || '').replace(/\s+/g, '-').toLowerCase() + '-' + Math.random().toString(36).slice(2, 7);
-
+  // FIX: id dibuat sekali saat mount agar stabil antar render.
+  const [inputId] = useState(function () {
+    return 'combo-' + (label || '').replace(/\s+/g, '-').toLowerCase() + '-' + Math.random().toString(36).slice(2, 7);
+  });
   const [open, setOpen] = useState(false);
   const [ai, setAi] = useState(-1);
   const ref = useRef(null);
@@ -29,7 +31,6 @@ export default function ComboBox(props) {
       flat.push({ cat: cat.category, value: it });
     });
   });
-
   const grouped = {};
   flat.forEach(function (it) {
     if (!grouped[it.cat]) grouped[it.cat] = [];

@@ -43,7 +43,7 @@ function ColorField(props) {
               const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
               props.onChange(c ? '#' + c : '');
             }}
-            placeholder="FFFFFF"
+            placeholder="C9A961"
             maxLength="6"
             className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pl-6 text-slate-100 font-mono focus:border-blue-500 focus:outline-none"
           />
@@ -57,10 +57,13 @@ export default function CoverFooterSection() {
   const f = usePrdStore(function (s) { return s.fields; });
   const set = usePrdStore(function (s) { return s.setField; });
   const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
   const showToast = useToast();
   const [aiBusy, setAiBusy] = useState(false);
   const auto = f.coverThemeAuto !== false;
 
+  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
+  // ke field manual supaya tampilan tidak melompat.
   const handleToggleAuto = function (v) {
     if (!v) {
       const t = resolveCoverTheme(f, palette);
@@ -75,6 +78,7 @@ export default function CoverFooterSection() {
 
   // AI hanya membaca Goals untuk mengisi field Subtitle Sampul.
   // Setelah terisi, user bebas mengeditnya. Tidak ada sync otomatis.
+  // FIX UNDO/REDO: commit dipanggil setelah subtitle diterapkan.
   async function handleUseAi() {
     if (aiBusy || !goalText) return;
     setAiBusy(true);
@@ -82,9 +86,10 @@ export default function CoverFooterSection() {
       const t = await generateCoverTagline(goalText);
       if (t) {
         set('coverSubtitle', t);
+        commit();
         showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
       } else {
-        showToast('AI tidak menghasilkan saran', 'info');
+        showToast('AI tidak menghasilkan saran', 'error');
       }
     } catch (e) {
       showToast('Gagal membuat saran: ' + e.message, 'error');

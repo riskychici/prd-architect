@@ -83,6 +83,7 @@ src/
       PreviewDocument.jsx
       PreviewPanel.jsx
     shared/
+      AiRefineButton.jsx
       ComboBox.jsx
       IconButton.jsx
       Toast.jsx
@@ -90,10 +91,12 @@ src/
   hooks/
     useAutoResize.js
     useAutoSave.js
+    useAutoTagline.js
     useSwipe.js
     useToast.js
   services/
     exportService.js
+    groqService.js
     storageService.js
   store/
     usePrdStore.js
@@ -118,266 +121,6 @@ vite.config.js
 ````
 
 # Files
-
-## File: src/components/editor/sections/CoverFooterSection.jsx
-````javascript
-import { faBookOpen } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
-import EditorSection from '../EditorSection';
-import ToggleSwitch from '../../shared/ToggleSwitch';
-
-function ColorField(props) {
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
-  return (
-    <div>
-      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
-      <div className="flex items-center gap-2">
-        <input type="color" value={safe} onChange={function (e) { props.onChange(e.target.value); }} aria-label={props.label} className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0" />
-        <input type="text" value={props.value} onChange={function (e) { props.onChange(e.target.value); }} placeholder="#C9A961" className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-100 font-mono focus:border-blue-500 focus:outline-none" />
-      </div>
-    </div>
-  );
-}
-
-export default function CoverFooterSection() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const auto = f.coverThemeAuto !== false;
-
-  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
-  // ke field manual supaya tampilan tidak melompat.
-  const handleToggleAuto = function (v) {
-    if (!v) {
-      const t = resolveCoverTheme(f, palette);
-      set('coverPrimary', t.primary);
-      set('coverAccent', t.accent);
-      set('coverBg', t.bg);
-    }
-    set('coverThemeAuto', v);
-  };
-
-  return (
-    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
-      <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
-        {auto ? (
-          <p className="text-[11px] text-slate-500">
-            {palette.length
-              ? 'Warna brand dipakai sebagai aksen saja: warna pertama palette yang layak menjadi warna utama, warna berikutnya dengan hue berbeda menjadi aksen kedua. Warna putih, hitam, abu, atau terlalu pucat otomatis dilewati, dan latar sampul dikunci charcoal agar selalu elegan.'
-              : 'Palette masih kosong, jadi aksen emas default yang dipakai. Isi section Branding untuk memakai warna brand.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
-          </div>
-        )}
-        <div>
-          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
-          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
-          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/preview/CoverPage.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { formatTargetDate, resolveCoverTheme } from '../../utils/helpers';
-
-// Ambil kalimat pertama secara utuh tanpa memotong kata di tengah.
-const firstSentence = function (text, max) {
-  if (!text || !text.trim()) return '';
-  let s = text.trim().split('\n')[0];
-  const idx = s.indexOf('. ');
-  if (idx > -1) s = s.slice(0, idx);
-  s = s.replace(/[.!?]$/, '').trim();
-  if (max && s.length > max) {
-    const cut = s.slice(0, max);
-    const lastSpace = cut.lastIndexOf(' ');
-    s = cut.slice(0, lastSpace > 40 ? lastSpace : max).trimEnd() + '...';
-  }
-  return s;
-};
-
-export default function CoverPage() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const features = usePrdStore(function (s) { return s.features; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-
-  const theme = resolveCoverTheme(f, palette);
-  const kicker = (f.coverKicker || '').trim() || 'PRODUCT REQUIREMENT DOCUMENT';
-
-  const words = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase().split(/\s+/).filter(Boolean);
-  const firstWord = words[0] || '';
-  const restWords = words.slice(1).join(' ');
-
-  const subtitle = firstSentence(f.productGoal, 220) || 'Dokumen Spesifikasi Produk';
-  const featureLine = features.length
-    ? features.slice(0, 4).map(function (ft) { return ft.name || ft.id; }).join(' · ')
-    : 'Overview · Fitur Utama · Tech Stack';
-  const descLine = firstSentence(f.problemStatement, 220) || 'Latar belakang masalah dan tujuan pengembangan produk.';
-
-  const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
-  const scope = ['Overview & Goals'];
-  if (vis('persona')) scope.push('Target User Persona & Success Metrics');
-  if (vis('branding')) scope.push('Branding & Design System');
-  if (vis('roles')) scope.push('Role & Permission Matrix');
-  scope.push('Fitur Utama & Requirements');
-  if (vis('ac')) scope.push('Acceptance Criteria per Modul');
-  scope.push('User Flow');
-  scope.push('Tech Stack & Arsitektur');
-  if (vis('schema')) scope.push('Schema Data');
-  if (vis('nfr')) scope.push('Non-Functional Requirements');
-  scope.push('Out of Scope & Definition of Done');
-
-  const today = new Date();
-  const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-  const createdDate = today.getDate() + ' ' + months[today.getMonth()] + ' ' + today.getFullYear();
-
-  const targetDate = formatTargetDate(f.targetDate, f.targetDateFormat);
-  const owner = (f.author || '').trim() || '-';
-  // Status kini dinamis, diambil dari field docStatus
-  const status = f.docStatus || 'Draft';
-
-  const labelCls = 'meta-label text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap';
-  const valueCls = 'mt-1 text-[11px] text-slate-400';
-
-  return (
-    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: theme.bg }}>
-      <div className="h-8 w-full" style={{ background: theme.primary }} />
-
-      <div className="cover-body flex-1 flex flex-col px-8 md:px-14 pt-16 md:pt-20 pb-8">
-        <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-wide text-white leading-tight">
-          {firstWord}
-          {restWords && <span style={{ color: theme.primary }}> {restWords}</span>}
-        </h1>
-        <div className="mt-5 h-[3px] w-16" style={{ background: theme.accent }} />
-
-        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
-        <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white">{subtitle}</h2>
-
-        <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
-        <p className="mt-2 text-xs text-slate-400">{descLine}</p>
-
-        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' · ')}</p>
-        </div>
-
-        <div className="flex-1 min-h-6" />
-
-        <div className="cover-meta grid grid-cols-2 md:grid-cols-3 gap-x-4 md:gap-x-6 gap-y-5 border-t border-slate-700 pt-4">
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Versi</p>
-            <p className={valueCls}>{f.docVersion || '1.0'}</p>
-          </div>
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Bahasa</p>
-            <p className={valueCls}>Indonesia</p>
-          </div>
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Target Rilis</p>
-            <p className={valueCls}>{targetDate}</p>
-          </div>
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Tanggal Dibuat</p>
-            <p className={valueCls}>{createdDate}</p>
-          </div>
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Owner</p>
-            <p className={valueCls}>{owner}</p>
-          </div>
-          <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Status</p>
-            <p className={valueCls}>{status}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="h-8 w-full" style={{ background: theme.accent }} />
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/DocFooter.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { resolveCoverTheme } from '../../utils/helpers';
-
-export default function DocFooter() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  if (f.coverShowFooter === false) return null;
-  const theme = resolveCoverTheme(f, palette);
-  const title = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase();
-  const docLabel = 'Product Requirement Document';
-  const note = (f.coverFooterNote || '').trim() || 'Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi.';
-  return (
-    <div className="doc-footer keep-together mt-8 pt-4 border-t-2 text-center space-y-1" style={{ borderColor: theme.primary }}>
-      <p className="text-[11px] text-slate-600">
-        <strong className="text-slate-900">{title}</strong>
-        <span>{' · '}{docLabel}{' · Versi '}{f.docVersion || '1.0'}</span>
-      </p>
-      <p className="text-[11px] text-slate-500">{note}</p>
-    </div>
-  );
-}
-````
-
-## File: src/store/usePreviewStore.js
-````javascript
-import { create } from 'zustand';
-import { usePrdStore } from './usePrdStore';
-
-// ============================================================
-// PREVIEW STORE (CERMIN DENGAN DELAY)
-// Menyalin state PRD ke store terpisah yang hanya diperbarui
-// 120ms setelah perubahan terakhir. Hasilnya panel preview tidak
-// lagi re-render pada setiap ketikan, sehingga mengetik di editor
-// terasa mulus. Preview tetap terasa live karena delay sangat kecil.
-// Export JSON, Markdown, dan Print tetap memakai store utama
-// sehingga hasilnya selalu data terbaru.
-// ============================================================
-const pick = function (s) {
-  return {
-    fields: s.fields,
-    features: s.features,
-    palette: s.palette,
-    roles: s.roles,
-    schemaTables: s.schemaTables,
-    acModules: s.acModules,
-    techOptional: s.techOptional,
-    simpleExtras: s.simpleExtras,
-    mode: s.mode,
-  };
-};
-
-export const usePreviewStore = create(function () {
-  return pick(usePrdStore.getState());
-});
-
-let timer = null;
-usePrdStore.subscribe(function () {
-  clearTimeout(timer);
-  timer = setTimeout(function () {
-    usePreviewStore.setState(pick(usePrdStore.getState()));
-  }, 120);
-});
-````
 
 ## File: public/logo-riskychici.svg
 ````xml
@@ -621,293 +364,128 @@ export default function MobileTabBar() {
 }
 ````
 
-## File: src/components/preview/sections/AcPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function AcPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const ac = usePrdStore(function (s) { return s.acModules; });
-  if (mode !== 'enterprise' && !se.ac) return null;
-  return (
-    <div className="space-y-3">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">2.1 Acceptance Criteria per Modul</h3>
-      <div className="pl-3 space-y-3">
-        {ac.length ? ac.map(function (m, mi) {
-          return (
-            <div key={mi} className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-900">{mi + 1}. {m.title || 'Modul'}</h4>
-              <div className="space-y-1.5">{m.items.map(function (it, ii) {
-                return (
-                  <div key={ii} className="pl-3 border-l-2 border-amber-400 keep-together">
-                    <p className="font-bold text-amber-700">AC-{mi + 1}.{ii + 1} {it.title}</p>
-                    <p className="text-slate-700">{it.desc}</p>
-                  </div>
-                );
-              })}</div>
-            </div>
-          );
-        }) : <p className="italic text-slate-400">Belum ada acceptance criteria.</p>}
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/BrandingPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
-export default function BrandingPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  if (mode !== 'enterprise' && !se.branding) return null;
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.2 Branding & Design System</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <div className="space-y-1">
-          {palette.length ? palette.map(function (p, i) {
-            const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
-            return (
-              <div key={i} className="flex items-center space-x-2">
-                <span className="w-4 h-4 rounded shrink-0" style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }} />
-                <span className="font-semibold text-slate-900">{p.name || '-'}</span>
-                <span className="font-mono text-slate-500">{p.hex}</span>
-                <span className="text-slate-500">{'\u00B7'} {p.usage}</span>
-              </div>
-            );
-          }) : <p className="italic text-slate-400">Belum ada palette warna.</p>}
-        </div>
-        <p><strong className="text-slate-900">Typography:</strong> <span>{f.brandTypography || '-'}</span></p>
-        <p><strong className="text-slate-900">Prinsip Layout:</strong> <span>{f.brandLayout || '-'}</span></p>
-        <p><strong className="text-slate-900">Breakpoint:</strong> <span className="font-mono">{buildBreakpoints(f) || '-'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/FeaturesPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function FeaturesPreview() {
-  const features = usePrdStore(function (s) { return s.features; });
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
-      <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
-        <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
-        <tbody className="divide-y divide-slate-200">
-          {features.length ? features.map(function (f) {
-            let b = 'bg-slate-200 text-slate-800';
-            if (f.priority === 'High') b = 'bg-rose-100 text-rose-800 font-bold';
-            if (f.priority === 'Medium') b = 'bg-amber-100 text-amber-800 font-bold';
-            if (f.priority === 'Low') b = 'bg-blue-100 text-blue-800';
-            return (
-              <tr key={f.id}><td data-label="ID" className="p-2 font-bold text-slate-900">{f.id}</td><td data-label="Fitur" className="p-2 font-semibold text-slate-800">{f.name || '-'}</td><td data-label="Deskripsi" className="p-2 text-slate-600">{f.story || '-'}</td><td data-label="Prioritas" className="p-2 text-center"><span className={'px-2 py-0.5 rounded text-[10px] ' + b}>{f.priority}</span></td></tr>
-            );
-          }) : <tr><td colSpan="4" className="p-3 text-center text-slate-400 italic">Belum ada fitur.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/OverviewPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function OverviewPreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">1. Overview & Goals</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Latar Belakang:</strong> <span className="italic text-slate-600">{f.problemStatement || 'Belum diisi.'}</span></p>
-        <p><strong className="text-slate-900">Tujuan Utama:</strong> <span className="italic text-slate-600">{f.productGoal || 'Belum diisi.'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/PersonaPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function PersonaPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  if (mode !== 'enterprise' && !se.persona) return null;
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.1 Target User Persona & Success Metrics</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Target User Persona:</strong> <span>{f.userPersona || '-'}</span></p>
-        <p><strong className="text-slate-900">Metrik & KPI Utama:</strong> <span>{f.successMetrics || '-'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/SchemaPreview.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function SchemaPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const st = usePrdStore(function (s) { return s.schemaTables; });
-  if (mode !== 'enterprise' && !se.schema) return null;
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.1 Schema Data</h3>
-      <div className="pl-3 space-y-4">
-        {st.length ? st.map(function (t, ti) {
-          return (
-            <div key={ti} className="space-y-1 keep-together">
-              <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
-              {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
-              <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
-                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
-                <tbody className="divide-y divide-slate-200">
-                  {t.fields.length ? t.fields.map(function (s, fi) {
-                    return (
-                      <tr key={fi}><td data-label="Kolom" className="p-2 font-mono font-semibold text-slate-900">{s.field || '-'}</td><td data-label="Tipe" className="p-2 text-slate-600 font-mono">{s.type || '-'}</td><td data-label="Not Null" className="p-2 text-center"><FontAwesomeIcon icon={s.required === 'Ya' ? faCheck : faMinus} className={s.required === 'Ya' ? 'text-emerald-600' : 'text-slate-400'} /></td><td data-label="Keterangan" className="p-2 text-slate-600">{s.note}</td></tr>
-                    );
-                  }) : <tr><td colSpan="4" className="p-2 text-center text-slate-400 italic">Belum ada kolom.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          );
-        }) : <p className="italic text-slate-400">Belum ada schema.</p>}
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/ScopeDonePreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function ScopeDonePreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const oos = (f.outOfScope || '').trim();
-  const dod = (f.defOfDone || '').trim();
-  const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
-  const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
-      <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
-        <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
-        <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
-      </div>
-      <div className="p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded text-xs space-y-1">
-        <h4 className="font-bold text-emerald-800">Definition of Done</h4>
-        <ul className="list-disc pl-4 text-emerald-900 space-y-0.5">{dodI.length ? dodI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Belum ditentukan.</li>}</ul>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/TechStackPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-export default function TechStackPreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const techOptional = usePrdStore(function (s) { return s.techOptional; });
-  const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
-    .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
-    .map(function (d) { return { label: d.label, value: f[d.key] }; }));
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
-      <div className="pl-3 space-y-3 text-xs text-slate-700">
-        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
-          <tbody>
-            {rows.map(function (r, i) {
-              return (
-                <tr key={i} className="border-b border-slate-200">
-                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
-                  <td className="p-2 text-slate-800">{r.value || '-'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div>
-          <strong className="text-slate-900 block mb-1">Skema Database:</strong>
-          <pre className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">{f.dbSchema || '-'}</pre>
-        </div>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/PreviewDocument.jsx
+## File: src/components/preview/DocFooter.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
 import { resolveCoverTheme } from '../../utils/helpers';
-import CoverPage from './CoverPage';
-import DocFooter from './DocFooter';
-import OverviewPreview from './sections/OverviewPreview';
-import FeaturesPreview from './sections/FeaturesPreview';
-import TechStackPreview from './sections/TechStackPreview';
-import PersonaPreview from './sections/PersonaPreview';
-import BrandingPreview from './sections/BrandingPreview';
-import RolesPreview from './sections/RolesPreview';
-import AcPreview from './sections/AcPreview';
-import SchemaPreview from './sections/SchemaPreview';
-import NfrPreview from './sections/NfrPreview';
-import ScopeDonePreview from './sections/ScopeDonePreview';
 
-export default function PreviewDocument() {
+export default function DocFooter() {
   const f = usePrdStore(function (s) { return s.fields; });
   const palette = usePrdStore(function (s) { return s.palette; });
+  if (f.coverShowFooter === false) return null;
   const theme = resolveCoverTheme(f, palette);
+  const title = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase();
+  const docLabel = 'Product Requirement Document';
+  const note = (f.coverFooterNote || '').trim() || 'Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi.';
   return (
-    <>
-      <CoverPage />
-      <div
-        id="prdDocument"
-        className="bg-white text-slate-900 p-8 rounded-lg shadow-2xl border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
-        style={{
-          '--doc-primary': theme.primary,
-          '--doc-primary-text': theme.primaryText,
-          '--doc-accent': theme.accent,
-          '--doc-accent-text': theme.accentText,
-        }}
-      >
-        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
-        <div className="space-y-2 keep-together">
-          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
-          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">{f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}</div>
-        </div>
-        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
-        <DocFooter />
-      </div>
-    </>
+    <div className="doc-footer keep-together mt-8 pt-4 border-t-2 text-center space-y-1" style={{ borderColor: theme.primary }}>
+      <p className="text-[11px] text-slate-600">
+        <strong className="text-slate-900">{title}</strong>
+        <span>{' · '}{docLabel}{' · Versi '}{f.docVersion || '1.0'}</span>
+      </p>
+      <p className="text-[11px] text-slate-500">{note}</p>
+    </div>
   );
 }
 ````
 
-## File: src/components/preview/PreviewPanel.jsx
+## File: src/components/shared/AiRefineButton.jsx
 ````javascript
-import PreviewActions from './PreviewActions';
-import PreviewDocument from './PreviewDocument';
-export default function PreviewPanel() {
+import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { refineText } from '../../services/groqService';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useAutoResize } from '../../hooks/useAutoResize';
+import { useToast } from '../../hooks/useToast';
+
+// ============================================================
+// TOMBOL PERHALUS TEKS AI (IN-LINE TEXT ENHANCER)
+// - Nonaktif otomatis jika kolom kosong.
+// - Menampilkan spinner saat AI bekerja.
+// - Mengirim nama kolom (label) sebagai konteks, sehingga AI
+//   membingkai ulang tulisan sesuai tujuan kolom.
+// - Setelah refine selesai, tombol TERKUNCI selama value kolom
+//   belum diubah. Begitu user mengubah value, tombol aktif lagi.
+// - Jika refine gagal karena error jaringan/API, tombol tetap
+//   aktif supaya user bisa langsung mencoba ulang.
+// - FIX UNDO/REDO: hasil AI dicatat ke history SESUDAH diterapkan.
+// - FIX TEXTAREA TERPOTONG: setelah nilai diset secara programatik,
+//   tinggi textarea dihitung ulang supaya tidak terpotong.
+// ============================================================
+export default function AiRefineButton(props) {
+  const value = props.value || '';
+  const onApply = props.onApply;
+  const mode = props.mode || 'paragraph';
+  const label = props.label || 'kolom ini';
+  const className = props.className || '';
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const ra = useAutoResize();
+  const showToast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  // Menyimpan teks hasil refine terakhir. Selama value kolom masih
+  // sama persis dengan teks ini, tombol dianggap "sudah dipakai"
+  // dan tetap nonaktif.
+  const [lastRefined, setLastRefined] = useState(null);
+
+  const trimmed = value.trim();
+  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
+  const disabled = busy || !trimmed || unchangedSinceRefine;
+
+  async function handle() {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const result = await refineText(trimmed, mode, label);
+      if (result && result.trim()) {
+        if (result.trim() !== trimmed) {
+          onApply(result.trim());
+          commit();
+          // Nilai diset lewat store, bukan ketikan user, sehingga
+          // event input tidak pernah terjadi dan textarea tidak
+          // memanjang sendiri. Paksa hitung ulang tinggi setelah
+          // React selesai merender nilai baru.
+          setTimeout(function () { ra.resizeAll(); }, 0);
+          showToast('Teks berhasil diperhalus oleh AI', 'success');
+        } else {
+          showToast('AI: Teks ini sudah cukup profesional', 'info');
+        }
+        setLastRefined(result.trim());
+      } else {
+        setLastRefined(trimmed);
+        showToast('AI tidak menghasilkan output', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal memperhalus: ' + e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title = busy
+    ? 'Sedang memperhalus teks...'
+    : unchangedSinceRefine
+      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
+      : 'Perhalus teks dengan AI (Qwen)';
+
   return (
-    <section id="previewPanel" className="bg-slate-950 p-6 overflow-y-auto" style={{ height: '100%' }}>
-      <PreviewActions /><PreviewDocument />
-    </section>
+    <button
+      type="button"
+      onClick={handle}
+      disabled={disabled}
+      title={title}
+      aria-label={'Perhalus teks ' + label + ' dengan AI'}
+      className={
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 hover:bg-purple-700/40 transition disabled:opacity-30 disabled:cursor-not-allowed ' +
+        className
+      }
+    >
+      <FontAwesomeIcon
+        icon={busy ? faSpinner : faWandMagicSparkles}
+        className={'text-[11px] ' + (busy ? 'animate-spin' : '')}
+      />
+    </button>
   );
 }
 ````
@@ -937,43 +515,168 @@ export default function ToastContainer() {
 }
 ````
 
-## File: src/hooks/useAutoResize.js
+## File: src/hooks/useAutoTagline.js
 ````javascript
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from '../store/usePrdStore';
+import { taglineHash, summarizeForCover } from '../utils/helpers';
 
-export const useAutoResize = function () {
-  const resize = useCallback(function (el) {
-    if (!el || el.tagName !== 'TEXTAREA') return;
-    if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return;
-    if (!el.dataset.minHeight) {
-      const p = el.style.height;
-      el.style.height = 'auto';
-      el.dataset.minHeight = el.scrollHeight + 2;
-      el.style.height = p || (el.scrollHeight + 2) + 'px';
-      return;
-    }
-    const min = parseInt(el.dataset.minHeight || '0', 10);
-    el.style.height = 'auto';
-    el.style.height = Math.max(min, el.scrollHeight + 2) + 'px';
-  }, []);
+// ============================================================
+// AUTO TAGLINE: PERINGKAS SAMPUL CERDAS DENGAN DUAL MODEL FALLBACK
+// Model utama: qwen/qwen3.8-27b
+// Model cadangan: qwen/qwen3.6-27b
+// Fallback terakhir: heuristik lokal (summarizeForCover)
+// ============================================================
 
-  const resizeAll = useCallback(function () {
-    document.querySelectorAll('textarea').forEach(resize);
-  }, [resize]);
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
+const FALLBACK_MODEL = 'qwen/qwen3.6-27b';
+
+// Hanya aktif jika teks cukup panjang untuk butuh peringkasan
+const MIN_CHARS = 140;
+// Batas keras panjang tagline agar sampul selalu ringkas
+const MAX_TAGLINE_CHARS = 90;
+// Tunggu user benar-benar berhenti mengetik sebelum memanggil AI
+const DEBOUNCE_MS = 2500;
+
+const buildPrompt = function (text) {
+  return 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + text + '"""\n' +
+    'Tagline:';
+};
+
+const callGroq = async function (apiKey, model, prompt) {
+  const res = await fetch(GROQ_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: 60,
+    }),
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(function () { return {}; });
+    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content || '';
+  }
+  return '';
+};
+
+// Bersihkan output model dan paksa batas panjang
+const cleanTagline = function (raw, originalLength) {
+  let t = (raw || '');
+  // Buang blok thinking jika model mengeluarkannya
+  t = t.replace(/[\s\S]*<\/think>\s*/g, '');
+  // Ambil baris pertama saja
+  t = t.split('\n')[0];
+  // Buang awalan "Tagline:" jika model mengulanginya
+  t = t.replace(/^tagline\s*:\s*/i, '');
+  // Buang bold markdown, kutip, dan tanda baca akhir
+  t = t.replace(/\*\*/g, '').replace(/["']/g, '').replace(/[.!?]+$/, '').trim();
+  if (!t || t.length > originalLength) return '';
+  // Jika model masih mengirim terlalu panjang, potong di batas
+  // klausa alami dan akhiri dengan titik (tanpa elipsis).
+  if (t.length > MAX_TAGLINE_CHARS) {
+    t = summarizeForCover(t, MAX_TAGLINE_CHARS);
+  }
+  return t;
+};
+
+export const useAutoTagline = function () {
+  const productGoal = usePrdStore(function (s) { return s.fields.productGoal; });
+  const busyRef = useRef(false);
 
   useEffect(function () {
-    resizeAll();
-    window.addEventListener('resize', resizeAll);
-    return function () { window.removeEventListener('resize', resizeAll); };
-  }, [resizeAll]);
+    const run = debounce(async function () {
+      const state = usePrdStore.getState();
+      const text = (state.fields.productGoal || '').trim();
 
-  // Objek return dibuat stabil dengan useMemo.
-  // Sebelumnya objek baru dibuat tiap render, sehingga effect di
-  // EditorPanel bongkar pasang listener setiap ketikan dan membuat
-  // ketikan terasa patah-patah.
-  return useMemo(function () {
-    return { resize: resize, resizeAll: resizeAll };
-  }, [resize, resizeAll]);
+      // Teks pendek tidak butuh peringkasan AI
+      if (text.length < MIN_CHARS) return;
+
+      // Hash memakai versi prompt, sehingga tagline lama dari
+      // prompt versi sebelumnya otomatis dibuat ulang.
+      const hash = taglineHash(text);
+
+      // Teks yang sama sudah pernah diproses, jangan panggil ulang
+      if (state.fields.coverTaglineHash === hash) return;
+
+      // Cegah pemanggilan bersamaan
+      if (busyRef.current) return;
+
+      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+      if (!apiKey) return;
+
+      busyRef.current = true;
+      let tagline = '';
+
+      try {
+        // Percobaan 1: model utama
+        try {
+          const raw = await callGroq(apiKey, PRIMARY_MODEL, buildPrompt(text));
+          tagline = cleanTagline(raw, text.length);
+        } catch (primaryErr) {
+          // Fallback hanya untuk error kuota, server, atau jaringan
+          const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
+          if (!retryable) throw primaryErr;
+          console.warn('[AutoTagline] Model utama gagal, mencoba cadangan:', primaryErr.message);
+        }
+
+        // Percobaan 2: model cadangan (jika utama error retryable
+        // atau utama sukses tapi hasilnya kosong tidak wajar)
+        if (!tagline) {
+          const raw2 = await callGroq(apiKey, FALLBACK_MODEL, buildPrompt(text));
+          tagline = cleanTagline(raw2, text.length);
+        }
+
+        if (tagline) state.setField('coverTagline', tagline);
+        state.setField('coverTaglineHash', hash);
+      } catch (e) {
+        // Gagal diam-diam: sampul jatuh ke heuristik lokal.
+        // Hash tetap disimpan agar teks sama tidak di-retry terus.
+        console.error('[AutoTagline] Semua model gagal:', e.message);
+        state.setField('coverTaglineHash', hash);
+      } finally {
+        busyRef.current = false;
+      }
+    }, DEBOUNCE_MS);
+
+    run();
+    return function () { run.cancel(); };
+  }, [productGoal]);
+
+  return null;
 };
 ````
 
@@ -1035,6 +738,344 @@ export const useToastStore = create(function (set) {
 export const useToast = function () { return useToastStore(function (s) { return s.showToast; }); };
 ````
 
+## File: src/services/groqService.js
+````javascript
+// ============================================================
+// LAYANAN GROQ DENGAN DUAL MODEL FALLBACK
+// Model utama: qwen/qwen3.8-27b
+// Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
+// ============================================================
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
+export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
+
+// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
+// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
+// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
+const NO_THINK_SUFFIX =
+  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
+  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
+
+const callGroq = async function (apiKey, model, prompt, maxTokens) {
+  const res = await fetch(GROQ_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: maxTokens || 300,
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(function () { return {}; });
+    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content || '';
+  }
+  return '';
+};
+
+export const callGroqWithFallback = async function (prompt, maxTokens) {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error('VITE_GROQ_API_KEY belum diisi pada .env.local');
+  try {
+    return await callGroq(apiKey, GROQ_PRIMARY_MODEL, prompt, maxTokens);
+  } catch (primaryErr) {
+    const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
+    if (!retryable) throw primaryErr;
+    console.warn('[Groq] Model utama gagal, memakai cadangan:', primaryErr.message);
+    return await callGroq(apiKey, GROQ_FALLBACK_MODEL, prompt, maxTokens);
+  }
+};
+
+// ============================================================
+// PEMBERSIH BLOK THINKING (3 LAPIS)
+// 1. Buang blok think yang utuh (ada pembuka dan penutup).
+// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
+//    tidak pernah muncul karena output habis token).
+// 3. Buang sisa penutup tanpa pembuka, jika ada.
+// ============================================================
+const cleanThink = function (t) {
+  let s = (t || '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*$/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  return s.trim();
+};
+
+// Panggil AI lalu bersihkan blok thinking.
+// Jika hasil bersih kosong (artinya seluruh token model habis
+// untuk berpikir), ulangi SEKALI dengan penekanan agar model
+// langsung menulis hasil akhir.
+const callGroqClean = async function (prompt, maxTokens) {
+  const raw = await callGroqWithFallback(prompt, maxTokens);
+  let out = cleanThink(raw).trim();
+  if (!out) {
+    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
+      maxTokens
+    );
+    out = cleanThink(raw2).trim();
+  }
+  return out;
+};
+
+// ============================================================
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
+// ============================================================
+export const generateCoverTagline = async function (goalText) {
+  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + goalText + '"""\n' +
+    'Tagline:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 2048);
+  return out
+    .split('\n')[0]
+    .replace(/^tagline\s*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/["']/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+};
+
+// ============================================================
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
+// KALIBRASI ULANG: tugas AI adalah memperhalus BAHASA, bukan
+// memotong isi. Hasil harus profesional, utuh, dan natural,
+// tidak telegrafis dan tidak birokratis.
+// ============================================================
+const MODE_INSTRUCTIONS = {
+  paragraph: 'Tulis ulang sebagai paragraf profesional bergaya dokumentasi Product Manager. ' +
+    'Tugasmu memperhalus BAHASA, bukan merangkum isi: seluruh poin informasi draf wajib tetap muncul. ' +
+    'Susun menjadi 2 sampai 4 kalimat utuh yang mengalir, formal, jelas, dan natural. ' +
+    'Bukan poin-poin telegrafis yang kaku, dan bukan paragraf birokratis yang bertele-tele.',
+  list: 'Tulis ulang setiap baris menjadi poin profesional yang utuh dan jelas (10 sampai 20 kata per poin). ' +
+    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
+  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 12 kata, tanpa titik di akhir.',
+  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
+  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
+  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
+};
+
+// ============================================================
+// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
+// Parameter context berisi nama kolom tujuan (misalnya
+// "Problem Statement"), sehingga AI membingkai ulang tulisan
+// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
+// ============================================================
+export const refineText = async function (text, mode, context) {
+  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
+  const example = mode === 'paragraph'
+    ? 'Contoh gaya yang diinginkan (profesional, jelas, informasi lengkap, tidak bertele-tele):\n' +
+      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
+      'Hasil: "Pengguna masih kesulitan menemukan tombol cetak pada antarmuka, dan aplikasi kerap gagal saat proses unggah berkas berlangsung."\n\n' +
+      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
+      'Hasil: "Pelanggan harus mengantre lama tanpa kepastian jadwal pelayanan, sementara pemilik kesulitan mengoptimalkan kursi kosong, sehingga pengalaman pelanggan dan pendapatan usaha ikut menurun."\n\n'
+    : '';
+  const contextRule = context
+    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
+      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
+      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
+      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
+      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
+    : '';
+  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus terdengar seperti ditulis manusia profesional: rapi, formal, dan natural.\n' +
+    'Tugasmu: perhalus draf kasar berikut menjadi tulisan profesional berstandar dokumentasi Product Manager.\n' +
+    'Aturan khusus:\n' + instruction + '\n' +
+    example +
+    'Aturan umum:\n' +
+    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
+    '2. Jangan membuang informasi: seluruh poin inti draf wajib muncul di hasil.\n' +
+    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
+    '4. Panjang hasil seimbang dengan draf: boleh lebih rapi, tetapi tidak boleh jauh lebih pendek hingga informasi hilang, dan tidak boleh lebih panjang hingga bertele-tele.\n' +
+    '5. Hindari frasa birokratis berlebihan seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses.\n' +
+    '6. Gunakan kalimat utuh yang profesional dan natural, dengan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
+    contextRule +
+    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 4096);
+  return out
+    .replace(/^hasil\s*:\s*/i, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+};
+
+// ============================================================
+// GENERATOR SCHEMA DARI USER FLOW
+// ============================================================
+export const generateSchemaFromFlow = async function (flowText) {
+  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
+    'Aturan:\n' +
+    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
+    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
+    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
+    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
+    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
+    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
+    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
+    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
+    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+
+  let raw = await callGroqWithFallback(prompt, 4096);
+  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
+  // ulangi sekali dengan instruksi langsung.
+  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
+    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
+      4096
+    );
+  }
+
+  const tables = parseSchemaJson(raw);
+  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  return tables.map(function (t, ti) {
+    return {
+      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
+      desc: String(t.desc || ''),
+      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
+        return {
+          field: String(fi.field || 'kolom'),
+          type: String(fi.type || 'VARCHAR'),
+          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
+          note: String(fi.note || ''),
+        };
+      }) : [],
+    };
+  });
+};
+
+// ============================================================
+// PARSER JSON SCHEMA YANG TAHAN BANTING
+// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
+// output yang terpotong batas token.
+// ============================================================
+const repairInnerQuotes = function (text) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch + (text[i + 1] || '');
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
+        inString = false;
+        out += ch;
+      } else {
+        out += '\\"';
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+};
+
+const removeTrailingCommas = function (text) {
+  return text.replace(/,\s*([}\]])/g, '$1');
+};
+
+const closeOpenStructures = function (text) {
+  const stack = [];
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+    }
+  }
+  let out = text.replace(/,\s*$/, '');
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']';
+  }
+  return out;
+};
+
+const salvageTruncated = function (text) {
+  let search = text;
+  while (search.length) {
+    const lastClose = search.lastIndexOf('}');
+    if (lastClose === -1) return null;
+    const cut = search.slice(0, lastClose + 1);
+    const closed = closeOpenStructures(cut);
+    try {
+      const parsed = JSON.parse(closed);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) {}
+    search = search.slice(0, lastClose);
+  }
+  return null;
+};
+
+const parseSchemaJson = function (rawText) {
+  const cleaned = cleanThink(rawText).replace(/```json|```/gi, '').trim();
+  const start = cleaned.indexOf('[');
+  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
+  const end = cleaned.lastIndexOf(']');
+  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
+
+  const repaired = removeTrailingCommas(repairInnerQuotes(body));
+  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
+
+  let lastErr = null;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) { lastErr = e; }
+  }
+
+  const salvaged = salvageTruncated(repaired);
+  if (salvaged) {
+    console.warn('[Groq] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    return salvaged;
+  }
+
+  console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
+  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
+};
+````
+
 ## File: src/services/storageService.js
 ````javascript
 import { STORAGE_KEY } from '../utils/constants';
@@ -1060,6 +1101,42 @@ export const storageService = {
 };
 ````
 
+## File: src/store/usePreviewStore.js
+````javascript
+import { create } from 'zustand';
+import { usePrdStore } from './usePrdStore';
+
+const pick = function (s) {
+  return {
+    fields: s.fields,
+    features: s.features,
+    palette: s.palette,
+    roles: s.roles,
+    schemaTables: s.schemaTables,
+    acModules: s.acModules,
+    techOptional: s.techOptional,
+    simpleExtras: s.simpleExtras,
+    mode: s.mode,
+  };
+};
+
+export const usePreviewStore = create(function () {
+  return pick(usePrdStore.getState());
+});
+
+let rafScheduled = false;
+
+usePrdStore.subscribe(function () {
+  if (rafScheduled) return;
+  rafScheduled = true;
+
+  requestAnimationFrame(function () {
+    rafScheduled = false;
+    usePreviewStore.setState(pick(usePrdStore.getState()));
+  });
+});
+````
+
 ## File: src/store/useViewStore.js
 ````javascript
 import { create } from 'zustand';
@@ -1082,29 +1159,32 @@ function buildContextBlock(prdSnapshot, brief, isPrdEmpty) {
 "${brief}"
 
 INSTRUKSI KHUSUS: Dokumen PRD saat ini masih KOSONG. Jangan mengeluh soal dokumen kosong. Gunakan deskripsi user di atas sebagai acuan utama, lalu patuhi 5 aturan ini:
-
 1. INTERPRETASI LITERAL: Pahami inti produk secara harfiah dari kata-kata user. JANGAN memperluas scope menjadi produk lain. Contoh: "aplikasi catatan kuliah" berarti aplikasi untuk membuat, menyimpan, dan mengelola catatan kuliah per mata kuliah atau semester, BUKAN sistem informasi akademik dengan absensi, nilai, KRS, atau pembayaran SPP.
 2. KEMBANGAN YANG RELEVAN: Fitur tambahan boleh disarankan hanya jika relevan langsung dengan inti produk. Untuk catatan kuliah misalnya: pencarian catatan, lampiran foto atau PDF, sinkronisasi antar perangkat, dan berbagi catatan ke teman sekelas.
 3. KONFIRMASI INTERPRETASI: Pada poin "Status Kelengkapan & Kesiapan", tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta user, agar user bisa memverifikasi pemahaman kamu.
 4. KONSISTENSI STACK: Gunakan SATU rekomendasi technology stack yang sama di semua bagian dokumen. Jangan menyebut Next.js di satu bagian lalu React Native di bagian lain.
 5. RANCANG DARI NOL: Bayangkan produknya secara konkret (target user, masalah nyata, fitur inti, alur penggunaan, stack masuk akal untuk skala tersebut), lalu susun analisis dan isi SELURUH field json_draft dari nol, termasuk projectName yang cocok.
 
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
+
 Data PRD saat ini (masih kosong):
 ${JSON.stringify(prdSnapshot, null, 2)}`;
   }
-
   if (brief) {
     return `CATATAN TAMBAHAN DARI USER TENTANG APLIKASI:
 "${brief}"
 
 INGAT: Jangan memperluas scope di luar inti produk yang sudah ada di PRD atau catatan user. Jaga konsistensi rekomendasi stack di semua bagian.
 
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
+
 Data PRD saat ini:
 ${JSON.stringify(prdSnapshot, null, 2)}`;
   }
-
   return `Data PRD saat ini:
-${JSON.stringify(prdSnapshot, null, 2)}`;
+${JSON.stringify(prdSnapshot, null, 2)}
+
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.`;
 }
 
 /**
@@ -1124,7 +1204,6 @@ export function buildAiPrompt(prdSnapshot, userBrief) {
   const contextBlock = buildContextBlock(prdSnapshot, brief, isPrdEmpty);
 
   return `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
-
 Tugasmu: audit PRD berikut dan berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, PADAT, dan BERISI.
 
 ================================================================================
@@ -1140,7 +1219,6 @@ ATURAN PANJANG OUTPUT (SANGAT PENTING)
 ATURAN GAYA BAHASA
 ================================================================================
 1. TULIS SEPERTI MANUSIA. To the point, kontekstual, pakai istilah industri yang natural.
-
 2. DAFTAR KATA YANG DILARANG (klise AI):
    - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
    - "secara manual dan terfragmentasi"
@@ -1151,25 +1229,19 @@ ATURAN GAYA BAHASA
    - "secara tepat", "secara mudah", "secara real-time"
    - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
    - "guna", "adapun", "selanjutnya"
-
 3. PAKAI GAYA INI:
    - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
    - Kalimat pendek dan aktif
    - Konteks bisnis nyata dengan contoh spesifik
    - Berikan reasoning "kenapa" di balik setiap rekomendasi
-
 4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
-
 5. KONSISTENSI: Gunakan SATU rekomendasi technology stack yang sama di seluruh dokumen. Jangan ada kontradiksi antar bagian (misal menyebut Next.js di satu seksi lalu React Native di seksi lain).
-
 6. FOKUS SCOPE: Analisis dan rekomendasi harus sesuai dengan inti produk yang diminta atau yang sudah tertulis di PRD. JANGAN memperluas scope menjadi produk lain.
 
 ================================================================================
 STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
 ================================================================================
-
 ## 1. Analisis System Analyst
-
 ### A. Arsitektur & Stack Teknologi
 * **Status Kelengkapan & Kesiapan**: Audit singkat kelengkapan PRD dan gap kritis yang harus diisi sebelum sprint planning. Jika ada deskripsi user, tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta di awal poin ini.
 * **Rekomendasi Frontend & Backend**: Stack yang paling cocok untuk use case ini, plus alasan teknis singkat (SSR vs CSR, monolith vs microservices, REST vs GraphQL).
@@ -1183,7 +1255,6 @@ STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
 * **Performance & SLA**: Target FCP, response time API, uptime SLA, dan strategi monitoring.
 
 ## 2. Analisis Product Manager
-
 ### A. Problem Statement & Persona
 * **Kejelasan Masalah & Tujuan**: Evaluasi apakah problem statement sudah spesifik dan goals sudah terukur. Berikan saran perbaikan jika masih generic.
 * **Ketajaman Persona**: Apakah persona sudah menggambarkan pain point nyata dan jobs-to-be-done pengguna target.
@@ -1197,7 +1268,6 @@ STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
 * **KPI Terukur**: 3-5 metrik utama pasca-rilis (retention, DAU, conversion, CSAT) dengan target angka realistis.
 
 ## 3. Rekomendasi AI
-
 ### A. Stack Ideal & Keamanan Prioritas
 * **Stack Rekomendasi**: Kombinasi teknologi paling rasional untuk proyek ini beserta alasan singkat kenapa lebih baik dari alternatif. WAJIB sama dengan rekomendasi di bagian 1.
 * **Security Quick Wins**: 2-3 langkah keamanan yang wajib langsung dikerjakan di sprint pertama.
@@ -1207,10 +1277,72 @@ STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
 * **Mitigasi Risiko Utama**: Top 2 risiko terbesar (teknis atau bisnis) beserta strategi mitigasi praktis.
 
 ================================================================================
-ATURAN FORMAT JSON DRAFT (WAJIB OUTPUT DI AKHIR)
+ATURAN FORMAT JSON DRAFT (SANGAT PENTING: PERINGATAN KERAS ANTI-MALAS!)
 ================================================================================
+Setelah analisis, WAJIB output blok \`\`\`json_draft.
 
-Setelah analisis, WAJIB output blok \`\`\`json_draft. Semua nilai string HARUS:
+PERINGATAN KERAS: JANGAN membuat JSON yang minimalis, JANGAN hanya memberi 1 contoh, dan JANGAN memotong array. Kamu WAJIB mengisi array dengan data yang realistis, detail, dan lengkap sesuai skala aplikasi.
+
+[BATASAN KUANTITAS WAJIB - TIDAK BOLEH KURANG]
+- Array "features" WAJIB berisi 4 hingga 6 fitur inti yang berbeda.
+- Array "palette" WAJIB berisi minimal 3 warna (Primary, Secondary/Accent, Neutral).
+- Array "roles" WAJIB berisi minimal 2 role (misal: User & Admin) dengan hak akses yang spesifik.
+- Array "acModules" WAJIB berisi minimal 2 modul, dan SETIAP modul minimal 2 items Acceptance Criteria yang detail (mencakup trigger dan reaksi sistem).
+- Array "schemaTables" WAJIB berisi minimal 3 tabel, dan SETIAP tabel minimal 4 hingga 6 fields (kolom).
+
+[ATURAN KUALITAS & ANTI-REPETISI]
+1. FITUR HARUS SPESIFIK: Jangan buat fitur generik seperti "Login" atau "Dashboard" saja. Buat fitur yang mencerminkan bisnis intinya (Contoh untuk app catatan: "Sinkronisasi Cloud Otomatis", "Kategorisasi per Mata Kuliah", "Pencarian Full-Text").
+2. DATABASE HARUS RELASIONAL: Setiap tabel WAJIB memiliki Primary Key (id). Jika tabel berhubungan dengan tabel lain, WAJIB ada Foreign Key (misal: user_id, course_id). Jangan buat tabel yang berdiri sendiri tanpa relasi jika konteks aplikasinya membutuhkan.
+3. ACCEPTANCE CRITERIA HARUS TESTABLE: Deskripsi AC tidak boleh abstrak. Harus jelas kondisi pemicunya dan hasil yang diharapkan (Contoh: "User klik tombol Simpan -> Sistem memvalidasi input -> Data tersimpan di DB -> Muncul toast sukses").
+4. JANGAN REPETITIF: Jangan mengisi field dengan kalimat yang diulang-ulang atau template kosong. Setiap field harus punya nilai unik yang relevan dengan konteks PRD.
+
+[CONTOH BURUK VS CONTOH BAIK]
+❌ BURUK (Terlalu malas & dangkal):
+"features": [
+  { "id": "F-01", "name": "Login", "story": "User bisa login", "priority": "High" },
+  { "id": "F-02", "name": "Dashboard", "story": "User lihat dashboard", "priority": "High" }
+]
+"schemaTables": [
+  { "name": "users", "desc": "Tabel user", "fields": [{ "field": "id", "type": "INT", "required": "Ya", "note": "PK" }] }
+]
+
+✅ BAIK (Detail, relasional, dan spesifik):
+"features": [
+  { "id": "F-01", "name": "Autentikasi JWT", "story": "User login menggunakan email dan password, sistem mengembalikan token JWT yang disimpan di httpOnly cookie untuk keamanan sesi.", "priority": "High" },
+  { "id": "F-02", "name": "Manajemen Catatan per Semester", "story": "Mahasiswa dapat mengelompokkan catatan berdasarkan semester dan mata kuliah, serta menambahkan tag untuk pencarian cepat.", "priority": "High" }
+]
+"schemaTables": [
+  {
+    "name": "users",
+    "desc": "Menyimpan data kredensial dan profil mahasiswa",
+    "fields": [
+      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
+      { "field": "email", "type": "VARCHAR", "required": "Ya", "note": "Unique, digunakan untuk login" },
+      { "field": "password_hash", "type": "VARCHAR", "required": "Ya", "note": "Hash bcrypt, jangan simpan plain text" },
+      { "field": "created_at", "type": "TIMESTAMP", "required": "Ya", "note": "Waktu registrasi akun" }
+    ]
+  },
+  {
+    "name": "notes",
+    "desc": "Menyimpan konten catatan kuliah milik user",
+    "fields": [
+      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
+      { "field": "user_id", "type": "UUID", "required": "Ya", "note": "Foreign Key ke users" },
+      { "field": "title", "type": "VARCHAR", "required": "Ya", "note": "Judul catatan" },
+      { "field": "content", "type": "TEXT", "required": "Opsional", "note": "Isi catatan dalam format rich text" }
+    ]
+  }
+]
+
+[CHECKLIST VALIDASI MANDIRI - WAJIB DILAKUKAN SEBELUM MENULIS JSON]
+Sebelum kamu output json_draft, pastikan di dalam pikiranmu:
+1. Apakah array "features" sudah berisi 4 sampai 6 item? (Jika kurang, tambahkan sekarang)
+2. Apakah setiap tabel di "schemaTables" punya minimal 4 kolom DAN punya Foreign Key (_id) jika berhubungan dengan tabel lain?
+3. Apakah Acceptance Criteria sudah detail (ada trigger dan reaksi sistem), bukan cuma kalimat abstrak?
+4. Apakah ada fitur yang terlalu generik seperti sekadar "Login" atau "Dashboard"? (Jika ada, ganti dengan fitur spesifik bisnis)
+Jika ada yang belum memenuhi syarat di atas, PERBAIKI dulu di pikiranmu, baru tulis JSON-nya.
+
+Semua nilai string HARUS:
 - Bahasa Indonesia natural
 - JANGAN pakai format "Sebagai X, saya dapat Y" untuk user story
 - Kontekstual, tidak generik
@@ -1280,302 +1412,6 @@ ATURAN FORMAT KHUSUS:
 
 ${contextBlock}`;
 }
-````
-
-## File: src/utils/constants.js
-````javascript
-import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask } from '@fortawesome/free-solid-svg-icons';
-import { faHtml5 } from '@fortawesome/free-brands-svg-icons';
-
-export const STORAGE_KEY = 'prdArchitectV4';
-export const MAX_HISTORY = 50;
-export const AUTOSAVE_DELAY = 800;
-
-export const EXTRAS_DEFINITIONS = [
-  { key: 'persona', label: 'Persona & KPI Sukses', icon: 'faUsers', color: 'indigo' },
-  { key: 'branding', label: 'Branding & Design System', icon: 'faPalette', color: 'pink' },
-  { key: 'roles', label: 'Role & Permission Matrix', icon: 'faUserShield', color: 'emerald' },
-  { key: 'ac', label: 'Acceptance Criteria', icon: 'faClipboardCheck', color: 'amber' },
-  { key: 'schema', label: 'Schema Data', icon: 'faTableList', color: 'cyan' },
-  { key: 'nfr', label: 'NFR & Keamanan', icon: 'faShieldHalved', color: 'rose' },
-];
-
-export const TECH_REQUIRED = [
-  { key: 'techFrontend', label: 'Frontend', icon: faHtml5, color: 'text-orange-400', ph: 'misal: React, Tailwind CSS' },
-  { key: 'techBackend', label: 'Backend', icon: faServer, color: 'text-emerald-400', ph: 'misal: Node.js, Laravel' },
-  { key: 'techDatabase', label: 'Database', icon: faDatabase, color: 'text-blue-400', ph: 'misal: PostgreSQL, Redis' },
-  { key: 'techInfra', label: 'Infrastructure & Cloud Hosting', icon: faCloud, color: 'text-purple-400', ph: 'misal: Vercel, AWS, Docker' },
-  { key: 'techDomain', label: 'Domain & DNS Management', icon: faGlobe, color: 'text-cyan-400', ph: 'misal: Niagahoster, Cloudflare DNS' },
-  { key: 'techVcs', label: 'Version Control System', icon: faCodeBranch, color: 'text-slate-400', ph: 'misal: GitHub, GitLab' },
-];
-
-export const TECH_OPTIONAL = [
-  { key: 'techSecurity', label: 'Security & Authentication', icon: faShieldHalved, color: 'text-rose-400', category: 'Esensial', ph: 'misal: OAuth 2.0, JWT, bcrypt' },
-  { key: 'techStorage', label: 'Object Storage & CDN', icon: faHardDrive, color: 'text-cyan-400', category: 'Esensial', ph: 'misal: AWS S3 + CloudFront, Cloudflare R2' },
-  { key: 'techThirdParty', label: 'Third-Party APIs / Integrations', icon: faPlug, color: 'text-amber-400', category: 'Esensial', ph: 'misal: Midtrans, Firebase Auth' },
-  { key: 'techDevOps', label: 'CI/CD & DevOps', icon: faInfinity, color: 'text-purple-400', category: 'Lanjutan', ph: 'misal: GitHub Actions, GitLab CI' },
-  { key: 'techCaching', label: 'Caching Layer', icon: faBolt, color: 'text-yellow-400', category: 'Lanjutan', ph: 'misal: Redis, Memcached' },
-  { key: 'techQueue', label: 'Message Brokers / Queueing', icon: faEnvelopeOpenText, color: 'text-emerald-400', category: 'Lanjutan', ph: 'misal: RabbitMQ, Kafka' },
-  { key: 'techMonitoring', label: 'Monitoring, Logging, & Error Tracking', icon: faChartLine, color: 'text-blue-400', category: 'Lanjutan', ph: 'misal: Sentry, Grafana' },
-  { key: 'techAnalytics', label: 'Analytics & Data Pipeline', icon: faChartColumn, color: 'text-indigo-400', category: 'Lanjutan', ph: 'misal: Google Analytics, Metabase' },
-  { key: 'techTesting', label: 'Testing / QA Automation', icon: faFlask, color: 'text-lime-400', category: 'Lanjutan', ph: 'misal: Vitest, Playwright' },
-];
-
-export const DATA_TYPES = [
-  { category: 'Numerik Tepat', items: ['TINYINT','SMALLINT','MEDIUMINT','INT / INTEGER','BIGINT','DECIMAL / NUMERIC'] },
-  { category: 'Numerik Perkiraan', items: ['FLOAT','DOUBLE','REAL'] },
-  { category: 'String Karakter', items: ['CHAR','VARCHAR','TEXT','MEDIUMTEXT','LONGTEXT'] },
-  { category: 'Temporal', items: ['DATE','TIME','DATETIME','TIMESTAMP','YEAR'] },
-  { category: 'Logika', items: ['BOOLEAN','BIT','ENUM','SET'] },
-  { category: 'Biner', items: ['BINARY','VARBINARY','BLOB'] },
-  { category: 'Semi-Terstruktur', items: ['JSON','XML'] },
-  { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
-];
-
-export const DEFAULT_FIELDS = {
-  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
-  problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
-  brandTypography:'',brandLayout:'',
-  bpMobileOp:'\u2264',bpMobile:'',bpMobileUnit:'px',
-  bpTabletOp:'\u2264',bpTablet:'',bpTabletUnit:'px',
-  bpDesktopOp:'\u2265',bpDesktop:'',bpDesktopUnit:'px',
-  userFlow:'',
-  techFrontend:'',techBackend:'',techDatabase:'',techInfra:'',techDomain:'',techVcs:'',
-  techSecurity:'',techStorage:'',techThirdParty:'',techDevOps:'',techCaching:'',
-  techQueue:'',techMonitoring:'',techAnalytics:'',techTesting:'',
-  dbSchema:'',
-  nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
-  outOfScope:'',defOfDone:'',
-  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
-  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
-};
-
-export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
-````
-
-## File: src/utils/helpers.js
-````javascript
-export const escapeHtml = function (s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-export const isValidHex = function (s) { return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test((s||'').trim()); };
-export const normalizeHex = function (h) {
-  if (!h) return '#000000';
-  let s = h.trim();
-  if (!s.startsWith('#')) s = '#' + s;
-  if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s;
-  if (/^#[0-9A-Fa-f]{3}$/.test(s)) return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
-  return '#000000';
-};
-export const liveHexColor = function (digits) {
-  let s = (digits||'').replace(/[^0-9A-Fa-f]/g,'');
-  if (!s) return null;
-  if (s.length===3) s = s.split('').map(function (c) { return c + c; }).join('');
-  if (s.length!==6) { let o=''; while (o.length<6) o+=s; s = o.slice(0,6); }
-  return '#' + s;
-};
-export const formatTargetDate = function (value, format) {
-  if (!value) return '-';
-  const d = new Date(value+'T00:00:00');
-  if (isNaN(d.getTime())) return '-';
-  const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-  const month=months[d.getMonth()], year=d.getFullYear();
-  if (format==='month') return month + ' ' + year;
-  if (format==='quarter') return 'Q' + (Math.floor(d.getMonth()/3)+1) + ' ' + year;
-  return d.getDate() + ' ' + month + ' ' + year;
-};
-export const buildBreakpoints = function (fields) {
-  const pairs=[['Mobile','bpMobile'],['Tablet','bpTablet'],['Desktop','bpDesktop']];
-  const parts=[];
-  pairs.forEach(function (pair) {
-    const label=pair[0], key=pair[1];
-    const num=(fields[key]||'').trim();
-    if (!num) return;
-    parts.push(label + ' ' + (fields[key+'Op']||'') + num + (fields[key+'Unit']||''));
-  });
-  return parts.join(' \u00B7 ');
-};
-
-// ============================================================
-// UTILITAS WARNA (hex, RGB, HSL)
-// ============================================================
-const hexToRgb = function (hex) {
-  const h = normalizeHex(hex);
-  return {
-    r: parseInt(h.slice(1, 3), 16),
-    g: parseInt(h.slice(3, 5), 16),
-    b: parseInt(h.slice(5, 7), 16),
-  };
-};
-
-const rgbToHex = function (r, g, b) {
-  const to2 = function (c) {
-    const v = Math.max(0, Math.min(255, Math.round(c)));
-    return v.toString(16).padStart(2, '0');
-  };
-  return '#' + to2(r) + to2(g) + to2(b);
-};
-
-const rgbToHsl = function (r, g, b) {
-  const rn = r / 255;
-  const gn = g / 255;
-  const bn = b / 255;
-  const max = Math.max(rn, gn, bn);
-  const min = Math.min(rn, gn, bn);
-  let h = 0;
-  let s = 0;
-  const l = (max + min) / 2;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
-    else if (max === gn) h = ((bn - rn) / d + 2) / 6;
-    else h = ((rn - gn) / d + 4) / 6;
-  }
-  return { h: h, s: s, l: l };
-};
-
-const hslToRgb = function (h, s, l) {
-  if (s === 0) {
-    const v = l * 255;
-    return { r: v, g: v, b: v };
-  }
-  const hue2rgb = function (p, q, t) {
-    let tt = t;
-    if (tt < 0) tt += 1;
-    if (tt > 1) tt -= 1;
-    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
-    if (tt < 1 / 2) return q;
-    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
-    return p;
-  };
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  return {
-    r: hue2rgb(p, q, h + 1 / 3) * 255,
-    g: hue2rgb(p, q, h) * 255,
-    b: hue2rgb(p, q, h - 1 / 3) * 255,
-  };
-};
-
-// Gelapkan warna hex dengan faktor 0 sampai 1 (0 = hitam pekat)
-export const shadeHex = function (hex, factor) {
-  const h = normalizeHex(hex);
-  const r = parseInt(h.slice(1, 3), 16);
-  const g = parseInt(h.slice(3, 5), 16);
-  const b = parseInt(h.slice(5, 7), 16);
-  const to2 = function (c) {
-    const v = Math.max(0, Math.min(255, Math.round(c * factor)));
-    return v.toString(16).padStart(2, '0');
-  };
-  return '#' + to2(r) + to2(g) + to2(b);
-};
-
-// Versi warna yang aman dibaca sebagai teks di latar putih.
-// Warna terang digelapkan lebih kuat agar kontras tetap terjaga.
-export const textSafeHex = function (hex) {
-  const h = normalizeHex(hex);
-  const r = parseInt(h.slice(1, 3), 16) / 255;
-  const g = parseInt(h.slice(3, 5), 16) / 255;
-  const b = parseInt(h.slice(5, 7), 16) / 255;
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  const factor = lum > 0.65 ? 0.55 : lum > 0.45 ? 0.7 : 0.85;
-  return shadeHex(h, factor);
-};
-
-// ============================================================
-// SANITASI AKSEN (PENDEKATAN 2)
-// Warna brand boleh masuk sampul hanya sebagai aksen, dan harus
-// dinormalisasi agar tidak norak, tidak menyilaukan, dan tetap
-// terlihat jelas di atas latar gelap.
-// ============================================================
-const sanitizeAccent = function (hex) {
-  const rgb = hexToRgb(hex);
-  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-  const s = Math.max(0.35, Math.min(0.85, hsl.s));
-  const l = Math.max(0.45, Math.min(0.68, hsl.l));
-  const out = hslToRgb(hsl.h, s, l);
-  return rgbToHex(out.r, out.g, out.b);
-};
-
-// Turunan nada gelap dari satu warna, untuk aksen sekunder
-// (bar bawah) agar seragam dengan warna utama.
-const deriveDarkTone = function (hex) {
-  const rgb = hexToRgb(hex);
-  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-  const s = Math.max(0.3, Math.min(0.75, hsl.s));
-  const l = Math.max(0.3, Math.min(0.45, hsl.l));
-  const out = hslToRgb(hsl.h, s, l);
-  return rgbToHex(out.r, out.g, out.b);
-};
-
-// ============================================================
-// RESOLVER TEMA SAMPUL, FOOTER, & DOKUMEN
-// MODE OTOMATIS (PENDEKATAN 2):
-// 1. Latar sampul dikunci ke charcoal #15171C, tidak ikut brand,
-//    sehingga teks putih/abu selalu terbaca dan tampil elegan.
-// 2. Warna brand hanya jadi aksen tipis (bar, garis, label).
-// 3. Warna tidak layak (putih, hitam, abu, terlalu pucat atau
-//    terlalu gelap) otomatis dilewati.
-// 4. Warna utama = warna layak pertama sesuai urutan palette
-//    (menghormati hierarki brand), aksen sekunder = warna layak
-//    berikutnya dengan hue berbeda. Jika tidak ada, dipakai
-//    nada gelap dari warna utama.
-// 5. Jika tidak ada warna layak sama sekali, fallback ke emas
-//    #C9A961 yang selalu aman di latar gelap.
-// MODE MANUAL: pilihan user dihormati apa adanya.
-// ============================================================
-export const resolveCoverTheme = function (fields, palette) {
-  const FALLBACK = '#C9A961';
-  const FIXED_BG = '#15171C';
-  const f = fields || {};
-
-  if (f.coverThemeAuto === false) {
-    const primary = isValidHex(f.coverPrimary) ? normalizeHex(f.coverPrimary) : FALLBACK;
-    const accent = isValidHex(f.coverAccent) ? normalizeHex(f.coverAccent) : deriveDarkTone(primary);
-    const bg = isValidHex(f.coverBg) ? normalizeHex(f.coverBg) : FIXED_BG;
-    return {
-      primary: primary,
-      accent: accent,
-      bg: bg,
-      primaryText: textSafeHex(primary),
-      accentText: textSafeHex(accent),
-    };
-  }
-
-  const suitable = [];
-  (palette || []).forEach(function (p) {
-    if (!isValidHex(p.hex)) return;
-    const hex = normalizeHex(p.hex);
-    const rgb = hexToRgb(hex);
-    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
-    // Lewati abu-abu/putih/hitam (saturation rendah)
-    // dan warna terlalu gelap atau terlalu pucat.
-    if (hsl.s >= 0.22 && hsl.l >= 0.22 && hsl.l <= 0.88) {
-      suitable.push({ hex: hex, hsl: hsl });
-    }
-  });
-
-  let primary = FALLBACK;
-  if (suitable.length) primary = sanitizeAccent(suitable[0].hex);
-
-  let accent = '';
-  for (let i = 1; i < suitable.length; i++) {
-    const dh = Math.abs(suitable[i].hsl.h - suitable[0].hsl.h);
-    const hueDist = Math.min(dh, 1 - dh);
-    if (hueDist > 0.08) {
-      accent = sanitizeAccent(suitable[i].hex);
-      break;
-    }
-  }
-  if (!accent) accent = deriveDarkTone(primary);
-
-  return {
-    primary: primary,
-    accent: accent,
-    bg: FIXED_BG,
-    primaryText: textSafeHex(primary),
-    accentText: textSafeHex(accent),
-  };
-};
 ````
 
 ## File: src/utils/markdown.js
@@ -1866,741 +1702,231 @@ Proyek ini didistribusikan di bawah lisensi **MIT**. Silakan merujuk ke berkas [
 </p>
 ````
 
-## File: src/components/editor/sections/AcSection.jsx
+## File: src/components/preview/sections/AcPreview.jsx
 ````javascript
-import { faClipboardCheck, faXmark, faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-
-export default function AcSection() {
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function AcPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const ac = usePrdStore(function (s) { return s.acModules; });
-  const addM = usePrdStore(function (s) { return s.addAcModule; });
-  const updM = usePrdStore(function (s) { return s.updateAcModule; });
-  const remM = usePrdStore(function (s) { return s.removeAcModule; });
-  const addI = usePrdStore(function (s) { return s.addAcItem; });
-  const updI = usePrdStore(function (s) { return s.updateAcItem; });
-  const remI = usePrdStore(function (s) { return s.removeAcItem; });
-
   if (mode !== 'enterprise' && !se.ac) return null;
-
   return (
-    <EditorSection title="Acceptance Criteria per Modul" icon={faClipboardCheck} color="amber"
-      action={<IconButton onClick={addM} variant="accent" ariaLabel="Tambah modul baru">+ Modul</IconButton>}>
-      <div className="space-y-4">
-        {ac.map(function (m, mi) {
+    <div className="space-y-3">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">2.1 Acceptance Criteria per Modul</h3>
+      <div className="pl-3 space-y-3">
+        {ac.length ? ac.map(function (m, mi) {
           return (
-            <div key={mi} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
-              <div className="flex justify-between items-center">
-                <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
-                <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-semibold w-2/3" />
-                <button onClick={function () { remM(mi); }} aria-label={'Hapus modul ' + (m.title || (mi + 1))} className="text-rose-400 hover:text-rose-300">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
-              </div>
-              <div className="space-y-2">
-                {m.items.map(function (it, ii) {
-                  return (
-                    <div key={ii} className="p-2 bg-slate-800/60 border border-slate-700 rounded space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-amber-400">AC-{mi + 1}.{ii + 1}</span>
-                        <button onClick={function () { remI(mi, ii); }} aria-label={'Hapus kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="text-rose-400 hover:text-rose-300">
-                          <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                        </button>
-                      </div>
-                      <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
-                      <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-                      <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
-                      <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addI(mi); }} aria-label={'Tambah kriteria ke modul ' + (m.title || (mi + 1))} className="text-amber-400 hover:text-amber-300 font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kriteria
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/BrandingSection.jsx
-````javascript
-import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { liveHexColor, normalizeHex } from '../../../utils/helpers';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-
-export default function BrandingSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const addP = usePrdStore(function (s) { return s.addPalette; });
-  const updP = usePrdStore(function (s) { return s.updatePalette; });
-  const remP = usePrdStore(function (s) { return s.removePalette; });
-
-  if (mode !== 'enterprise' && !se.branding) return null;
-
-  const bps = [
-    { l: 'Mobile', k: 'bpMobile' },
-    { l: 'Tablet', k: 'bpTablet' },
-    { l: 'Desktop', k: 'bpDesktop' },
-  ];
-
-  return (
-    <EditorSection title="Branding & Design System" icon={faPalette} color="amber"
-      action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
-      <div className="space-y-2">
-        {palette.map(function (p, i) {
-          const d = (p.hex || '').replace(/^#/, '');
-          return (
-            <div key={i} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs">
-              <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
-                <span className="w-5 h-5 rounded-full border border-slate-600" style={{ background: liveHexColor(d) || '#0f172a' }} />
-              </span>
-              <label htmlFor={'palette-name-' + i} className="sr-only">Nama warna {i + 1}</label>
-              <input id={'palette-name-' + i} value={p.name} onChange={function (e) { updP(i, { name: e.target.value }); }} placeholder="Nama warna" className="col-span-4 md:col-span-3 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-              <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
-                <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
-                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="C9A961" maxLength="6" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pl-6 pr-8 text-slate-100 font-mono focus:border-amber-500 focus:outline-none" />
-                <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
-                <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
-                <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
-              </div>
-              <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
-              <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="col-span-3 order-5 md:order-4 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-              <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
-                <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      <div className="space-y-3 text-xs pt-2">
-        <div>
-          <label htmlFor="brandTypography" className="block text-slate-300 font-medium mb-1">Typography</label>
-          <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="brandLayout" className="block text-slate-300 font-medium mb-1">Prinsip Layout</label>
-          <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-        </div>
-        <div>
-          <span className="block text-slate-300 font-medium mb-1">Breakpoint Responsif</span>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            {bps.map(function (bp) {
-              return (
-                <div key={bp.k}>
-                  <label htmlFor={bp.k + '-op'} className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">{bp.l} operator</label>
-                  <div className="flex">
-                    <select id={bp.k + '-op'} value={f[bp.k + 'Op']} onChange={function (e) { set(bp.k + 'Op', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-l-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
-                      <option value={'\u2264'}>{'\u2264'}</option>
-                      <option value={'\u2265'}>{'\u2265'}</option>
-                      <option value="=">=</option>
-                    </select>
-                    <label htmlFor={bp.k} className="sr-only">{bp.l} breakpoint value</label>
-                    <input id={bp.k} type="text" value={f[bp.k]} onChange={function (e) { set(bp.k, e.target.value.replace(/[^0-9.]/g, '')); }} placeholder={bp.l === 'Mobile' ? '640' : '1024'} className="w-full min-w-0 bg-slate-900 border-y border-slate-700 px-2 py-2 text-[11px] text-slate-100 font-mono" />
-                    <label htmlFor={bp.k + '-unit'} className="sr-only">{bp.l} unit</label>
-                    <select id={bp.k + '-unit'} value={f[bp.k + 'Unit']} onChange={function (e) { set(bp.k + 'Unit', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-r-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
-                      <option value="px">px</option>
-                      <option value="rem">rem</option>
-                      <option value="em">em</option>
-                      <option value="%">%</option>
-                      <option value="vw">vw</option>
-                    </select>
+            <div key={mi} className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-900">{mi + 1}. {m.title || 'Modul'}</h4>
+              <div className="space-y-1.5">{m.items.map(function (it, ii) {
+                return (
+                  <div key={ii} className="pl-3 border-l-2 border-amber-400 keep-together">
+                    <p className="font-bold text-amber-700">AC-{mi + 1}.{ii + 1} {it.title}</p>
+                    <p className="text-slate-700">{it.desc}</p>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/FeaturesList.jsx
-````javascript
-import { faListCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-
-export default function FeaturesList() {
-  const features = usePrdStore(function (s) { return s.features; });
-  const add = usePrdStore(function (s) { return s.addFeature; });
-  const upd = usePrdStore(function (s) { return s.updateFeature; });
-  const rem = usePrdStore(function (s) { return s.removeFeature; });
-
-  return (
-    <EditorSection title="3. Fitur Utama (Requirements)" icon={faListCheck}
-      action={<IconButton onClick={add} ariaLabel="Tambah fitur baru">+ Tambah Fitur</IconButton>}>
-      <div className="space-y-3">
-        {features.map(function (f, i) {
-          return (
-            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-blue-400">{f.id}</span>
-                <button onClick={function () { rem(i); }} aria-label={'Hapus fitur ' + (f.name || f.id)} className="text-rose-400 hover:text-rose-300 text-xs">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <label htmlFor={'feat-name-' + i} className="sr-only">Nama fitur {i + 1}</label>
-                <input id={'feat-name-' + i} type="text" value={f.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama Fitur" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-                <label htmlFor={'feat-story-' + i} className="sr-only">Deskripsi fitur {i + 1}</label>
-                <input id={'feat-story-' + i} type="text" value={f.story} onChange={function (e) { upd(i, { story: e.target.value }); }} placeholder="Deskripsi / User Story" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 md:col-span-2" />
-              </div>
-              <label htmlFor={'feat-priority-' + i} className="sr-only">Prioritas fitur {i + 1}</label>
-              <select id={'feat-priority-' + i} value={f.priority} onChange={function (e) { upd(i, { priority: e.target.value }); }} className="bg-slate-800 border border-slate-700 rounded p-1 text-slate-100 text-[11px]">
-                <option value="High">High (Must-Have)</option>
-                <option value="Medium">Medium (Should-Have)</option>
-                <option value="Low">Low (Nice-to-Have)</option>
-              </select>
+                );
+              })}</div>
             </div>
           );
-        })}
+        }) : <p className="italic text-slate-400">Belum ada acceptance criteria.</p>}
       </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/NfrSection.jsx
-````javascript
-import { faShieldHalved } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-
-function TA(props) {
-  return (
-    <div>
-      <label htmlFor={props.id} className="block text-slate-300 font-medium mb-1">{props.label}</label>
-      <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
     </div>
   );
 }
+````
 
-export default function NfrSection() {
+## File: src/components/preview/sections/BrandingPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
+export default function BrandingPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-
-  if (mode !== 'enterprise' && !se.nfr) return null;
-
+  const palette = usePrdStore(function (s) { return s.palette; });
+  if (mode !== 'enterprise' && !se.branding) return null;
   return (
-    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved} color="amber">
-      <div className="space-y-3 text-xs">
-        <TA id="nfrSpecs" label="Keamanan & Compliance" value={f.nfrSpecs} onChange={function (v) { set('nfrSpecs', v); }} ph="OAuth 2.0, HTTPS, CSRF" />
-        <TA id="nfrPerformance" label="Performance" value={f.nfrPerformance} onChange={function (v) { set('nfrPerformance', v); }} ph="FCP < 1.5s, Lighthouse >= 85" />
-        <TA id="nfrLocalization" label="Bahasa & Lokalisasi" value={f.nfrLocalization} onChange={function (v) { set('nfrLocalization', v); }} ph="UI Bahasa Indonesia, format Rupiah" />
-        <TA id="nfrBrowser" label="Browser Support" value={f.nfrBrowser} onChange={function (v) { set('nfrBrowser', v); }} ph="Chrome/Edge/Firefox/Safari" />
-        <div>
-          <label htmlFor="figmaLink" className="block text-slate-300 font-medium mb-1">Figma Link</label>
-          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
-        </div>
-        <TA id="riskMitigation" label="Analisis Risiko & Mitigasi" value={f.riskMitigation} onChange={function (v) { set('riskMitigation', v); }} ph="Risiko teknis / bisnis..." />
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/OutOfScope.jsx
-````javascript
-import { faBan } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-
-export default function OutOfScope() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-
-  return (
-    <EditorSection title="5. Batasan (Out of Scope) & Definition of Done" icon={faBan}>
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="outOfScope" className="block text-rose-300 font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
-          <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-        <div>
-          <label htmlFor="defOfDone" className="block text-emerald-300 font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
-          <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/PersonaSection.jsx
-````javascript
-import { faUsers } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-
-export default function PersonaSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-
-  if (mode !== 'enterprise' && !se.persona) return null;
-
-  return (
-    <EditorSection title="Target User Persona & KPI Sukses" icon={faUsers} color="amber">
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="userPersona" className="block text-slate-300 font-medium mb-1">Target User Persona</label>
-          <textarea id="userPersona" value={f.userPersona} onChange={function (e) { set('userPersona', e.target.value); }} rows="2" placeholder="Siapa segmen target pengguna utama?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-        </div>
-        <div>
-          <label htmlFor="successMetrics" className="block text-slate-300 font-medium mb-1">Metrik & Analytics KPI</label>
-          <textarea id="successMetrics" value={f.successMetrics} onChange={function (e) { set('successMetrics', e.target.value); }} rows="2" placeholder="Indikator keberhasilan" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/ProblemGoal.jsx
-````javascript
-import { faBullseye } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-
-export default function ProblemGoal() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-
-  return (
-    <EditorSection title="2. Masalah & Tujuan (Problem & Goal)" icon={faBullseye}>
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="problemStatement" className="block text-slate-300 font-medium mb-1">Latar Belakang / Problem Statement</label>
-          <textarea id="problemStatement" value={f.problemStatement} onChange={function (e) { set('problemStatement', e.target.value); }} rows="3" placeholder="Masalah utama apa yang dihadapi calon pengguna?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-        <div>
-          <label htmlFor="productGoal" className="block text-slate-300 font-medium mb-1">Tujuan Utama Produk (Goals)</label>
-          <textarea id="productGoal" value={f.productGoal} onChange={function (e) { set('productGoal', e.target.value); }} rows="3" placeholder="Solusi konkret dan target yang ingin dicapai..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/ProjectInfo.jsx
-````javascript
-import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-
-// Opsi status dokumen yang umum dipakai di industri,
-// lengkap dengan keterangan agar maknanya jelas.
-const STATUS_OPTIONS = [
-  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
-  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
-  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
-  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
-  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
-  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
-];
-
-export default function ProjectInfo() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  return (
-    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div>
-          <label htmlFor="projectName" className="block text-slate-300 font-medium mb-1">Nama Proyek / Aplikasi</label>
-          <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="docVersion" className="block text-slate-300 font-medium mb-1">Versi Dokumen</label>
-          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="author" className="block text-slate-300 font-medium mb-1">Penulis / Product Owner</label>
-          <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="docStatus" className="block text-slate-300 font-medium mb-1">Status Dokumen</label>
-          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
-            {STATUS_OPTIONS.map(function (o) {
-              return <option key={o.value} value={o.value}>{o.label}</option>;
-            })}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="targetDate" className="block text-slate-300 font-medium mb-1">Target Rilis</label>
-          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="targetDateFormat" className="block text-slate-300 font-medium mb-1">Format Tampilan Target Rilis</label>
-          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
-            <option value="full">Tanggal Lengkap</option>
-            <option value="month">Bulan + Tahun</option>
-            <option value="quarter">Kuartal + Tahun</option>
-          </select>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/RolesSection.jsx
-````javascript
-import { faUserShield, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-
-export default function RolesSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  const add = usePrdStore(function (s) { return s.addRole; });
-  const upd = usePrdStore(function (s) { return s.updateRole; });
-  const rem = usePrdStore(function (s) { return s.removeRole; });
-
-  if (mode !== 'enterprise' && !se.roles) return null;
-
-  return (
-    <EditorSection title="Role & Permission Matrix" icon={faUserShield} color="amber"
-      action={<IconButton onClick={add} variant="accent" ariaLabel="Tambah role baru">+ Role</IconButton>}>
-      <div className="space-y-3">
-        {roles.map(function (r, i) {
-          return (
-            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <label htmlFor={'role-name-' + i} className="sr-only">Nama role {i + 1}</label>
-                <input id={'role-name-' + i} value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-semibold w-1/2" />
-                <button onClick={function () { rem(i); }} aria-label={'Hapus role ' + (r.name || (i + 1))} className="text-rose-400 hover:text-rose-300">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.2 Branding & Design System</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <div className="space-y-1">
+          {palette.length ? palette.map(function (p, i) {
+            const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
+            return (
+              <div key={i} className="flex items-center space-x-2">
+                <span className="w-4 h-4 rounded shrink-0" style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }} />
+                <span className="font-semibold text-slate-900">{p.name || '-'}</span>
+                <span className="font-mono text-slate-500">{p.hex}</span>
+                <span className="text-slate-500">{'\u00B7'} {p.usage}</span>
               </div>
-              <label htmlFor={'role-can-' + i} className="sr-only">Hak akses role {i + 1}</label>
-              <textarea id={'role-can-' + i} value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
-              <label htmlFor={'role-cannot-' + i} className="sr-only">Batasan role {i + 1}</label>
-              <textarea id={'role-cannot-' + i} value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 resize-none" />
-            </div>
-          );
-        })}
+            );
+          }) : <p className="italic text-slate-400">Belum ada palette warna.</p>}
+        </div>
+        <p><strong className="text-slate-900">Typography:</strong> <span>{f.brandTypography || '-'}</span></p>
+        <p><strong className="text-slate-900">Prinsip Layout:</strong> <span>{f.brandLayout || '-'}</span></p>
+        <p><strong className="text-slate-900">Breakpoint:</strong> <span className="font-mono">{buildBreakpoints(f) || '-'}</span></p>
       </div>
-    </EditorSection>
+    </div>
   );
 }
 ````
 
-## File: src/components/editor/sections/SchemaSection.jsx
+## File: src/components/preview/sections/FeaturesPreview.jsx
 ````javascript
-import { faTableList, faXmark, faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import ComboBox from '../../shared/ComboBox';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function FeaturesPreview() {
+  const features = usePrdStore(function (s) { return s.features; });
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
+      <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
+        <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
+        <tbody className="divide-y divide-slate-200">
+          {features.length ? features.map(function (f) {
+            let b = 'bg-slate-200 text-slate-800';
+            if (f.priority === 'High') b = 'bg-rose-100 text-rose-800 font-bold';
+            if (f.priority === 'Medium') b = 'bg-amber-100 text-amber-800 font-bold';
+            if (f.priority === 'Low') b = 'bg-blue-100 text-blue-800';
+            return (
+              <tr key={f.id}><td data-label="ID" className="p-2 font-bold text-slate-900">{f.id}</td><td data-label="Fitur" className="p-2 font-semibold text-slate-800">{f.name || '-'}</td><td data-label="Deskripsi" className="p-2 text-slate-600">{f.story || '-'}</td><td data-label="Prioritas" className="p-2 text-center"><span className={'px-2 py-0.5 rounded text-[10px] ' + b}>{f.priority}</span></td></tr>
+            );
+          }) : <tr><td colSpan="4" className="p-3 text-center text-slate-400 italic">Belum ada fitur.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+````
 
-export default function SchemaSection() {
+## File: src/components/preview/sections/OverviewPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function OverviewPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">1. Overview & Goals</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Latar Belakang:</strong> <span className="italic text-slate-600">{f.problemStatement || 'Belum diisi.'}</span></p>
+        <p><strong className="text-slate-900">Tujuan Utama:</strong> <span className="italic text-slate-600">{f.productGoal || 'Belum diisi.'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/PersonaPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function PersonaPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.persona) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.1 Target User Persona & Success Metrics</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Target User Persona:</strong> <span>{f.userPersona || '-'}</span></p>
+        <p><strong className="text-slate-900">Metrik & KPI Utama:</strong> <span>{f.successMetrics || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/SchemaPreview.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function SchemaPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const st = usePrdStore(function (s) { return s.schemaTables; });
-  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
-  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
-  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
-  const addF = usePrdStore(function (s) { return s.addSchemaField; });
-  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
-  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
-
   if (mode !== 'enterprise' && !se.schema) return null;
-
-  return (
-    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList} color="amber"
-      action={<IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>}>
-      <p className="text-[11px] text-slate-500 -mt-1">Tambahkan nama tabel beserta propertinya.</p>
-      <div className="space-y-4">
-        {st.map(function (t, ti) {
-          return (
-            <div key={ti} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
-              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
-                <span className="col-span-1 order-1 text-amber-400 text-center" aria-hidden="true">
-                  <FontAwesomeIcon icon={faTableList} />
-                </span>
-                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
-                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-mono font-semibold" />
-                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-rose-400 hover:text-rose-300 flex justify-center">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                </button>
-                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
-                <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="col-span-6 md:col-span-6 order-4 md:order-3 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-              </div>
-              <div className="space-y-2">
-                {t.fields.map(function (s, fi) {
-                  return (
-                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-800/60 border border-slate-700 rounded-lg">
-                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
-                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100 font-mono" />
-                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
-                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                      </button>
-                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
-                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
-                      </div>
-                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
-                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100">
-                        <option value="Ya">Not Null</option>
-                        <option value="Opsional">Opsional</option>
-                      </select>
-                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
-                      <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="col-span-6 md:col-span-3 order-5 md:order-4 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100" />
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-amber-400 hover:text-amber-300 font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/TechStack.jsx
-````javascript
-import { useState, useRef, useEffect } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faLayerGroup, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-
-function FieldRow(props) {
-  const def = props.def;
-  const value = props.value;
-  const onChange = props.onChange;
-  const onRemove = props.onRemove;
-  const fieldId = 'tech-' + def.key;
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label htmlFor={fieldId} className="text-slate-300 font-medium flex items-center">
-          <FontAwesomeIcon icon={def.icon} className={def.color + ' mr-1'} aria-hidden="true" />
-          {def.label}
-        </label>
-        {onRemove && (
-          <button onClick={onRemove} className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold" title="Hapus stack ini" aria-label={'Hapus ' + def.label}>
-            <FontAwesomeIcon icon={faXmark} className="mr-1" aria-hidden="true" />
-            Hapus
-          </button>
-        )}
-      </div>
-      <input
-        id={fieldId}
-        type="text"
-        value={value}
-        onChange={function (e) { onChange(e.target.value); }}
-        placeholder={def.ph || ''}
-        className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-100 focus:border-blue-500 focus:outline-none"
-      />
-    </div>
-  );
-}
-
-export default function TechStack() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const techOptional = usePrdStore(function (s) { return s.techOptional; });
-  const addTech = usePrdStore(function (s) { return s.addTechExtra; });
-  const remTech = usePrdStore(function (s) { return s.removeTechExtra; });
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  useEffect(function () {
-    function onDoc(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return function () { document.removeEventListener('mousedown', onDoc); };
-  }, []);
-
-  const availEssential = TECH_OPTIONAL.filter(function (d) { return d.category === 'Esensial' && !techOptional.includes(d.key); });
-  const availAdvanced = TECH_OPTIONAL.filter(function (d) { return d.category === 'Lanjutan' && !techOptional.includes(d.key); });
-  const addedOptional = TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); });
-
-  return (
-    <EditorSection
-      title="4. Spesifikasi Tech Stack & Arsitektur"
-      icon={faLayerGroup}
-      action={
-        <div className="relative" ref={wrapRef}>
-          <IconButton icon={faPlus} onClick={function () { setOpen(!open); }} ariaLabel="Tambah stack lanjutan">Tambah Stack Lanjutan</IconButton>
-          {open && (
-            <div className="absolute z-40 right-0 mt-2 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-72 overflow-y-auto" role="menu">
-              {availEssential.length > 0 && (
-                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Esensial</div>
-              )}
-              {availEssential.map(function (d) {
-                return (
-                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
-                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
-                    {d.label}
-                  </button>
-                );
-              })}
-              {availAdvanced.length > 0 && (
-                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Lanjutan</div>
-              )}
-              {availAdvanced.map(function (d) {
-                return (
-                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
-                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
-                    {d.label}
-                  </button>
-                );
-              })}
-              {availEssential.length === 0 && availAdvanced.length === 0 && (
-                <div className="px-3 py-2 text-[11px] text-slate-500 italic">Semua stack sudah ditambahkan.</div>
-              )}
-            </div>
-          )}
-        </div>
-      }
-    >
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="userFlow" className="block text-slate-300 font-medium mb-1">Alur Pengguna (User Flow)</label>
-          <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          {TECH_REQUIRED.map(function (d) {
-            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} />;
-          })}
-          {addedOptional.map(function (d) {
-            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} onRemove={function () { remTech(d.key); }} />;
-          })}
-        </div>
-        <div className="pt-1">
-          <label htmlFor="dbSchema" className="block text-slate-300 font-medium mb-1">Skema Database & Model Relasi</label>
-          <textarea id="dbSchema" value={f.dbSchema} onChange={function (e) { set('dbSchema', e.target.value); }} rows="3" placeholder="users: id, name, email" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none font-mono resize-none" />
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/preview/sections/NfrPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function NfrPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  if (mode !== 'enterprise' && !se.nfr) return null;
-  const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.2 NFR, Prototype & Analisis Risiko</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Keamanan:</strong> <span>{f.nfrSpecs || '-'}</span></p>
-        <p><strong className="text-slate-900">Performance:</strong> <span>{f.nfrPerformance || '-'}</span></p>
-        <p><strong className="text-slate-900">Lokalisasi:</strong> <span>{f.nfrLocalization || '-'}</span></p>
-        <p><strong className="text-slate-900">Browser:</strong> <span>{f.nfrBrowser || '-'}</span></p>
-        <p>
-          <strong className="text-slate-900">Figma:</strong>{' '}
-          {isFigmaLink ? (
-            <a href={f.figmaLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-mono">
-              {f.figmaLink}
-            </a>
-          ) : (
-            <span className="font-mono">{f.figmaLink || '-'}</span>
-          )}
-        </p>
-        <p><strong className="text-slate-900">Risiko:</strong> <span>{f.riskMitigation || '-'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/RolesPreview.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function RolesPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  if (mode !== 'enterprise' && !se.roles) return null;
-  const splitLines = function (text) {
-    if (!text) return [];
-    return text
-      .split('\n')
-      .map(function (line) {
-        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
-      })
-      .filter(function (line) { return line.length > 0; });
-  };
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
-      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
-        {roles.length ? roles.map(function (r, i) {
-          const canItems = splitLines(r.can);
-          const cannotItems = splitLines(r.cannot);
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.1 Schema Data</h3>
+      <div className="pl-3 space-y-4">
+        {st.length ? st.map(function (t, ti) {
           return (
-            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
-              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
-              <div className="space-y-1">
-                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
-                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
-                </p>
-                {canItems.length > 0 ? (
-                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
-                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
-                  </ul>
-                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
-              </div>
-              <div className="space-y-1">
-                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
-                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
-                </p>
-                {cannotItems.length > 0 ? (
-                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
-                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
-                  </ul>
-                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
-              </div>
+            <div key={ti} className="space-y-1 keep-together">
+              <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
+              {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
+              <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
+                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">
+                  {t.fields.length ? t.fields.map(function (s, fi) {
+                    return (
+                      <tr key={fi}><td data-label="Kolom" className="p-2 font-mono font-semibold text-slate-900">{s.field || '-'}</td><td data-label="Tipe" className="p-2 text-slate-600 font-mono">{s.type || '-'}</td><td data-label="Not Null" className="p-2 text-center"><FontAwesomeIcon icon={s.required === 'Ya' ? faCheck : faMinus} className={s.required === 'Ya' ? 'text-emerald-600' : 'text-slate-400'} /></td><td data-label="Keterangan" className="p-2 text-slate-600">{s.note}</td></tr>
+                    );
+                  }) : <tr><td colSpan="4" className="p-2 text-center text-slate-400 italic">Belum ada kolom.</td></tr>}
+                </tbody>
+              </table>
             </div>
           );
-        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+        }) : <p className="italic text-slate-400">Belum ada schema.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/ScopeDonePreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function ScopeDonePreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const oos = (f.outOfScope || '').trim();
+  const dod = (f.defOfDone || '').trim();
+  const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
+  const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
+        <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
+      </div>
+      <div className="p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-emerald-800">Definition of Done</h4>
+        <ul className="list-disc pl-4 text-emerald-900 space-y-0.5">{dodI.length ? dodI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Belum ditentukan.</li>}</ul>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/TechStackPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
+export default function TechStackPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
+    .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
+    .map(function (d) { return { label: d.label, value: f[d.key] }; }));
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
+      <div className="pl-3 space-y-3 text-xs text-slate-700">
+        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
+          <tbody>
+            {rows.map(function (r, i) {
+              return (
+                <tr key={i} className="border-b border-slate-200">
+                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
+                  <td className="p-2 text-slate-800">{r.value || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div>
+          <strong className="text-slate-900 block mb-1">Skema Database:</strong>
+          <pre className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">{f.dbSchema || '-'}</pre>
+        </div>
       </div>
     </div>
   );
@@ -2671,6 +1997,72 @@ export default function PreviewActions() {
         <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto" ariaLabel="Ekspor PDF atau cetak">Ekspor PDF / Cetak</IconButton>
       </div>
     </div>
+  );
+}
+````
+
+## File: src/components/preview/PreviewDocument.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { resolveCoverTheme } from '../../utils/helpers';
+import CoverPage from './CoverPage';
+import DocFooter from './DocFooter';
+import OverviewPreview from './sections/OverviewPreview';
+import FeaturesPreview from './sections/FeaturesPreview';
+import TechStackPreview from './sections/TechStackPreview';
+import PersonaPreview from './sections/PersonaPreview';
+import BrandingPreview from './sections/BrandingPreview';
+import RolesPreview from './sections/RolesPreview';
+import AcPreview from './sections/AcPreview';
+import SchemaPreview from './sections/SchemaPreview';
+import NfrPreview from './sections/NfrPreview';
+import ScopeDonePreview from './sections/ScopeDonePreview';
+
+export default function PreviewDocument() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const theme = resolveCoverTheme(f, palette);
+  return (
+    <>
+      <CoverPage />
+      <div
+        id="prdDocument"
+        className="bg-white text-slate-900 p-8 rounded-lg shadow-2xl border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
+        style={{
+          '--doc-primary': theme.primary,
+          '--doc-primary-text': theme.primaryText,
+          '--doc-accent': theme.accent,
+          '--doc-accent-text': theme.accentText,
+        }}
+      >
+        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
+        <div className="space-y-2 keep-together">
+          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">{f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}</div>
+        </div>
+        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
+        <DocFooter />
+      </div>
+    </>
+  );
+}
+````
+
+## File: src/components/preview/PreviewPanel.jsx
+````javascript
+import PreviewActions from './PreviewActions';
+import PreviewDocument from './PreviewDocument';
+
+export default function PreviewPanel() {
+  return (
+    <section
+      id="previewPanel"
+      className="bg-slate-950 p-6 overflow-y-auto overflow-x-hidden"
+      style={{ height: '100%' }}
+    >
+      <PreviewActions />
+      <PreviewDocument />
+    </section>
   );
 }
 ````
@@ -2794,6 +2186,46 @@ export default function ToggleSwitch(props) {
 }
 ````
 
+## File: src/hooks/useAutoResize.js
+````javascript
+import { useEffect, useCallback, useMemo } from 'react';
+
+export const useAutoResize = function () {
+  const resize = useCallback(function (el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return;
+    if (!el.dataset.minHeight) {
+      const p = el.style.height;
+      el.style.height = 'auto';
+      el.dataset.minHeight = el.scrollHeight + 2;
+      el.style.height = p || (el.scrollHeight + 2) + 'px';
+      return;
+    }
+    const min = parseInt(el.dataset.minHeight || '0', 10);
+    el.style.height = 'auto';
+    el.style.height = Math.max(min, el.scrollHeight + 2) + 'px';
+  }, []);
+
+  const resizeAll = useCallback(function () {
+    document.querySelectorAll('textarea').forEach(resize);
+  }, [resize]);
+
+  useEffect(function () {
+    resizeAll();
+    window.addEventListener('resize', resizeAll);
+    return function () { window.removeEventListener('resize', resizeAll); };
+  }, [resizeAll]);
+
+  // Objek return dibuat stabil dengan useMemo.
+  // Sebelumnya objek baru dibuat tiap render, sehingga effect di
+  // EditorPanel bongkar pasang listener setiap ketikan dan membuat
+  // ketikan terasa patah-patah.
+  return useMemo(function () {
+    return { resize: resize, resizeAll: resizeAll };
+  }, [resize, resizeAll]);
+};
+````
+
 ## File: src/hooks/useAutoSave.js
 ````javascript
 import { useEffect, useRef } from 'react';
@@ -2854,287 +2286,6 @@ export const useAutoSave = function () {
 };
 ````
 
-## File: src/styles/globals.css
-````css
-@import "tailwindcss";
-
-:root { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-button:not(:disabled) { cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-* { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: #64748b; }
-textarea { overflow-y: hidden; }
-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
-
-/* Skip link utility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-.sr-only:focus {
-  position: fixed;
-  width: auto;
-  height: auto;
-  padding: 0.5rem 1rem;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
-  white-space: normal;
-}
-
-@keyframes slideUp {
-  from { transform: translateY(12px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-#panelSlider {
-  display: flex; flex-direction: row; height: 100%;
-  width: 200%; transform: translateX(0);
-  transition: transform 0.55s cubic-bezier(0.22,0.61,0.36,1);
-  will-change: transform;
-}
-#panelSlider.slide-preview { transform: translateX(-50%); }
-#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
-@media (min-width: 1024px) {
-  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
-}
-@media (max-width: 1023.98px) {
-  html, body { overflow: hidden; }
-  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
-  #panelSlider {
-    height: 100%;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
-    box-sizing: border-box;
-  }
-  #panelSlider > div > section {
-    max-height: none !important; height: 100% !important;
-    min-height: 0; overflow-y: auto !important;
-  }
-}
-
-#prdDocument { min-width: 0; }
-#prdDocument table { table-layout: fixed; width: 100%; }
-#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
-#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
-
-/* ============================================================
-   TEMA DOKUMEN
-   Warna heading & aksen dokumen mengikuti tema sampul/footer.
-   Nilai fallback sama dengan palet biru/amber lama, lalu
-   ditimpa lewat CSS variables inline dari PreviewDocument.
-   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
-   ============================================================ */
-#prdDocument {
-  --doc-primary: #2563eb;
-  --doc-primary-text: #1e40af;
-  --doc-accent: #f59e0b;
-  --doc-accent-text: #b45309;
-}
-#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
-#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
-#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
-#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
-#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
-
-@media screen and (max-width: 640px) {
-  #prdDocument { padding: 1.5rem 1rem; }
-  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
-  #prdDocument table.tbl-stack thead { display: none; }
-  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
-  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
-    display: block; width: 100%; box-sizing: border-box;
-  }
-  #prdDocument table.tbl-stack tr {
-    border: 1px solid #e2e8f0; border-radius: 10px;
-    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
-  }
-  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
-  #prdDocument table.tbl-stack td[data-label]::before {
-    content: attr(data-label); display: block; font-size: 9px;
-    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-    color: #64748b; margin-bottom: 1px;
-  }
-}
-
-@page { size: A4; margin: 14mm 12mm; }
-/* HALAMAN PERTAMA (SAMPUL): margin 0 agar bar warna bisa full-bleed */
-@page :first { margin: 0; }
-
-@media print {
-  .no-print, nav, header { display: none !important; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
-  #root { height: auto !important; }
-  #root > div {
-    display: block !important; height: auto !important;
-    overflow: visible !important; background: #ffffff !important;
-  }
-  main { display: block !important; height: auto !important; overflow: visible !important; }
-  #panelSlider {
-    display: block !important; width: 100% !important;
-    height: auto !important; transform: none !important; padding: 0 !important;
-  }
-  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
-  #panelSlider > div:first-child { display: none !important; }
-  #previewPanel {
-    height: auto !important; max-height: none !important;
-    overflow: visible !important; background: #ffffff !important; padding: 0 !important;
-  }
-
-  /* SAMPUL: tepat satu halaman penuh, lalu pindah halaman */
-  .doc-cover {
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 0 !important;
-    height: 296mm;
-    margin: 0 !important;
-    overflow: hidden;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    break-after: page;
-    page-break-after: always;
-  }
-
-  /* Proporsi sampul saat print: margin kiri-kanan lebih rapat */
-  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
-  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
-  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
-  /* Meta sampul: paksa 3 kolom saat print, sama seperti preview desktop */
-  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-  .cover-meta .meta-label { font-size: 10px !important; }
-
-  #prdDocument {
-    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
-    border: none !important; border-radius: 0 !important;
-    box-shadow: none !important; background: #ffffff !important;
-  }
-  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
-  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
-  p, li { orphans: 3; widows: 3; }
-  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
-  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
-}
-````
-
-## File: src/App.jsx
-````javascript
-import { useEffect, useRef, lazy, Suspense } from 'react';
-import { debounce } from 'lodash';
-import { usePrdStore } from './store/usePrdStore';
-import { storageService } from './services/storageService';
-import Header from './components/header/Header';
-import EditorPanel from './components/editor/EditorPanel';
-import MobileTabBar from './components/mobile/MobileTabBar';
-import ScrollButtons from './components/mobile/ScrollButtons';
-import ToastContainer from './components/shared/Toast';
-
-const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
-
-export default function App() {
-  const restoreState = usePrdStore(function (s) { return s.restoreState; });
-  const setMode = usePrdStore(function (s) { return s.setMode; });
-  const initDoneRef = useRef(false);
-
-  useEffect(function () {
-    if (initDoneRef.current) return;
-    initDoneRef.current = true;
-    const saved = storageService.load();
-    if (saved && saved.state) {
-      if (saved.mode) setMode(saved.mode);
-      restoreState(saved.state);
-    }
-    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
-  }, []);
-
-  useEffect(function () {
-    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
-    function onInput(e) {
-      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
-    }
-    function onClick(e) {
-      const b = e.target.closest ? e.target.closest('button') : null;
-      if (!b) return;
-      const t = b.title || '';
-      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
-      commit();
-    }
-    document.addEventListener('input', onInput);
-    document.addEventListener('change', onInput);
-    document.addEventListener('click', onClick);
-    return function () {
-      document.removeEventListener('input', onInput);
-      document.removeEventListener('change', onInput);
-      document.removeEventListener('click', onClick);
-      commit.cancel();
-    };
-  }, []);
-
-  useEffect(function () {
-    function handler(e) {
-      const tag = (e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        usePrdStore.getState().undo();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-        e.preventDefault();
-        usePrdStore.getState().redo();
-      }
-    }
-    document.addEventListener('keydown', handler);
-    return function () { document.removeEventListener('keydown', handler); };
-  }, []);
-
-  return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      <a
-        href="#editorPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Editor
-      </a>
-      <a
-        href="#previewPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Preview
-      </a>
-      <Header />
-      <main className="flex-grow min-h-0 overflow-hidden relative">
-        <div id="panelSlider">
-          <div><EditorPanel /></div>
-          <div>
-            <Suspense fallback={
-              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center" style={{ height: '100%' }}>
-                <div className="text-slate-400 text-sm">Memuat preview...</div>
-              </div>
-            }>
-              <PreviewPanel />
-            </Suspense>
-          </div>
-        </div>
-        <ScrollButtons />
-      </main>
-      <MobileTabBar />
-      <ToastContainer />
-    </div>
-  );
-}
-````
-
 ## File: vite.config.js
 ````javascript
 import { defineConfig } from 'vite';
@@ -3172,6 +2323,846 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
 });
+````
+
+## File: src/components/editor/sections/AcSection.jsx
+````javascript
+import { faClipboardCheck, faXmark, faPlus } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function AcSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const ac = usePrdStore(function (s) { return s.acModules; });
+  const addM = usePrdStore(function (s) { return s.addAcModule; });
+  const updM = usePrdStore(function (s) { return s.updateAcModule; });
+  const remM = usePrdStore(function (s) { return s.removeAcModule; });
+  const addI = usePrdStore(function (s) { return s.addAcItem; });
+  const updI = usePrdStore(function (s) { return s.updateAcItem; });
+  const remI = usePrdStore(function (s) { return s.removeAcItem; });
+  if (mode !== 'enterprise' && !se.ac) return null;
+  return (
+    <EditorSection title="Acceptance Criteria per Modul" icon={faClipboardCheck} color="amber"
+      action={<IconButton onClick={addM} variant="accent" ariaLabel="Tambah modul baru">+ Modul</IconButton>}>
+      <div className="space-y-4">
+        {ac.map(function (m, mi) {
+          return (
+            <div key={mi} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
+              <div className="flex justify-between items-center">
+                <div className="relative w-2/3">
+                  <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
+                  <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 font-semibold" />
+                  <AiRefineButton value={m.title} onApply={function (v) { updM(mi, { title: v }); }} mode="phrase" label={'nama modul ' + (mi + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <button onClick={function () { remM(mi); }} aria-label={'Hapus modul ' + (m.title || (mi + 1))} className="text-rose-400 hover:text-rose-300">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="space-y-2">
+                {m.items.map(function (it, ii) {
+                  return (
+                    <div key={ii} className="p-2 bg-slate-800/60 border border-slate-700 rounded space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-amber-400">AC-{mi + 1}.{ii + 1}</span>
+                        <button onClick={function () { remI(mi, ii); }} aria-label={'Hapus kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="text-rose-400 hover:text-rose-300">
+                          <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                        <AiRefineButton value={it.title} onApply={function (v) { updI(mi, ii, { title: v }); }} mode="phrase" label={'judul kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <div className="relative">
+                        <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
+                        <AiRefineButton value={it.desc} onApply={function (v) { updI(mi, ii, { desc: v }); }} mode="paragraph" label={'deskripsi kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addI(mi); }} aria-label={'Tambah kriteria ke modul ' + (m.title || (mi + 1))} className="text-amber-400 hover:text-amber-300 font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kriteria
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/BrandingSection.jsx
+````javascript
+import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { liveHexColor, normalizeHex } from '../../../utils/helpers';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function BrandingSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const addP = usePrdStore(function (s) { return s.addPalette; });
+  const updP = usePrdStore(function (s) { return s.updatePalette; });
+  const remP = usePrdStore(function (s) { return s.removePalette; });
+  if (mode !== 'enterprise' && !se.branding) return null;
+  const bps = [
+    { l: 'Mobile', k: 'bpMobile' },
+    { l: 'Tablet', k: 'bpTablet' },
+    { l: 'Desktop', k: 'bpDesktop' },
+  ];
+  return (
+    <EditorSection title="Branding & Design System" icon={faPalette} color="amber"
+      action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
+      <div className="space-y-2">
+        {palette.map(function (p, i) {
+          const d = (p.hex || '').replace(/^#/, '');
+          return (
+            <div key={i} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs">
+              <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
+                <span className="w-5 h-5 rounded-full border border-slate-600" style={{ background: liveHexColor(d) || '#0f172a' }} />
+              </span>
+              <label htmlFor={'palette-name-' + i} className="sr-only">Nama warna {i + 1}</label>
+              <input id={'palette-name-' + i} value={p.name} onChange={function (e) { updP(i, { name: e.target.value }); }} placeholder="Nama warna" className="col-span-4 md:col-span-3 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
+              <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
+                <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
+                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="FFFFFF" maxLength="6" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pl-6 pr-8 text-slate-100 font-mono focus:border-amber-500 focus:outline-none" />
+                <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
+                <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
+                <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
+              </div>
+              <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
+              <div className="relative col-span-3 order-5 md:order-4">
+                <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                <AiRefineButton value={p.usage} onApply={function (v) { updP(i, { usage: v }); }} mode="phrase" label={'penggunaan warna ' + (p.name || (i + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+              </div>
+              <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
+                <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="space-y-3 text-xs pt-2">
+        <div>
+          <label htmlFor="brandTypography" className="block text-slate-300 font-medium mb-1">Typography</label>
+          <div className="relative">
+            <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none" />
+            <AiRefineButton value={f.brandTypography} onApply={function (v) { set('brandTypography', v); }} mode="phrase" label="Typography" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="brandLayout" className="block text-slate-300 font-medium mb-1">Prinsip Layout</label>
+          <div className="relative">
+            <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.brandLayout} onApply={function (v) { set('brandLayout', v); }} mode="paragraph" label="Prinsip Layout" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <span className="block text-slate-300 font-medium mb-1">Breakpoint Responsif</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {bps.map(function (bp) {
+              return (
+                <div key={bp.k}>
+                  <label htmlFor={bp.k + '-op'} className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">{bp.l} operator</label>
+                  <div className="flex">
+                    <select id={bp.k + '-op'} value={f[bp.k + 'Op']} onChange={function (e) { set(bp.k + 'Op', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-l-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
+                      <option value={'\u2264'}>{'\u2264'}</option>
+                      <option value={'\u2265'}>{'\u2265'}</option>
+                      <option value="=">=</option>
+                    </select>
+                    <label htmlFor={bp.k} className="sr-only">{bp.l} breakpoint value</label>
+                    <input id={bp.k} type="text" value={f[bp.k]} onChange={function (e) { set(bp.k, e.target.value.replace(/[^0-9.]/g, '')); }} placeholder={bp.l === 'Mobile' ? '640' : '1024'} className="w-full min-w-0 bg-slate-900 border-y border-slate-700 px-2 py-2 text-[11px] text-slate-100 font-mono" />
+                    <label htmlFor={bp.k + '-unit'} className="sr-only">{bp.l} unit</label>
+                    <select id={bp.k + '-unit'} value={f[bp.k + 'Unit']} onChange={function (e) { set(bp.k + 'Unit', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-r-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
+                      <option value="px">px</option>
+                      <option value="rem">rem</option>
+                      <option value="em">em</option>
+                      <option value="%">%</option>
+                      <option value="vw">vw</option>
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { useState } from 'react';
+import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import { generateCoverTagline } from '../../../services/groqService';
+import { useToast } from '../../../hooks/useToast';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+// Field warna manual untuk sampul.
+// Simbol # dijadikan span statis yang tidak bisa diklik atau
+// diubah (pointer-events-none + select-none), sama seperti pola
+// di section Branding. Input teks hanya menerima 6 digit hex,
+// sedangkan nilai yang tersimpan tetap berawalan # agar logika
+// tema (resolveCoverTheme & isValidHex) tetap aman.
+function ColorField(props) {
+  const digits = (props.value || '').replace(/^#/, '');
+  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
+  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+  return (
+    <div>
+      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          onChange={function (e) { props.onChange(e.target.value); }}
+          aria-label={'Pilih ' + props.label}
+          className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0"
+        />
+        <div className="relative w-full min-w-0">
+          <span
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none select-none"
+            aria-hidden="true"
+          >#</span>
+          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={digits}
+            onChange={function (e) {
+              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+              props.onChange(c ? '#' + c : '');
+            }}
+            placeholder="C9A961"
+            maxLength="6"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pl-6 text-slate-100 font-mono focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [aiBusy, setAiBusy] = useState(false);
+  const auto = f.coverThemeAuto !== false;
+
+  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
+  // ke field manual supaya tampilan tidak melompat.
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  const goalText = (f.productGoal || '').trim();
+
+  // AI hanya membaca Goals untuk mengisi field Subtitle Sampul.
+  // Setelah terisi, user bebas mengeditnya. Tidak ada sync otomatis.
+  // FIX UNDO/REDO: commit dipanggil setelah subtitle diterapkan.
+  async function handleUseAi() {
+    if (aiBusy || !goalText) return;
+    setAiBusy(true);
+    try {
+      const t = await generateCoverTagline(goalText);
+      if (t) {
+        set('coverSubtitle', t);
+        commit();
+        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
+      } else {
+        showToast('AI tidak menghasilkan saran', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal membuat saran: ' + e.message, 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-slate-500">
+            {palette.length
+              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis. Warna yang kurang serasi disaring sendiri, jadi kamu tidak perlu pusing mengaturnya.'
+              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+
+        {/* SUBTITLE SAMPUL: satu-satunya sumber kebenaran untuk sampul */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="coverSubtitle" className="text-slate-300 font-medium">Subtitle Sampul (di bawah judul)</label>
+            <button
+              type="button"
+              onClick={handleUseAi}
+              disabled={aiBusy || !goalText}
+              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
+              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
+            </button>
+          </div>
+          <input
+            id="coverSubtitle"
+            type="text"
+            value={f.coverSubtitle}
+            onChange={function (e) { set('coverSubtitle', e.target.value); }}
+            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none"
+          />
+          <p className="text-[10px] text-slate-500 mt-1">
+            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen. Kalau belum yakin menulisnya, tekan tombol Pakai saran AI untuk merangkum kolom Tujuan Utama Produk, lalu edit hasilnya sesuka hati.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/FeaturesList.jsx
+````javascript
+import { faListCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function FeaturesList() {
+  const features = usePrdStore(function (s) { return s.features; });
+  const add = usePrdStore(function (s) { return s.addFeature; });
+  const upd = usePrdStore(function (s) { return s.updateFeature; });
+  const rem = usePrdStore(function (s) { return s.removeFeature; });
+  return (
+    <EditorSection title="3. Fitur Utama (Requirements)" icon={faListCheck}
+      action={<IconButton onClick={add} ariaLabel="Tambah fitur baru">+ Tambah Fitur</IconButton>}>
+      <div className="space-y-3">
+        {features.map(function (f, i) {
+          return (
+            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-blue-400">{f.id}</span>
+                <button onClick={function () { rem(i); }} aria-label={'Hapus fitur ' + (f.name || f.id)} className="text-rose-400 hover:text-rose-300 text-xs">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="relative">
+                  <label htmlFor={'feat-name-' + i} className="sr-only">Nama fitur {i + 1}</label>
+                  <input id={'feat-name-' + i} type="text" value={f.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama Fitur" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                  <AiRefineButton value={f.name} onApply={function (v) { upd(i, { name: v }); }} mode="phrase" label={'nama fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <div className="relative md:col-span-2">
+                  <label htmlFor={'feat-story-' + i} className="sr-only">Deskripsi fitur {i + 1}</label>
+                  <input id={'feat-story-' + i} type="text" value={f.story} onChange={function (e) { upd(i, { story: e.target.value }); }} placeholder="Deskripsi / User Story" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                  <AiRefineButton value={f.story} onApply={function (v) { upd(i, { story: v }); }} mode="paragraph" label={'deskripsi fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <label htmlFor={'feat-priority-' + i} className="sr-only">Prioritas fitur {i + 1}</label>
+              <select id={'feat-priority-' + i} value={f.priority} onChange={function (e) { upd(i, { priority: e.target.value }); }} className="bg-slate-800 border border-slate-700 rounded p-1 text-slate-100 text-[11px]">
+                <option value="High">High (Must-Have)</option>
+                <option value="Medium">Medium (Should-Have)</option>
+                <option value="Low">Low (Nice-to-Have)</option>
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/NfrSection.jsx
+````javascript
+import { faShieldHalved } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+function TA(props) {
+  return (
+    <div>
+      <label htmlFor={props.id} className="block text-slate-300 font-medium mb-1">{props.label}</label>
+      <div className="relative">
+        <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+        <AiRefineButton value={props.value} onApply={props.onChange} mode={props.mode || 'paragraph'} label={props.label} className="absolute right-2 top-2" />
+      </div>
+    </div>
+  );
+}
+
+export default function NfrSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  if (mode !== 'enterprise' && !se.nfr) return null;
+  return (
+    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved} color="amber">
+      <div className="space-y-3 text-xs">
+        <TA id="nfrSpecs" label="Keamanan & Compliance" value={f.nfrSpecs} onChange={function (v) { set('nfrSpecs', v); }} ph="OAuth 2.0, HTTPS, CSRF" mode="technical" />
+        <TA id="nfrPerformance" label="Performance" value={f.nfrPerformance} onChange={function (v) { set('nfrPerformance', v); }} ph="FCP < 1.5s, Lighthouse >= 85" mode="technical" />
+        <TA id="nfrLocalization" label="Bahasa & Lokalisasi" value={f.nfrLocalization} onChange={function (v) { set('nfrLocalization', v); }} ph="UI Bahasa Indonesia, format Rupiah" mode="phrase" />
+        <TA id="nfrBrowser" label="Browser Support" value={f.nfrBrowser} onChange={function (v) { set('nfrBrowser', v); }} ph="Chrome/Edge/Firefox/Safari" mode="technical" />
+        <div>
+          <label htmlFor="figmaLink" className="block text-slate-300 font-medium mb-1">Figma Link</label>
+          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
+        </div>
+        <TA id="riskMitigation" label="Analisis Risiko & Mitigasi" value={f.riskMitigation} onChange={function (v) { set('riskMitigation', v); }} ph="Risiko teknis / bisnis..." mode="paragraph" />
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/OutOfScope.jsx
+````javascript
+import { faBan } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function OutOfScope() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  return (
+    <EditorSection title="5. Batasan (Out of Scope) & Definition of Done" icon={faBan}>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="outOfScope" className="block text-rose-300 font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
+          <div className="relative">
+            <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.outOfScope} onApply={function (v) { set('outOfScope', v); }} mode="list" label="Out of Scope" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="defOfDone" className="block text-emerald-300 font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
+          <div className="relative">
+            <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.defOfDone} onApply={function (v) { set('defOfDone', v); }} mode="list" label="Definition of Done" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/PersonaSection.jsx
+````javascript
+import { faUsers } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function PersonaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  if (mode !== 'enterprise' && !se.persona) return null;
+  return (
+    <EditorSection title="Target User Persona & KPI Sukses" icon={faUsers} color="amber">
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="userPersona" className="block text-slate-300 font-medium mb-1">Target User Persona</label>
+          <div className="relative">
+            <textarea id="userPersona" value={f.userPersona} onChange={function (e) { set('userPersona', e.target.value); }} rows="2" placeholder="Siapa segmen target pengguna utama?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.userPersona} onApply={function (v) { set('userPersona', v); }} mode="paragraph" label="Target User Persona" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="successMetrics" className="block text-slate-300 font-medium mb-1">Metrik & Analytics KPI</label>
+          <div className="relative">
+            <textarea id="successMetrics" value={f.successMetrics} onChange={function (e) { set('successMetrics', e.target.value); }} rows="2" placeholder="Indikator keberhasilan" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.successMetrics} onApply={function (v) { set('successMetrics', v); }} mode="list" label="Metrik KPI" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/ProblemGoal.jsx
+````javascript
+import { faBullseye } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function ProblemGoal() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  return (
+    <EditorSection title="2. Masalah & Tujuan (Problem & Goal)" icon={faBullseye}>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="problemStatement" className="block text-slate-300 font-medium mb-1">Latar Belakang / Problem Statement</label>
+          <div className="relative">
+            <textarea id="problemStatement" value={f.problemStatement} onChange={function (e) { set('problemStatement', e.target.value); }} rows="3" placeholder="Masalah utama apa yang dihadapi calon pengguna?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.problemStatement} onApply={function (v) { set('problemStatement', v); }} mode="paragraph" label="Problem Statement" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="productGoal" className="block text-slate-300 font-medium mb-1">Tujuan Utama Produk (Goals)</label>
+          <div className="relative">
+            <textarea id="productGoal" value={f.productGoal} onChange={function (e) { set('productGoal', e.target.value); }} rows="3" placeholder="Solusi konkret dan target yang ingin dicapai..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <AiRefineButton value={f.productGoal} onApply={function (v) { set('productGoal', v); }} mode="paragraph" label="Tujuan Utama Produk" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/RolesSection.jsx
+````javascript
+import { faUserShield, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function RolesSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  const add = usePrdStore(function (s) { return s.addRole; });
+  const upd = usePrdStore(function (s) { return s.updateRole; });
+  const rem = usePrdStore(function (s) { return s.removeRole; });
+  if (mode !== 'enterprise' && !se.roles) return null;
+  return (
+    <EditorSection title="Role & Permission Matrix" icon={faUserShield} color="amber"
+      action={<IconButton onClick={add} variant="accent" ariaLabel="Tambah role baru">+ Role</IconButton>}>
+      <div className="space-y-3">
+        {roles.map(function (r, i) {
+          return (
+            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <div className="relative w-1/2">
+                  <label htmlFor={'role-name-' + i} className="sr-only">Nama role {i + 1}</label>
+                  <input id={'role-name-' + i} value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 font-semibold" />
+                  <AiRefineButton value={r.name} onApply={function (v) { upd(i, { name: v }); }} mode="name" label={'nama role ' + (i + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <button onClick={function () { rem(i); }} aria-label={'Hapus role ' + (r.name || (i + 1))} className="text-rose-400 hover:text-rose-300">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="relative">
+                <label htmlFor={'role-can-' + i} className="sr-only">Hak akses role {i + 1}</label>
+                <textarea id={'role-can-' + i} value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
+                <AiRefineButton value={r.can} onApply={function (v) { upd(i, { can: v }); }} mode="list" label={'hak akses role ' + (i + 1)} className="absolute right-1 top-1" />
+              </div>
+              <div className="relative">
+                <label htmlFor={'role-cannot-' + i} className="sr-only">Batasan role {i + 1}</label>
+                <textarea id={'role-cannot-' + i} value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
+                <AiRefineButton value={r.cannot} onApply={function (v) { upd(i, { cannot: v }); }} mode="list" label={'batasan role ' + (i + 1)} className="absolute right-1 top-1" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/SchemaSection.jsx
+````javascript
+import { useState } from 'react';
+import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import ComboBox from '../../shared/ComboBox';
+import AiRefineButton from '../../shared/AiRefineButton';
+import { generateSchemaFromFlow } from '../../../services/groqService';
+import { useToast } from '../../../hooks/useToast';
+
+export default function SchemaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
+  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
+  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
+  const addF = usePrdStore(function (s) { return s.addSchemaField; });
+  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
+  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
+  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [genBusy, setGenBusy] = useState(false);
+  const flowText = (f.userFlow || '').trim();
+
+  async function handleGenerate() {
+    if (!flowText || genBusy) return;
+    setGenBusy(true);
+    try {
+      const tables = await generateSchemaFromFlow(flowText);
+      setTables(tables);
+      commit();
+      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
+    } catch (e) {
+      showToast('Gagal membuat schema: ' + e.message, 'error');
+    } finally {
+      setGenBusy(false);
+    }
+  }
+
+  if (mode !== 'enterprise' && !se.schema) return null;
+  return (
+    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList} color="amber"
+      action={
+        <div className="flex items-center gap-2">
+          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
+            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
+            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
+          </IconButton>
+          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
+        </div>
+      }>
+      <p className="text-[11px] text-slate-500 -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
+      <div className="space-y-4">
+        {st.map(function (t, ti) {
+          return (
+            <div key={ti} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
+              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
+                <span className="col-span-1 order-1 text-amber-400 text-center" aria-hidden="true">
+                  <FontAwesomeIcon icon={faTableList} />
+                </span>
+                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
+                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-mono font-semibold" />
+                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-rose-400 hover:text-rose-300 flex justify-center">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                </button>
+                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
+                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
+                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {t.fields.map(function (s, fi) {
+                  return (
+                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-800/60 border border-slate-700 rounded-lg">
+                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
+                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100 font-mono" />
+                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
+                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                      </button>
+                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
+                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
+                      </div>
+                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
+                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100">
+                        <option value="Ya">Not Null</option>
+                        <option value="Opsional">Opsional</option>
+                      </select>
+                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
+                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
+                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
+                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-amber-400 hover:amber-300 font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/TechStack.jsx
+````javascript
+import { useState, useRef, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faLayerGroup, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+function FieldRow(props) {
+  const def = props.def;
+  const value = props.value;
+  const onChange = props.onChange;
+  const onRemove = props.onRemove;
+  const fieldId = 'tech-' + def.key;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label htmlFor={fieldId} className="text-slate-300 font-medium flex items-center">
+          <FontAwesomeIcon icon={def.icon} className={def.color + ' mr-1'} aria-hidden="true" />
+          {def.label}
+        </label>
+        {onRemove && (
+          <button onClick={onRemove} className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold" title="Hapus stack ini" aria-label={'Hapus ' + def.label}>
+            <FontAwesomeIcon icon={faXmark} className="mr-1" aria-hidden="true" />
+            Hapus
+          </button>
+        )}
+      </div>
+      <div className="relative">
+        <input
+          id={fieldId}
+          type="text"
+          value={value}
+          onChange={function (e) { onChange(e.target.value); }}
+          placeholder={def.ph || ''}
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none"
+        />
+        <AiRefineButton value={value} onApply={onChange} mode="technical" label={def.label} className="absolute right-2 top-1/2 -translate-y-1/2" />
+      </div>
+    </div>
+  );
+}
+
+export default function TechStack() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const addTech = usePrdStore(function (s) { return s.addTechExtra; });
+  const remTech = usePrdStore(function (s) { return s.removeTechExtra; });
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(function () {
+    function onDoc(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return function () { document.removeEventListener('mousedown', onDoc); };
+  }, []);
+  const availEssential = TECH_OPTIONAL.filter(function (d) { return d.category === 'Esensial' && !techOptional.includes(d.key); });
+  const availAdvanced = TECH_OPTIONAL.filter(function (d) { return d.category === 'Lanjutan' && !techOptional.includes(d.key); });
+  const addedOptional = TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); });
+  return (
+    <EditorSection
+      title="4. Spesifikasi Tech Stack & Arsitektur"
+      icon={faLayerGroup}
+      action={
+        <div className="relative" ref={wrapRef}>
+          <IconButton icon={faPlus} onClick={function () { setOpen(!open); }} ariaLabel="Tambah stack lanjutan">Tambah Stack Lanjutan</IconButton>
+          {open && (
+            <div className="absolute z-40 right-0 mt-2 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-72 overflow-y-auto" role="menu">
+              {availEssential.length > 0 && (
+                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Esensial</div>
+              )}
+              {availEssential.map(function (d) {
+                return (
+                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
+                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
+                    {d.label}
+                  </button>
+                );
+              })}
+              {availAdvanced.length > 0 && (
+                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Lanjutan</div>
+              )}
+              {availAdvanced.map(function (d) {
+                return (
+                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
+                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
+                    {d.label}
+                  </button>
+                );
+              })}
+              {availEssential.length === 0 && availAdvanced.length === 0 && (
+                <div className="px-3 py-2 text-[11px] text-slate-500 italic">Semua stack sudah ditambahkan.</div>
+              )}
+            </div>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="userFlow" className="block text-slate-300 font-medium mb-1">Alur Pengguna (User Flow)</label>
+          <div className="relative">
+            <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.userFlow} onApply={function (v) { set('userFlow', v); }} mode="flow" label="User Flow" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          {TECH_REQUIRED.map(function (d) {
+            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} />;
+          })}
+          {addedOptional.map(function (d) {
+            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} onRemove={function () { remTech(d.key); }} />;
+          })}
+        </div>
+        <div className="pt-1">
+          <label htmlFor="dbSchema" className="block text-slate-300 font-medium mb-1">Skema Database & Model Relasi</label>
+          <textarea id="dbSchema" value={f.dbSchema} onChange={function (e) { set('dbSchema', e.target.value); }} rows="3" placeholder="users: id, name, email" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none font-mono resize-none" />
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
 ````
 
 ## File: src/components/header/ModeSwitcher.jsx
@@ -3331,6 +3322,224 @@ export default function ScrollButtons() {
 }
 ````
 
+## File: src/components/preview/sections/NfrPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function NfrPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.nfr) return null;
+  const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.2 NFR, Prototype & Analisis Risiko</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Keamanan:</strong> <span>{f.nfrSpecs || '-'}</span></p>
+        <p><strong className="text-slate-900">Performance:</strong> <span>{f.nfrPerformance || '-'}</span></p>
+        <p><strong className="text-slate-900">Lokalisasi:</strong> <span>{f.nfrLocalization || '-'}</span></p>
+        <p><strong className="text-slate-900">Browser:</strong> <span>{f.nfrBrowser || '-'}</span></p>
+        <p>
+          <strong className="text-slate-900">Figma:</strong>{' '}
+          {isFigmaLink ? (
+            <a href={f.figmaLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-mono">
+              {f.figmaLink}
+            </a>
+          ) : (
+            <span className="font-mono">{f.figmaLink || '-'}</span>
+          )}
+        </p>
+        <p><strong className="text-slate-900">Risiko:</strong> <span>{f.riskMitigation || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/RolesPreview.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function RolesPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  if (mode !== 'enterprise' && !se.roles) return null;
+  const splitLines = function (text) {
+    if (!text) return [];
+    return text
+      .split('\n')
+      .map(function (line) {
+        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
+      })
+      .filter(function (line) { return line.length > 0; });
+  };
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
+      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
+        {roles.length ? roles.map(function (r, i) {
+          const canItems = splitLines(r.can);
+          const cannotItems = splitLines(r.cannot);
+          return (
+            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
+              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
+              <div className="space-y-1">
+                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
+                </p>
+                {canItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
+                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+              <div className="space-y-1">
+                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
+                </p>
+                {cannotItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
+                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/CoverPage.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { formatTargetDate, resolveCoverTheme, titleCaseForCover } from '../../utils/helpers';
+
+export default function CoverPage() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const features = usePrdStore(function (s) { return s.features; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+
+  const theme = resolveCoverTheme(f, palette);
+
+  const kicker = (f.coverKicker || '').trim() || 'PRODUCT REQUIREMENT DOCUMENT';
+  const words = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase().split(/\s+/).filter(Boolean);
+  const firstWord = words[0] || '';
+  const restWords = words.slice(1).join(' ');
+
+  // SATU SUMBER KEBENARAN: sampul hanya membaca coverSubtitle.
+  // Apa yang diketik di field Subtitle Sampul, itu yang tampil.
+  // Jika kosong, tampilkan teks default yang netral.
+  const rawSubtitle = (f.coverSubtitle || '').trim();
+  const subtitle = rawSubtitle ? titleCaseForCover(rawSubtitle) : 'Dokumen Spesifikasi Produk';
+
+  // Baris fitur: ambil maksimal 4 nama fitur pertama.
+  // PERBAIKAN KECIL: nama yang terlalu panjang dipotong di
+  // batas kata (bukan di tengah kata) agar sampul tidak
+  // berantakan dan tetap terlihat profesional.
+  const featureLine = features.length
+    ? features.slice(0, 4).map(function (ft) {
+        let name = (ft.name || ft.id || '').trim();
+        if (name.length > 25) {
+          const cut = name.slice(0, 22);
+          const lastSpace = cut.lastIndexOf(' ');
+          name = cut.slice(0, lastSpace > 12 ? lastSpace : 22).trimEnd() + '...';
+        }
+        return name;
+      }).join(' · ')
+    : 'Overview · Fitur Utama · Tech Stack';
+
+  const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
+  const scope = ['Overview & Goals'];
+  if (vis('persona')) scope.push('Target User Persona & Success Metrics');
+  if (vis('branding')) scope.push('Branding & Design System');
+  if (vis('roles')) scope.push('Role & Permission Matrix');
+  scope.push('Fitur Utama & Requirements');
+  if (vis('ac')) scope.push('Acceptance Criteria per Modul');
+  scope.push('User Flow');
+  scope.push('Tech Stack & Arsitektur');
+  if (vis('schema')) scope.push('Schema Data');
+  if (vis('nfr')) scope.push('Non-Functional Requirements');
+  scope.push('Out of Scope & Definition of Done');
+
+  const today = new Date();
+  const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const createdDate = today.getDate() + ' ' + months[today.getMonth()] + ' ' + today.getFullYear();
+  const targetDate = formatTargetDate(f.targetDate, f.targetDateFormat);
+  const owner = (f.author || '').trim() || '-';
+  const status = f.docStatus || 'Draft';
+
+  const labelCls = 'meta-label text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap';
+  const valueCls = 'mt-1 text-[11px] text-slate-400';
+
+  return (
+    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: theme.bg }}>
+      <div className="h-8 w-full" style={{ background: theme.primary }} />
+
+      <div className="cover-body flex-1 flex flex-col px-8 md:px-14 pt-16 md:pt-20 pb-8">
+        <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-wide text-white leading-tight">
+          {firstWord}
+          {restWords && <span style={{ color: theme.primary }}> {restWords}</span>}
+        </h1>
+
+        <div className="mt-5 h-[3px] w-16" style={{ background: theme.accent }} />
+
+        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
+
+        {/* Subtitle sampul: stabil, terkendali, satu sumber */}
+        <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white" title={rawSubtitle || 'Isi lewat section Sampul & Footer Dokumen'}>
+          {subtitle}
+        </h2>
+
+        <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
+
+        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' · ')}</p>
+        </div>
+
+        <div className="flex-1 min-h-6" />
+
+        <div className="cover-meta grid grid-cols-2 md:grid-cols-3 gap-x-4 md:gap-x-6 gap-y-5 border-t border-slate-700 pt-4">
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Versi</p>
+            <p className={valueCls}>{f.docVersion || '1.0'}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Bahasa</p>
+            <p className={valueCls}>Indonesia</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Target Rilis</p>
+            <p className={valueCls}>{targetDate}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Tanggal Dibuat</p>
+            <p className={valueCls}>{createdDate}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Owner</p>
+            <p className={valueCls}>{owner}</p>
+          </div>
+          <div>
+            <p className={labelCls} style={{ color: theme.primary }}>Status</p>
+            <p className={valueCls}>{status}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-8 w-full" style={{ background: theme.accent }} />
+    </div>
+  );
+}
+````
+
 ## File: src/components/shared/IconButton.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -3360,6 +3569,112 @@ export default function IconButton(props) {
       {icon && <FontAwesomeIcon icon={icon} aria-hidden="true" />}
       {children}
     </button>
+  );
+}
+````
+
+## File: src/App.jsx
+````javascript
+import { useEffect, useRef, lazy, Suspense } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from './store/usePrdStore';
+import { storageService } from './services/storageService';
+import Header from './components/header/Header';
+import EditorPanel from './components/editor/EditorPanel';
+import MobileTabBar from './components/mobile/MobileTabBar';
+import ScrollButtons from './components/mobile/ScrollButtons';
+import ToastContainer from './components/shared/Toast';
+
+const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
+
+export default function App() {
+  const restoreState = usePrdStore(function (s) { return s.restoreState; });
+  const setMode = usePrdStore(function (s) { return s.setMode; });
+  const initDoneRef = useRef(false);
+
+  useEffect(function () {
+    if (initDoneRef.current) return;
+    initDoneRef.current = true;
+    const saved = storageService.load();
+    if (saved && saved.state) {
+      if (saved.mode) setMode(saved.mode);
+      restoreState(saved.state);
+    }
+    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
+  }, []);
+
+  useEffect(function () {
+    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
+    function onInput(e) {
+      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
+    }
+    function onClick(e) {
+      const b = e.target.closest ? e.target.closest('button') : null;
+      if (!b) return;
+      const t = b.title || '';
+      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
+      commit();
+    }
+    document.addEventListener('input', onInput);
+    document.addEventListener('change', onInput);
+    document.addEventListener('click', onClick);
+    return function () {
+      document.removeEventListener('input', onInput);
+      document.removeEventListener('change', onInput);
+      document.removeEventListener('click', onClick);
+      commit.cancel();
+    };
+  }, []);
+
+  useEffect(function () {
+    function handler(e) {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        usePrdStore.getState().undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault();
+        usePrdStore.getState().redo();
+      }
+    }
+    document.addEventListener('keydown', handler);
+    return function () { document.removeEventListener('keydown', handler); };
+  }, []);
+
+  return (
+    <div className="app-shell flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
+      <a
+        href="#editorPanel"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
+      >
+        Lompat ke Editor
+      </a>
+      <a
+        href="#previewPanel"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
+      >
+        Lompat ke Preview
+      </a>
+      <Header />
+      <main className="flex-grow min-h-0 overflow-hidden relative">
+        <div id="panelSlider">
+          <div><EditorPanel /></div>
+          <div>
+            <Suspense fallback={
+              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center h-full">
+                <div className="text-slate-400 text-sm">Memuat preview...</div>
+              </div>
+            }>
+              <PreviewPanel />
+            </Suspense>
+          </div>
+        </div>
+        <ScrollButtons />
+      </main>
+      <MobileTabBar />
+      <ToastContainer />
+    </div>
   );
 }
 ````
@@ -3457,6 +3772,695 @@ export default function IconButton(props) {
 }
 ````
 
+## File: src/components/editor/sections/ProjectInfo.jsx
+````javascript
+import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+const STATUS_OPTIONS = [
+  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
+  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
+  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
+  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
+  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
+  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
+];
+
+export default function ProjectInfo() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  return (
+    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div>
+          <label htmlFor="projectName" className="block text-slate-300 font-medium mb-1">Nama Proyek / Aplikasi</label>
+          <div className="relative">
+            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docVersion" className="block text-slate-300 font-medium mb-1">Versi Dokumen</label>
+          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="author" className="block text-slate-300 font-medium mb-1">Penulis / Product Owner</label>
+          <div className="relative">
+            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
+            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docStatus" className="block text-slate-300 font-medium mb-1">Status Dokumen</label>
+          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
+            {STATUS_OPTIONS.map(function (o) {
+              return <option key={o.value} value={o.value}>{o.label}</option>;
+            })}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="targetDate" className="block text-slate-300 font-medium mb-1">Target Rilis</label>
+          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="targetDateFormat" className="block text-slate-300 font-medium mb-1">Format Tampilan Target Rilis</label>
+          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
+            <option value="full">Tanggal Lengkap</option>
+            <option value="month">Bulan + Tahun</option>
+            <option value="quarter">Kuartal + Tahun</option>
+          </select>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/styles/globals.css
+````css
+@import "tailwindcss";
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+* { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+textarea { overflow-y: hidden; }
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+
+/* ============================================================
+   FIX TINGGI ROOT: gunakan dvh dengan fallback vh.
+   100dvh mengikuti viewport aktual browser mobile (address bar
+   expand/collapse), sehingga tidak ada area terpotong di bawah.
+   ============================================================ */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Skip link utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-only:focus {
+  position: fixed;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ============================================================
+   PANEL SLIDER LAYOUT
+   min-height: 0 ditambahkan di panelSlider agar kalkulasi tinggi
+   flex tidak overflow. Height 100% di semua level memastikan
+   section fill penuh area yang tersedia.
+   ============================================================ */
+#panelSlider {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-height: 0;
+  width: 200%;
+  transform: translateX(0);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+#panelSlider.slide-preview { transform: translateX(-50%); }
+#panelSlider > div {
+  width: 50%;
+  height: 100%;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+/* ============================================================
+   DESKTOP (min 1024px): split view editor + preview
+   ============================================================ */
+@media (min-width: 1024px) {
+  #panelSlider {
+    width: 100% !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  #panelSlider > div {
+    width: 50%;
+  }
+}
+
+/* ============================================================
+   MOBILE & TABLET (max 1023.98px): slide view + tab bar
+   padding-bottom mengompensasi MobileTabBar yang fixed di bawah.
+   ============================================================ */
+@media (max-width: 1023.98px) {
+  html, body {
+    overflow: hidden;
+  }
+  body {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0 !important;
+  }
+  #panelSlider {
+    height: 100%;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  #panelSlider > div > section {
+    max-height: none !important;
+    height: 100% !important;
+    min-height: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+}
+
+/* ============================================================
+   SECTION EDITOR & PREVIEW
+   Pastikan kedua section selalu fill tinggi parent dan bisa
+   scroll internal tanpa memengaruhi layout luar.
+   ============================================================ */
+#editorPanel,
+#previewPanel {
+  height: 100%;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+#prdDocument { min-width: 0; }
+#prdDocument table { table-layout: fixed; width: 100%; }
+#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
+#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+/* ============================================================
+   TEMA DOKUMEN
+   Warna heading & aksen dokumen mengikuti tema sampul/footer.
+   Nilai fallback sama dengan palet biru/amber lama, lalu
+   ditimpa lewat CSS variables inline dari PreviewDocument.
+   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
+   ============================================================ */
+#prdDocument {
+  --doc-primary: #2563eb;
+  --doc-primary-text: #1e40af;
+  --doc-accent: #f59e0b;
+  --doc-accent-text: #b45309;
+}
+#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
+#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
+#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
+#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
+#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
+
+@media screen and (max-width: 640px) {
+  #prdDocument { padding: 1.5rem 1rem; }
+  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
+  #prdDocument table.tbl-stack thead { display: none; }
+  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
+  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  #prdDocument table.tbl-stack tr {
+    border: 1px solid #e2e8f0; border-radius: 10px;
+    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
+  }
+  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
+  #prdDocument table.tbl-stack td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: #64748b; margin-bottom: 1px;
+  }
+}
+
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+@page { size: A4; margin: 14mm 12mm; }
+@page :first { margin: 0; }
+
+@media print {
+  .no-print, nav, header { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
+  #root { height: auto !important; }
+  #root > div {
+    display: block !important; height: auto !important;
+    overflow: visible !important; background: #ffffff !important;
+  }
+  main { display: block !important; height: auto !important; overflow: visible !important; }
+  #panelSlider {
+    display: block !important; width: 100% !important;
+    height: auto !important; transform: none !important; padding: 0 !important;
+  }
+  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
+  #panelSlider > div:first-child { display: none !important; }
+  #previewPanel {
+    height: auto !important; max-height: none !important;
+    overflow: visible !important; background: #ffffff !important; padding: 0 !important;
+  }
+  .doc-cover {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: 296mm;
+    margin: 0 !important;
+    overflow: hidden;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
+  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
+  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
+  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .cover-meta .meta-label { font-size: 10px !important; }
+  #prdDocument {
+    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+    border: none !important; border-radius: 0 !important;
+    box-shadow: none !important; background: #ffffff !important;
+  }
+  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
+  p, li { orphans: 3; widows: 3; }
+  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
+  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
+}
+
+/* ============================================================
+   TRANSISI SUBTITLE SAMPUL
+   Animasi hanya dijalankan pada momen subtitle naik kelas dari
+   heuristik ke hasil AI, sehingga perubahan teks terlihat seperti
+   fitur yang disengaja, bukan bug.
+   ============================================================ */
+@keyframes coverSubtitleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
+.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
+````
+
+## File: src/utils/constants.js
+````javascript
+import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask } from '@fortawesome/free-solid-svg-icons';
+import { faHtml5 } from '@fortawesome/free-brands-svg-icons';
+
+export const STORAGE_KEY = 'prdArchitectV4';
+export const MAX_HISTORY = 50;
+export const AUTOSAVE_DELAY = 800;
+
+export const EXTRAS_DEFINITIONS = [
+  { key: 'persona', label: 'Persona & KPI Sukses', icon: 'faUsers', color: 'indigo' },
+  { key: 'branding', label: 'Branding & Design System', icon: 'faPalette', color: 'pink' },
+  { key: 'roles', label: 'Role & Permission Matrix', icon: 'faUserShield', color: 'emerald' },
+  { key: 'ac', label: 'Acceptance Criteria', icon: 'faClipboardCheck', color: 'amber' },
+  { key: 'schema', label: 'Schema Data', icon: 'faTableList', color: 'cyan' },
+  { key: 'nfr', label: 'NFR & Keamanan', icon: 'faShieldHalved', color: 'rose' },
+];
+
+export const TECH_REQUIRED = [
+  { key: 'techFrontend', label: 'Frontend', icon: faHtml5, color: 'text-orange-400', ph: 'misal: React, Tailwind CSS' },
+  { key: 'techBackend', label: 'Backend', icon: faServer, color: 'text-emerald-400', ph: 'misal: Node.js, Laravel' },
+  { key: 'techDatabase', label: 'Database', icon: faDatabase, color: 'text-blue-400', ph: 'misal: PostgreSQL, Redis' },
+  { key: 'techInfra', label: 'Infrastructure & Cloud Hosting', icon: faCloud, color: 'text-purple-400', ph: 'misal: Vercel, AWS, Docker' },
+  { key: 'techDomain', label: 'Domain & DNS Management', icon: faGlobe, color: 'text-cyan-400', ph: 'misal: Niagahoster, Cloudflare DNS' },
+  { key: 'techVcs', label: 'Version Control System', icon: faCodeBranch, color: 'text-slate-400', ph: 'misal: GitHub, GitLab' },
+];
+
+export const TECH_OPTIONAL = [
+  { key: 'techSecurity', label: 'Security & Authentication', icon: faShieldHalved, color: 'text-rose-400', category: 'Esensial', ph: 'misal: OAuth 2.0, JWT, bcrypt' },
+  { key: 'techStorage', label: 'Object Storage & CDN', icon: faHardDrive, color: 'text-cyan-400', category: 'Esensial', ph: 'misal: AWS S3 + CloudFront, Cloudflare R2' },
+  { key: 'techThirdParty', label: 'Third-Party APIs / Integrations', icon: faPlug, color: 'text-amber-400', category: 'Esensial', ph: 'misal: Midtrans, Firebase Auth' },
+  { key: 'techDevOps', label: 'CI/CD & DevOps', icon: faInfinity, color: 'text-purple-400', category: 'Lanjutan', ph: 'misal: GitHub Actions, GitLab CI' },
+  { key: 'techCaching', label: 'Caching Layer', icon: faBolt, color: 'text-yellow-400', category: 'Lanjutan', ph: 'misal: Redis, Memcached' },
+  { key: 'techQueue', label: 'Message Brokers / Queueing', icon: faEnvelopeOpenText, color: 'text-emerald-400', category: 'Lanjutan', ph: 'misal: RabbitMQ, Kafka' },
+  { key: 'techMonitoring', label: 'Monitoring, Logging, & Error Tracking', icon: faChartLine, color: 'text-blue-400', category: 'Lanjutan', ph: 'misal: Sentry, Grafana' },
+  { key: 'techAnalytics', label: 'Analytics & Data Pipeline', icon: faChartColumn, color: 'text-indigo-400', category: 'Lanjutan', ph: 'misal: Google Analytics, Metabase' },
+  { key: 'techTesting', label: 'Testing / QA Automation', icon: faFlask, color: 'text-lime-400', category: 'Lanjutan', ph: 'misal: Vitest, Playwright' },
+];
+
+export const DATA_TYPES = [
+  { category: 'Numerik Tepat', items: ['TINYINT','SMALLINT','MEDIUMINT','INT / INTEGER','BIGINT','DECIMAL / NUMERIC'] },
+  { category: 'Numerik Perkiraan', items: ['FLOAT','DOUBLE','REAL'] },
+  { category: 'String Karakter', items: ['CHAR','VARCHAR','TEXT','MEDIUMTEXT','LONGTEXT'] },
+  { category: 'Temporal', items: ['DATE','TIME','DATETIME','TIMESTAMP','YEAR'] },
+  { category: 'Logika', items: ['BOOLEAN','BIT','ENUM','SET'] },
+  { category: 'Biner', items: ['BINARY','VARBINARY','BLOB'] },
+  { category: 'Semi-Terstruktur', items: ['JSON','XML'] },
+  { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
+];
+
+export const DEFAULT_FIELDS = {
+  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
+  problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
+  brandTypography:'',brandLayout:'',
+  bpMobileOp:'\u2264',bpMobile:'',bpMobileUnit:'px',
+  bpTabletOp:'\u2264',bpTablet:'',bpTabletUnit:'px',
+  bpDesktopOp:'\u2265',bpDesktop:'',bpDesktopUnit:'px',
+  userFlow:'',
+  techFrontend:'',techBackend:'',techDatabase:'',techInfra:'',techDomain:'',techVcs:'',
+  techSecurity:'',techStorage:'',techThirdParty:'',techDevOps:'',techCaching:'',
+  techQueue:'',techMonitoring:'',techAnalytics:'',techTesting:'',
+  dbSchema:'',
+  nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
+  outOfScope:'',defOfDone:'',
+  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
+  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
+  // SATU-SATUNYA sumber teks subtitle di sampul.
+  // Diisi manual oleh user atau lewat tombol "Pakai saran AI".
+  coverSubtitle:'',
+};
+
+export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
+````
+
+## File: src/utils/helpers.js
+````javascript
+export const escapeHtml = function (s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+export const isValidHex = function (s) { return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test((s||'').trim()); };
+export const normalizeHex = function (h) {
+  if (!h) return '#000000';
+  let s = h.trim();
+  if (!s.startsWith('#')) s = '#' + s;
+  if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s;
+  if (/^#[0-9A-Fa-f]{3}$/.test(s)) return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
+  return '#000000';
+};
+export const liveHexColor = function (digits) {
+  let s = (digits||'').replace(/[^0-9A-Fa-f]/g,'');
+  if (!s) return null;
+  if (s.length===3) s = s.split('').map(function (c) { return c + c; }).join('');
+  if (s.length!==6) { let o=''; while (o.length<6) o+=s; s = o.slice(0,6); }
+  return '#' + s;
+};
+export const formatTargetDate = function (value, format) {
+  if (!value) return '-';
+  const d = new Date(value+'T00:00:00');
+  if (isNaN(d.getTime())) return '-';
+  const months=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const month=months[d.getMonth()], year=d.getFullYear();
+  if (format==='month') return month + ' ' + year;
+  if (format==='quarter') return 'Q' + (Math.floor(d.getMonth()/3)+1) + ' ' + year;
+  return d.getDate() + ' ' + month + ' ' + year;
+};
+export const buildBreakpoints = function (fields) {
+  const pairs=[['Mobile','bpMobile'],['Tablet','bpTablet'],['Desktop','bpDesktop']];
+  const parts=[];
+  pairs.forEach(function (pair) {
+    const label=pair[0], key=pair[1];
+    const num=(fields[key]||'').trim();
+    if (!num) return;
+    parts.push(label + ' ' + (fields[key+'Op']||'') + num + (fields[key+'Unit']||''));
+  });
+  return parts.join(' \u00B7 ');
+};
+
+// ============================================================
+// UTILITAS WARNA (hex, RGB, HSL)
+// ============================================================
+const hexToRgb = function (hex) {
+  const h = normalizeHex(hex);
+  return {
+    r: parseInt(h.slice(1, 3), 16),
+    g: parseInt(h.slice(3, 5), 16),
+    b: parseInt(h.slice(5, 7), 16),
+  };
+};
+const rgbToHex = function (r, g, b) {
+  const to2 = function (c) {
+    const v = Math.max(0, Math.min(255, Math.round(c)));
+    return v.toString(16).padStart(2, '0');
+  };
+  return '#' + to2(r) + to2(g) + to2(b);
+};
+const rgbToHsl = function (r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+    else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+    else h = ((rn - gn) / d + 4) / 6;
+  }
+  return { h: h, s: s, l: l };
+};
+const hslToRgb = function (h, s, l) {
+  if (s === 0) {
+    const v = l * 255;
+    return { r: v, g: v, b: v };
+  }
+  const hue2rgb = function (p, q, t) {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return {
+    r: hue2rgb(p, q, h + 1 / 3) * 255,
+    g: hue2rgb(p, q, h) * 255,
+    b: hue2rgb(p, q, h - 1 / 3) * 255,
+  };
+};
+// Gelapkan warna hex dengan faktor 0 sampai 1 (0 = hitam pekat)
+export const shadeHex = function (hex, factor) {
+  const h = normalizeHex(hex);
+  const r = parseInt(h.slice(1, 3), 16);
+  const g = parseInt(h.slice(3, 5), 16);
+  const b = parseInt(h.slice(5, 7), 16);
+  const to2 = function (c) {
+    const v = Math.max(0, Math.min(255, Math.round(c * factor)));
+    return v.toString(16).padStart(2, '0');
+  };
+  return '#' + to2(r) + to2(g) + to2(b);
+};
+// Versi warna yang aman dibaca sebagai teks di latar putih.
+// Warna terang digelapkan lebih kuat agar kontras tetap terjaga.
+export const textSafeHex = function (hex) {
+  const h = normalizeHex(hex);
+  const r = parseInt(h.slice(1, 3), 16) / 255;
+  const g = parseInt(h.slice(3, 5), 16) / 255;
+  const b = parseInt(h.slice(5, 7), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const factor = lum > 0.65 ? 0.55 : lum > 0.45 ? 0.7 : 0.85;
+  return shadeHex(h, factor);
+};
+
+// ============================================================
+// SANITASI AKSEN (PENDEKATAN 2)
+// Warna brand boleh masuk sampul hanya sebagai aksen, dan harus
+// dinormalisasi agar tidak norak, tidak menyilaukan, dan tetap
+// terlihat jelas di atas latar gelap.
+// ============================================================
+const sanitizeAccent = function (hex) {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  const s = Math.max(0.35, Math.min(0.85, hsl.s));
+  const l = Math.max(0.45, Math.min(0.68, hsl.l));
+  const out = hslToRgb(hsl.h, s, l);
+  return rgbToHex(out.r, out.g, out.b);
+};
+// Turunan nada gelap dari satu warna, untuk aksen sekunder
+// (bar bawah) agar seragam dengan warna utama.
+const deriveDarkTone = function (hex) {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  const s = Math.max(0.3, Math.min(0.75, hsl.s));
+  const l = Math.max(0.3, Math.min(0.45, hsl.l));
+  const out = hslToRgb(hsl.h, s, l);
+  return rgbToHex(out.r, out.g, out.b);
+};
+
+// ============================================================
+// RESOLVER TEMA SAMPUL, FOOTER, & DOKUMEN
+// MODE OTOMATIS (PENDEKATAN 2):
+// 1. Latar sampul dikunci ke charcoal #15171C, tidak ikut brand,
+//    sehingga teks putih/abu selalu terbaca dan tampil elegan.
+// 2. Warna brand hanya jadi aksen tipis (bar, garis, label).
+// 3. Warna tidak layak (putih, hitam, abu, terlalu pucat atau
+//    terlalu gelap) otomatis dilewati.
+// 4. Warna utama = warna layak pertama sesuai urutan palette
+//    (menghormati hierarki brand), aksen sekunder = warna layak
+//    berikutnya dengan hue berbeda. Jika tidak ada, dipakai
+//    nada gelap dari warna utama.
+// 5. Jika tidak ada warna layak sama sekali, fallback ke emas
+//    #C9A961 yang selalu aman di latar gelap.
+// MODE MANUAL: pilihan user dihormati apa adanya.
+// ============================================================
+export const resolveCoverTheme = function (fields, palette) {
+  const FALLBACK = '#C9A961';
+  const FIXED_BG = '#15171C';
+  const f = fields || {};
+  if (f.coverThemeAuto === false) {
+    const primary = isValidHex(f.coverPrimary) ? normalizeHex(f.coverPrimary) : FALLBACK;
+    const accent = isValidHex(f.coverAccent) ? normalizeHex(f.coverAccent) : deriveDarkTone(primary);
+    const bg = isValidHex(f.coverBg) ? normalizeHex(f.coverBg) : FIXED_BG;
+    return {
+      primary: primary,
+      accent: accent,
+      bg: bg,
+      primaryText: textSafeHex(primary),
+      accentText: textSafeHex(accent),
+    };
+  }
+  const suitable = [];
+  (palette || []).forEach(function (p) {
+    if (!isValidHex(p.hex)) return;
+    const hex = normalizeHex(p.hex);
+    const rgb = hexToRgb(hex);
+    const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+    // Lewati abu-abu/putih/hitam (saturation rendah)
+    // dan warna terlalu gelap atau terlalu pucat.
+    if (hsl.s >= 0.22 && hsl.l >= 0.22 && hsl.l <= 0.88) {
+      suitable.push({ hex: hex, hsl: hsl });
+    }
+  });
+  let primary = FALLBACK;
+  if (suitable.length) primary = sanitizeAccent(suitable[0].hex);
+  let accent = '';
+  for (let i = 1; i < suitable.length; i++) {
+    const dh = Math.abs(suitable[i].hsl.h - suitable[0].hsl.h);
+    const hueDist = Math.min(dh, 1 - dh);
+    if (hueDist > 0.08) {
+      accent = sanitizeAccent(suitable[i].hex);
+      break;
+    }
+  }
+  if (!accent) accent = deriveDarkTone(primary);
+  return {
+    primary: primary,
+    accent: accent,
+    bg: FIXED_BG,
+    primaryText: textSafeHex(primary),
+    accentText: textSafeHex(accent),
+  };
+};
+
+// ============================================================
+// HASH CACHE (peninggalan fitur lama, aman dibiarkan)
+// ============================================================
+export const hashText = function (s) {
+  let h = 5381;
+  const str = (s || '');
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  return 'h' + (h >>> 0).toString(36) + '-' + str.length;
+};
+
+export const TAGLINE_HASH_VERSION = 'v3';
+
+export const taglineHash = function (text) {
+  return hashText((text || '') + '|' + TAGLINE_HASH_VERSION);
+};
+
+// ============================================================
+// PERINGKAS TEKS SAMPUL (FALLBACK HEURISTIK, peninggalan lama)
+// Memotong di batas klausa alami lalu mengakhiri dengan titik,
+// tanpa elipsis.
+// ============================================================
+const CLAUSE_MARKERS = [' dan ', ' serta ', ' atau ', ' sehingga ', ' agar ', ' untuk ', ' dengan ', ' yang '];
+
+export const summarizeForCover = function (text, max) {
+  if (!text || !text.trim()) return '';
+  let s = text.trim().split('\n')[0];
+  const sentenceEnd = s.indexOf('. ');
+  if (sentenceEnd > -1) s = s.slice(0, sentenceEnd);
+  s = s.replace(/[.!?]+$/, '').trim();
+  if (!s) return '';
+  if (s.length <= max) return s + '.';
+  const cut = s.slice(0, max);
+  let pos = cut.lastIndexOf(',');
+  if (pos < 40) {
+    CLAUSE_MARKERS.forEach(function (w) {
+      const p = cut.lastIndexOf(w);
+      if (p > pos) pos = p;
+    });
+  }
+  if (pos < 40) pos = cut.lastIndexOf(' ');
+  const clean = s.slice(0, pos).replace(/[\s,;:]+$/, '').trim();
+  return (clean || cut.trim()) + '.';
+};
+
+// ============================================================
+// TITLE CASE UNTUK SUBTITLE SAMPUL
+// Mengkapitalisasi huruf awal setiap kata, kecuali kata
+// penghubung, kata depan, dan partikel (dan, untuk, di, yang,
+// hingga, dll) sesuai kaidah judul EYD.
+// Kata pertama dan terakhir selalu dikapitalisasi.
+// Kata ber-hyphen dikapitalisasi per bagiannya, sehingga
+// "real-time" menjadi "Real-Time".
+// ============================================================
+const TITLE_SMALL_WORDS = {
+  dan: 1, atau: 1, serta: 1, tetapi: 1, tapi: 1, sedangkan: 1, melainkan: 1, padahal: 1,
+  bahwa: 1, karena: 1, sebab: 1, sehingga: 1, hingga: 1, agar: 1, supaya: 1,
+  jika: 1, kalau: 1, bila: 1, ketika: 1, saat: 1, sejak: 1, semenjak: 1, selama: 1,
+  setelah: 1, sesudah: 1, sebelum: 1, maka: 1, yaitu: 1, yakni: 1, yang: 1,
+  di: 1, ke: 1, dari: 1, pada: 1, kepada: 1, dalam: 1, bagi: 1, untuk: 1, buat: 1,
+  tentang: 1, mengenai: 1, oleh: 1, terhadap: 1, menurut: 1, berdasarkan: 1,
+  sekitar: 1, sepanjang: 1, menjelang: 1, menuju: 1,
+  pun: 1, per: 1, si: 1, sang: 1,
+};
+
+const capWord = function (w) {
+  return w.split('-').map(function (part) {
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  }).join('-');
+};
+
+export const titleCaseForCover = function (text) {
+  const s = (text || '').trim();
+  if (!s) return '';
+  const tokens = s.split(/\s+/);
+  return tokens.map(function (w, i) {
+    const lower = w.toLowerCase();
+    const isSmall = Object.prototype.hasOwnProperty.call(TITLE_SMALL_WORDS, lower);
+    if (isSmall && i !== 0 && i !== tokens.length - 1) return lower;
+    return capWord(w);
+  }).join(' ');
+};
+````
+
 ## File: src/components/editor/AiAnalysisCard.jsx
 ````javascript
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -3529,6 +4533,8 @@ export default function AiAnalysisCard() {
   const isAnalyzing = usePrdStore((s) => s.isAnalyzing);
   const aiError = usePrdStore((s) => s.aiError);
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
+  const aiTypewriterActive = usePrdStore((s) => s.aiTypewriterActive);
+  const setAiTypewriterActive = usePrdStore((s) => s.setAiTypewriterActive);
 
   const isPrdEmpty = usePrdStore((s) => {
     const f = s.fields;
@@ -3539,7 +4545,6 @@ export default function AiAnalysisCard() {
   });
 
   const showToast = useToast();
-
   const feedbackBoxRef = useRef(null);
   const briefRef = useRef(null);
   const typewriterStartRef = useRef(null);
@@ -3555,34 +4560,58 @@ export default function AiAnalysisCard() {
   const boxMounted = !!(displayedText || isAnalyzing);
 
   // ============================================================
-  // TYPEWRITER ENGINE (timestamp-based, tick lebih jarang)
+  // TYPEWRITER ENGINE
+  // Jika aiTypewriterActive false, teks langsung tampil penuh.
+  // Jika true, teks muncul huruf demi huruf seperti mengetik.
   // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
       setDisplayedText('');
       setIsTypingFinished(true);
       typewriterStartRef.current = null;
+
+      if (!isAnalyzing && aiTypewriterActive) {
+        setAiTypewriterActive(false);
+      }
+
       return;
     }
+
+    // Jika ini bukan output baru dari analisis AI yang sedang berjalan,
+    // tampilkan langsung seluruh teks tanpa efek mengetik.
+    // Kasus ini terjadi saat web dibuka ulang dan data diambil dari localStorage.
+    if (!aiTypewriterActive) {
+      setDisplayedText(rawAiFeedback);
+      setIsTypingFinished(true);
+      typewriterStartRef.current = null;
+      return;
+    }
+
     if (typewriterStartRef.current === null) {
       typewriterStartRef.current = performance.now();
     }
+
     setIsTypingFinished(false);
+
     const timer = setInterval(() => {
       const elapsed = performance.now() - typewriterStartRef.current;
       const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
       const targetLength = Math.min(expectedChars, rawAiFeedback.length);
+
       setDisplayedText((prev) => {
         if (prev.length === targetLength) return prev;
         return rawAiFeedback.slice(0, targetLength);
       });
+
       if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
         setIsTypingFinished(true);
         clearInterval(timer);
+        setAiTypewriterActive(false);
       }
     }, TICK_MS);
+
     return () => clearInterval(timer);
-  }, [rawAiFeedback, isAnalyzing]);
+  }, [rawAiFeedback, isAnalyzing, aiTypewriterActive, setAiTypewriterActive]);
 
   // ============================================================
   // AUTO-SCROLL: instant, hanya jika user di bottom
@@ -3638,9 +4667,11 @@ export default function AiAnalysisCard() {
   useEffect(() => {
     const el = feedbackBoxRef.current;
     if (!el) return;
+
     el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
     el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
     el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
+
     return () => {
       el.removeEventListener('wheel', handleUserScrollIntent);
       el.removeEventListener('touchmove', handleUserScrollIntent);
@@ -3669,6 +4700,7 @@ export default function AiAnalysisCard() {
       if (briefRef.current) briefRef.current.focus();
       return;
     }
+
     try {
       setDisplayedText('');
       userScrolledUpRef.current = false;
@@ -3709,6 +4741,7 @@ export default function AiAnalysisCard() {
             <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
         </div>
+
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
@@ -3820,13 +4853,7 @@ export default function AiAnalysisCard() {
               onScroll={handleScroll}
               className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
               style={{
-                // UBAH DI SINI: 'contain' mencegah scroll chaining ke parent.
-                // 'auto' memungkinkan halaman editor ikut ter-scroll saat
-                // kotak AI sudah mentok di bawah atau atas.
                 overscrollBehavior: 'auto',
-                // FIX PERFORMA: containment membuat perubahan layout & paint
-                // di dalam box tidak menyebar ke seluruh halaman, sehingga
-                // animasi di luar box (toggle, progress bar, dll) tetap mulus
                 contain: 'layout paint',
               }}
             >
@@ -3880,7 +4907,7 @@ import { generateMarkdown } from '../utils/markdown';
 
 export const exportService = {
   exportJSON: function (state) {
-    const data = { app: 'PRD Architect Pro', version: '3.4', mode: state.mode, state: state };
+    const data = { app: 'PRD Architect Pro', version: '3.5', mode: state.mode, state: state };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
   },
@@ -3914,6 +4941,7 @@ import ModeSwitcher from './ModeSwitcher';
 import IconButton from '../shared/IconButton';
 import { useToast } from '../../hooks/useToast';
 import { storageService } from '../../services/storageService';
+
 export default function Header() {
   const saveIndicator = usePrdStore(function (s) { return s.saveIndicator; });
   const undo = usePrdStore(function (s) { return s.undo; });
@@ -3924,6 +4952,14 @@ export default function Header() {
   const clearAll = usePrdStore(function (s) { return s.clearAll; });
   const commitHistory = usePrdStore(function (s) { return s.commitHistory; });
   const showToast = useToast();
+
+  // Commit ditunda satu tick agar perubahan state sempat digambar
+  // ke layar lebih dulu. Sebelumnya commit berjalan sinkron dan
+  // menahan paint, sehingga klik terasa macet.
+  const deferredCommit = function () {
+    setTimeout(function () { commitHistory(); }, 0);
+  };
+
   return (
     <header className="bg-slate-800 border-b border-slate-700 py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
       <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
@@ -3940,8 +4976,8 @@ export default function Header() {
           <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Undo</span></IconButton>
           <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Redo</span></IconButton>
         </div>
-        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">Muat Contoh</IconButton>
-        <IconButton icon={faTrash} onClick={function () { clearAll(); commitHistory(); storageService.clear(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">Reset</IconButton>
+        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); showToast('Data contoh Instagram dimuat'); deferredCommit(); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">Muat Contoh</IconButton>
+        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); showToast('Form direset', 'info'); deferredCommit(); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">Reset</IconButton>
       </div>
     </header>
   );
@@ -3969,7 +5005,7 @@ import SchemaSection from './sections/SchemaSection';
 import NfrSection from './sections/NfrSection';
 import OutOfScope from './sections/OutOfScope';
 
-// Bridge auto-save: langganan store yang berat dipisah ke komponen
+// Bridge: langganan store yang berat dipisah ke komponen
 // yang me-render null, supaya EditorPanel tidak re-render tiap ketikan.
 function AutoSaveBridge() {
   useAutoSave();
@@ -4023,6 +5059,7 @@ const init = function () {
     features: [], palette: [], roles: [], schemaTables: [], acModules: [], techOptional: [],
     history: [], historyIndex: -1, saveIndicator: '',
     aiFeedback: '', aiDraft: null, isAnalyzing: false, aiError: null,
+    aiTypewriterActive: false,
   };
 };
 
@@ -4085,14 +5122,106 @@ function extractAiDraft(fullText) {
   return null;
 }
 
+// ============================================================
+// DUAL MODEL GEMINI UNTUK ANALISIS PRD
+// Model utama: gemini-3.5-flash-lite
+// Model cadangan: gemini-3.1-flash-lite (dipakai otomatis saat
+// utama kena batas kuota, error server, atau gangguan jaringan)
+// ============================================================
+const GEMINI_PRIMARY_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
+
+// Menerjemahkan error teknis menjadi pesan ramah user
+const describeGeminiError = function (err) {
+  if (err && err.status === 429) {
+    const m = err.message || '';
+    if (m.includes('Quota exceeded') || m.includes('free_tier')) {
+      return 'Kuota harian (Free Tier) Gemini API telah habis.';
+    }
+    return 'Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.';
+  }
+  if (err && err.status >= 500) {
+    return 'Server Gemini sedang bermasalah. Coba lagi sebentar lagi.';
+  }
+  if (err && !err.status && /fetch|network/i.test(err.message || '')) {
+    return 'Koneksi ke server Gemini gagal. Periksa koneksi internetmu lalu coba lagi.';
+  }
+  return (err && err.message) || 'Gagal memproses request ke Gemini API';
+};
+
+// Menjalankan streaming untuk satu model tertentu.
+// Teks parsial dikirim ke store tiap 80ms agar typewriter
+// di AiAnalysisCard tetap hidup, lalu teks lengkap dikembalikan.
+const streamGeminiAnalysis = async function (apiKey, model, prompt, onDisplay) {
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?key=' + apiKey + '&alt=sse',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.4,
+          // DINAUNKAN DARI 4096 KE 8192: memberi "napas" lebih panjang
+          // agar model fallback (3.1 flash lite) tidak memotong output
+          // JSON di tengah jalan saat membuat dokumen yang komprehensif.
+          maxOutputTokens: 8192,
+          topP: 0.95,
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(function () { return {}; });
+    const err = new Error(errJson.error && errJson.error.message ? errJson.error.message : '');
+    err.status = response.status;
+    throw err;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let lastUiPush = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonStr = line.replace('data: ', '').trim();
+        if (jsonStr === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          fullText += textChunk;
+          const now = performance.now();
+          if (now - lastUiPush > 80) {
+            lastUiPush = now;
+            onDisplay(fullText);
+          }
+        } catch (e) {}
+      }
+    }
+  }
+  return fullText;
+};
+
 export const usePrdStore = create(function (set, get) {
   return {
     ...init(),
+
     setMode: function (mode) { set({ mode: mode }); },
     setField: function (key, value) { set(function (s) { return { fields: Object.assign({}, s.fields, { [key]: value }) }; }); },
     setSaveIndicator: function (t) { set({ saveIndicator: t }); },
+    setAiTypewriterActive: function (v) { set({ aiTypewriterActive: v }); },
+    setSchemaTables: function (tables) { set({ schemaTables: tables }); },
+
     toggleSimpleExtra: function (key, value) { set(function (s) { return { simpleExtras: Object.assign({}, s.simpleExtras, { [key]: value }) }; }); },
     resetAllExtras: function () { set({ simpleExtras: { ...INITIAL_SIMPLE_EXTRAS } }); },
+
     addTechExtra: function (key) {
       set(function (s) {
         if (s.techOptional.includes(key)) return {};
@@ -4104,27 +5233,33 @@ export const usePrdStore = create(function (set, get) {
         return { techOptional: s.techOptional.filter(function (k) { return k !== key; }) };
       });
     },
+
     addFeature: function () { set(function (s) { return { features: s.features.concat([{ id: 'F-0' + (s.features.length + 1), name: '', story: '', priority: 'High' }]) }; }); },
     updateFeature: function (i, p) { set(function (s) { const f = s.features.slice(); f[i] = Object.assign({}, f[i], p); return { features: f }; }); },
     removeFeature: function (i) { set(function (s) { return { features: s.features.filter(function (_, x) { return x !== i; }).map(function (f, x) { return Object.assign({}, f, { id: 'F-0' + (x + 1) }); }) }; }); },
+
     addPalette: function () { set(function (s) { return { palette: s.palette.concat([{ name: '', hex: '#C9A961', usage: '' }]) }; }); },
     updatePalette: function (i, p) { set(function (s) { const a = s.palette.slice(); a[i] = Object.assign({}, a[i], p); return { palette: a }; }); },
     removePalette: function (i) { set(function (s) { return { palette: s.palette.filter(function (_, x) { return x !== i; }) }; }); },
+
     addRole: function () { set(function (s) { return { roles: s.roles.concat([{ name: '', can: '', cannot: '' }]) }; }); },
     updateRole: function (i, p) { set(function (s) { const a = s.roles.slice(); a[i] = Object.assign({}, a[i], p); return { roles: a }; }); },
     removeRole: function (i) { set(function (s) { return { roles: s.roles.filter(function (_, x) { return x !== i; }) }; }); },
+
     addSchemaTable: function () { set(function (s) { return { schemaTables: s.schemaTables.concat([{ name: '', desc: '', fields: [{ field: '', type: '', required: 'Ya', note: '' }] }]) }; }); },
     updateSchemaTable: function (i, p) { set(function (s) { const a = s.schemaTables.slice(); a[i] = Object.assign({}, a[i], p); return { schemaTables: a }; }); },
     removeSchemaTable: function (i) { set(function (s) { return { schemaTables: s.schemaTables.filter(function (_, x) { return x !== i; }) }; }); },
     addSchemaField: function (ti) { set(function (s) { const a = s.schemaTables.slice(); a[ti] = Object.assign({}, a[ti], { fields: a[ti].fields.concat([{ field: '', type: '', required: 'Ya', note: '' }]) }); return { schemaTables: a }; }); },
     updateSchemaField: function (ti, fi, p) { set(function (s) { const a = s.schemaTables.slice(); const f = a[ti].fields.slice(); f[fi] = Object.assign({}, f[fi], p); a[ti] = Object.assign({}, a[ti], { fields: f }); return { schemaTables: a }; }); },
     removeSchemaField: function (ti, fi) { set(function (s) { const a = s.schemaTables.slice(); a[ti] = Object.assign({}, a[ti], { fields: a[ti].fields.filter(function (_, x) { return x !== fi; }) }); return { schemaTables: a }; }); },
+
     addAcModule: function () { set(function (s) { return { acModules: s.acModules.concat([{ title: '', items: [{ title: '', desc: '' }] }]) }; }); },
     updateAcModule: function (i, p) { set(function (s) { const a = s.acModules.slice(); a[i] = Object.assign({}, a[i], p); return { acModules: a }; }); },
     removeAcModule: function (i) { set(function (s) { return { acModules: s.acModules.filter(function (_, x) { return x !== i; }) }; }); },
     addAcItem: function (mi) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.concat([{ title: '', desc: '' }]) }); return { acModules: a }; }); },
     updateAcItem: function (mi, ii, p) { set(function (s) { const a = s.acModules.slice(); const it = a[mi].items.slice(); it[ii] = Object.assign({}, it[ii], p); a[mi] = Object.assign({}, a[mi], { items: it }); return { acModules: a }; }); },
     removeAcItem: function (mi, ii) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.filter(function (_, x) { return x !== ii; }) }); return { acModules: a }; }); },
+
     getSnapshot: (function () {
       let cache = null;
       let last = null;
@@ -4145,17 +5280,34 @@ export const usePrdStore = create(function (set, get) {
         return cache;
       };
     })(),
-    commitHistory: function () {
-      set(function (s) {
-        const snap = get().getSnapshot();
-        const last = s.history[s.historyIndex];
-        if (last && JSON.stringify(stripNonUndo(last)) === JSON.stringify(stripNonUndo(snap))) return {};
-        const h = s.history.slice(0, s.historyIndex + 1);
-        h.push(snap);
-        if (h.length > MAX_HISTORY) h.shift();
-        return { history: h, historyIndex: h.length - 1 };
-      });
-    },
+
+    commitHistory: (function () {
+      let lastRefs = null;
+      return function () {
+        const st = get();
+        const same = lastRefs &&
+          lastRefs.fields === st.fields &&
+          lastRefs.features === st.features &&
+          lastRefs.palette === st.palette &&
+          lastRefs.roles === st.roles &&
+          lastRefs.schemaTables === st.schemaTables &&
+          lastRefs.acModules === st.acModules &&
+          lastRefs.techOptional === st.techOptional;
+        if (same) return;
+        lastRefs = {
+          fields: st.fields, features: st.features, palette: st.palette, roles: st.roles,
+          schemaTables: st.schemaTables, acModules: st.acModules, techOptional: st.techOptional,
+        };
+        set(function (s) {
+          const snap = get().getSnapshot();
+          const h = s.history.slice(0, s.historyIndex + 1);
+          h.push(snap);
+          if (h.length > MAX_HISTORY) h.shift();
+          return { history: h, historyIndex: h.length - 1 };
+        });
+      };
+    })(),
+
     undo: function () {
       set(function (s) {
         if (s.historyIndex <= 0) return {};
@@ -4164,6 +5316,7 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
+
     redo: function () {
       set(function (s) {
         if (s.historyIndex >= s.history.length - 1) return {};
@@ -4172,6 +5325,7 @@ export const usePrdStore = create(function (set, get) {
         return Object.assign({}, st, { historyIndex: ni, history: s.history });
       });
     },
+
     restoreState: function (st) {
       const fields = Object.assign({}, DEFAULT_FIELDS, st.fields || {});
       const features = st.features || [];
@@ -4192,95 +5346,79 @@ export const usePrdStore = create(function (set, get) {
         aiFeedback: isEmptyPrd ? '' : (st.aiFeedback || ''),
         aiDraft: isEmptyPrd ? null : (st.aiDraft || null),
         mode: st.mode || 'simple',
+        aiTypewriterActive: false,
       });
     },
+
     clearAll: function () {
       set(function (s) {
         const base = init();
         return Object.assign({}, base, { mode: s.mode, history: s.history, historyIndex: s.historyIndex, saveIndicator: s.saveIndicator });
       });
     },
+
     analyzeWithAi: async function (userBrief) {
       const state = get();
       const prdSnapshot = state.getSnapshot();
-      set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null });
+      set({ isAnalyzing: true, aiError: null, aiFeedback: '', aiDraft: null, aiTypewriterActive: true });
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('VITE_GEMINI_API_KEY belum diisi pada file .env.local!');
         }
         const prompt = buildAiPrompt(prdSnapshot, userBrief);
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?key=${apiKey}&alt=sse`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: {
-                temperature: 0.4,
-                maxOutputTokens: 4096,
-                topP: 0.95,
-              }
-            })
-          }
-        );
-        if (!response.ok) {
-          const errJson = await response.json().catch(function () { return {}; });
-          const errMsg = errJson.error?.message || '';
-          if (response.status === 429 || errJson.error?.code === 429) {
-            if (errMsg.includes('Quota exceeded') || errMsg.includes('free_tier')) {
-              throw new Error('Kuota harian (Free Tier) Gemini API telah habis.');
-            }
-            throw new Error('Batas penggunaan AI sedang penuh. Tunggu 30 detik lalu coba lagi.');
-          }
-          throw new Error(errMsg || 'Gagal memproses request ke Gemini API');
-        }
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+
+        // Tampilan parsial untuk typewriter di AiAnalysisCard
+        const pushDisplay = function (fullText) {
+          const cleanDisplay = cleanLatex(
+            fullText.replace(/```json_draft[\s\S]*$/, '')
+          );
+          set({ aiFeedback: cleanDisplay });
+        };
+
         let fullTextAccumulator = '';
-        let lastUiPush = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.replace('data: ', '').trim();
-              if (jsonStr === '[DONE]') continue;
-              try {
-                const parsed = JSON.parse(jsonStr);
-                const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                fullTextAccumulator += textChunk;
-                const now = performance.now();
-                if (now - lastUiPush > 80) {
-                  lastUiPush = now;
-                  const cleanDisplay = cleanLatex(
-                    fullTextAccumulator.replace(/```json_draft[\s\S]*$/, '')
-                  );
-                  set({ aiFeedback: cleanDisplay });
-                }
-              } catch (e) {}
-            }
+        try {
+          // Percobaan 1: model utama
+          fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_PRIMARY_MODEL, prompt, pushDisplay);
+        } catch (primaryErr) {
+          // Fallback hanya untuk kuota (429), error server (5xx),
+          // atau gangguan jaringan. Error konfigurasi (400/401/403)
+          // langsung diteruskan karena cadangan pun akan gagal.
+          const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
+          if (!retryable) throw primaryErr;
+
+          console.warn('[Gemini] Model utama gagal, memakai cadangan:', primaryErr.message);
+          // Bersihkan teks parsial agar cadangan mulai dari nol
+          set({ aiFeedback: '' });
+          try {
+            // Percobaan 2: model cadangan
+            fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_FALLBACK_MODEL, prompt, pushDisplay);
+          } catch (fallbackErr) {
+            throw new Error(describeGeminiError(fallbackErr));
           }
         }
+
         const extractedDraft = extractAiDraft(fullTextAccumulator);
         console.log('[AI Draft] Hasil ekstraksi:', extractedDraft ? 'BERHASIL' : 'GAGAL');
+
         const finalCleanFeedback = cleanLatex(
           fullTextAccumulator.replace(/`{3,}\s*json_draft[\s\S]*?`{3,}/gi, '')
         );
+
         set({
           aiFeedback: finalCleanFeedback,
           aiDraft: extractedDraft,
           isAnalyzing: false
         });
+
         return finalCleanFeedback;
       } catch (err) {
-        set({ aiError: err.message, isAnalyzing: false });
-        throw err;
+        const friendly = describeGeminiError(err);
+        set({ aiError: friendly, isAnalyzing: false });
+        throw new Error(friendly);
       }
     },
+
     applyAiDraft: function () {
       const state = get();
       const draft = state.aiDraft;
@@ -4365,7 +5503,7 @@ export const usePrdStore = create(function (set, get) {
                 return {
                   field: sanitizeMultiline(cleanLatex(fi.field || '')),
                   type: sanitizeMultiline(cleanLatex(fi.type || '')),
-                  required: fi.required || 'Ya',
+                  required: fi.required === 'Ya' ? 'Ya' : 'Opsional',
                   note: sanitizeMultiline(cleanLatex(fi.note || ''))
                 };
               }) : []
@@ -4380,14 +5518,16 @@ export const usePrdStore = create(function (set, get) {
       console.log('[AI Draft] Apply selesai.');
       return true;
     },
+
     clearAiFeedback: function () {
-      set({ aiFeedback: '', aiDraft: null, aiError: null });
+      set({ aiFeedback: '', aiDraft: null, aiError: null, aiTypewriterActive: false });
     },
+
     loadSampleData: function () {
       set(function (s) {
         // Opsi A: pertahankan setting sampul & footer yang sudah ada
         const keepCover = {};
-        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter'];
+        const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter', 'coverSubtitle'];
         coverKeys.forEach(function (k) {
           if (Object.prototype.hasOwnProperty.call(s.fields, k)) keepCover[k] = s.fields[k];
         });
