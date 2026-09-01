@@ -3,7 +3,7 @@ import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-so
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { usePrdStore } from '../../../store/usePrdStore';
 import { resolveCoverTheme } from '../../../utils/helpers';
-import { generateCoverTagline } from '../../../services/groqService';
+import { generateCoverTagline } from '../../../services/aiService';
 import { useToast } from '../../../hooks/useToast';
 import EditorSection from '../EditorSection';
 import ToggleSwitch from '../../shared/ToggleSwitch';

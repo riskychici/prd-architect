@@ -107,12 +107,13 @@ src/
     useSwipe.js
     useToast.js
   services/
+    aiService.js
     exportService.js
-    groqService.js
     storageService.js
   store/
     usePrdStore.js
     usePreviewStore.js
+    useThemeStore.js
     useViewStore.js
   styles/
     globals.css
@@ -130,11 +131,322 @@ LICENSE
 package.json
 playwright.config.js
 README.md
-setup-e2e.js
 vite.config.js
 ````
 
 # Files
+
+## File: src/services/aiService.js
+````javascript
+// ============================================================
+// LAYANAN AI VIA OPENROUTER (MODEL: google/gemma-4-31b-it:free)
+// Mengurus fitur: Refine Text (tombol wand), Tagline Sampul,
+// dan Generate Schema dari User Flow.
+// Fitur Analisis PRD Besar (Gemini) tetap terpisah di usePrdStore.js.
+// ============================================================
+const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+export const AI_MODEL = 'google/gemma-4-31b-it:free';
+
+// Instruksi agar model tidak membuang token untuk "berpikir"
+const NO_THINK_SUFFIX =
+  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
+  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
+
+export const requireAiKey = function () {
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
+  return apiKey;
+};
+
+export const callAi = async function (apiKey, prompt, maxTokens) {
+  const res = await fetch(AI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'PRD Architect Pro',
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: maxTokens || 300,
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(function () { return {}; });
+    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content || '';
+  }
+  return '';
+};
+
+// ============================================================
+// PEMBERSIH BLOK THINKING (3 LAPIS)
+// ============================================================
+const cleanThink = function (t) {
+  let s = (t || '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*$/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  return s.trim();
+};
+
+const callAiClean = async function (prompt, maxTokens) {
+  const raw = await callAi(requireAiKey(), prompt, maxTokens);
+  let out = cleanThink(raw).trim();
+  if (!out) {
+    console.warn('[AI] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callAi(
+      requireAiKey(),
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
+      maxTokens
+    );
+    out = cleanThink(raw2).trim();
+  }
+  return out;
+};
+
+// ============================================================
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
+// ============================================================
+export const generateCoverTagline = async function (goalText) {
+  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + goalText + '"""\n' +
+    'Tagline:' + NO_THINK_SUFFIX;
+  const out = await callAiClean(prompt, 2048);
+  return out
+    .split('\n')[0]
+    .replace(/^tagline\s*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/["']/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+};
+
+// ============================================================
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
+// ============================================================
+const MODE_INSTRUCTIONS = {
+  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
+    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
+    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
+    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
+  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
+    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
+  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
+  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
+  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
+  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
+};
+
+export const refineText = async function (text, mode, context) {
+  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
+  const example = mode === 'paragraph'
+    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
+      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
+      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
+      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
+      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
+    : '';
+  const contextRule = context
+    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
+      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
+      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
+      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
+      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
+    : '';
+  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
+    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
+    'Aturan khusus:\n' + instruction + '\n' +
+    example +
+    'Aturan umum:\n' +
+    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
+    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
+    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
+    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
+    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
+    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
+    contextRule +
+    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+  const out = await callAiClean(prompt, 4096);
+  return out
+    .replace(/^hasil\s*:\s*/i, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+};
+
+// ============================================================
+// GENERATOR SCHEMA DARI USER FLOW
+// ============================================================
+export const generateSchemaFromFlow = async function (flowText) {
+  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
+    'Aturan:\n' +
+    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
+    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
+    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
+    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
+    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
+    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
+    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
+    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
+    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+  let raw = await callAi(requireAiKey(), prompt, 4096);
+  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
+    console.warn('[AI] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callAi(
+      requireAiKey(),
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
+      4096
+    );
+  }
+  const tables = parseSchemaJson(raw);
+  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  return tables.map(function (t, ti) {
+    return {
+      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
+      desc: String(t.desc || ''),
+      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
+        return {
+          field: String(fi.field || 'kolom'),
+          type: String(fi.type || 'VARCHAR'),
+          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
+          note: String(fi.note || ''),
+        };
+      }) : [],
+    };
+  });
+};
+
+// ============================================================
+// PARSER JSON SCHEMA YANG TAHAN BANTING
+// ============================================================
+const repairInnerQuotes = function (text) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch + (text[i + 1] || '');
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
+        inString = false;
+        out += ch;
+      } else {
+        out += '\\"';
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+};
+
+const removeTrailingCommas = function (text) {
+  return text.replace(/,\s*([}\]])/g, '$1');
+};
+
+const closeOpenStructures = function (text) {
+  const stack = [];
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+    }
+  }
+  let out = text.replace(/,\s*$/, '');
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']';
+  }
+  return out;
+};
+
+const salvageTruncated = function (text) {
+  let search = text;
+  while (search.length) {
+    const lastClose = search.lastIndexOf('}');
+    if (lastClose === -1) return null;
+    const cut = search.slice(0, lastClose + 1);
+    const closed = closeOpenStructures(cut);
+    try {
+      const parsed = JSON.parse(closed);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) {}
+    search = search.slice(0, lastClose);
+  }
+  return null;
+};
+
+const BT = String.fromCharCode(96);
+const FENCE_RE = new RegExp(BT + '{3,}json|' + BT + '{3,}', 'gi');
+
+const parseSchemaJson = function (rawText) {
+  const cleaned = cleanThink(rawText).replace(FENCE_RE, '').trim();
+  const start = cleaned.indexOf('[');
+  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
+  const end = cleaned.lastIndexOf(']');
+  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
+  const repaired = removeTrailingCommas(repairInnerQuotes(body));
+  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
+  let lastErr = null;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) { lastErr = e; }
+  }
+  const salvaged = salvageTruncated(repaired);
+  if (salvaged) {
+    console.warn('[AI] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    return salvaged;
+  }
+  console.error('[AI] JSON schema tidak bisa diparse:', lastErr, rawText);
+  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
+};
+````
 
 ## File: e2e/fixtures/sample-import.json
 ````json
@@ -158,8 +470,8 @@ vite.config.js
 
 ## File: e2e/helpers/mockAi.js
 ````javascript
-export async function mockGroq(page, outputText) {
-  await page.route('**/api.groq.com/**', async (route) => {
+export async function mockOpenRouter(page, outputText) {
+  await page.route('**/openrouter.ai/**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -175,11 +487,22 @@ export async function mockGroq(page, outputText) {
     });
   });
 }
-
+export async function mockOpenRouterError(page, statusCode, errorMessage) {
+  await page.route('**/openrouter.ai/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
 export async function mockGeminiStream(page, chunks) {
   await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
     let body = '';
-
     chunks.forEach((chunk) => {
       const payload = {
         candidates: [
@@ -194,12 +517,9 @@ export async function mockGeminiStream(page, chunks) {
           },
         ],
       };
-
       body += 'data: ' + JSON.stringify(payload) + '\n\n';
     });
-
     body += 'data: [DONE]\n\n';
-
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -207,23 +527,8 @@ export async function mockGeminiStream(page, chunks) {
     });
   });
 }
-
 export async function mockGeminiError(page, statusCode, errorMessage) {
   await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-
-export async function mockGroqError(page, statusCode, errorMessage) {
-  await page.route('**/api.groq.com/**', async (route) => {
     await route.fulfill({
       status: statusCode,
       contentType: 'application/json',
@@ -240,7 +545,7 @@ export async function mockGroqError(page, statusCode, errorMessage) {
 ## File: e2e/ai.spec.js
 ````javascript
 import { test, expect } from '@playwright/test';
-import { mockGroq, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
+import { mockOpenRouter, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -267,7 +572,7 @@ test('analisis AI menampilkan hasil mock', async ({ page }) => {
 });
 
 test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
-  await mockGroq(
+  await mockOpenRouter(
     page,
     'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
   );
@@ -565,598 +870,6 @@ test('tombol undo redo dan header tampil', async ({ page }) => {
 });
 ````
 
-## File: playwright.config.js
-````javascript
-import { defineConfig, devices } from '@playwright/test';
-
-export default defineConfig({
-  testDir: './e2e',
-  timeout: 30000,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
-
-use: {
-  baseURL: 'http://localhost:5173',
-  launchOptions: {
-    slowMo: 1000,
-  },
-  trace: 'on-first-retry',
-  screenshot: 'only-on-failure',
-  video: 'retain-on-failure',
-},
-
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    env: {
-      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
-      VITE_GROQ_API_KEY: 'dummy-groq-key',
-    },
-  },
-
-  projects: [
-    {
-      name: 'desktop-chrome',
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    {
-      name: 'mobile-chrome',
-      use: {
-        ...devices['Pixel 7'],
-      },
-    },
-  ],
-});
-````
-
-## File: setup-e2e.js
-````javascript
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
-
-function writeFile(relativePath, content) {
-  const fullPath = path.join(__dirname, relativePath);
-  ensureDir(path.dirname(fullPath));
-  fs.writeFileSync(fullPath, content, 'utf-8');
-  console.log('Berhasil dibuat: ' + relativePath);
-}
-
-// ============================================================
-// 1. playwright.config.js
-// ============================================================
-const playwrightConfig = `import { defineConfig, devices } from '@playwright/test';
-
-export default defineConfig({
-  testDir: './e2e',
-  timeout: 30000,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
-
-  use: {
-    baseURL: 'http://localhost:5173',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-  },
-
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    env: {
-      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
-      VITE_GROQ_API_KEY: 'dummy-groq-key',
-    },
-  },
-
-  projects: [
-    {
-      name: 'desktop-chrome',
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    {
-      name: 'mobile-chrome',
-      use: {
-        ...devices['Pixel 7'],
-      },
-    },
-  ],
-});
-`;
-
-// ============================================================
-// 2. e2e/helpers/mockAi.js
-// ============================================================
-const mockAiHelper = `export async function mockGroq(page, outputText) {
-  await page.route('**/api.groq.com/**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: outputText,
-            },
-          },
-        ],
-      }),
-    });
-  });
-}
-
-export async function mockGeminiStream(page, chunks) {
-  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    let body = '';
-
-    chunks.forEach((chunk) => {
-      const payload = {
-        candidates: [
-          {
-            content: {
-              parts: [
-                {
-                  text: chunk,
-                },
-              ],
-            },
-          },
-        ],
-      };
-
-      body += 'data: ' + JSON.stringify(payload) + '\\n\\n';
-    });
-
-    body += 'data: [DONE]\\n\\n';
-
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body,
-    });
-  });
-}
-
-export async function mockGeminiError(page, statusCode, errorMessage) {
-  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-
-export async function mockGroqError(page, statusCode, errorMessage) {
-  await page.route('**/api.groq.com/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-`;
-
-// ============================================================
-// 3. e2e/fixtures/sample-import.json
-// ============================================================
-const sampleImportJson = `{
-  "mode": "simple",
-  "state": {
-    "fields": {
-      "projectName": "Prime Property",
-      "problemStatement": "Agen properti kesulitan mengelola listing dan jadwal survei."
-    },
-    "features": [],
-    "palette": [],
-    "roles": [],
-    "schemaTables": [],
-    "acModules": [],
-    "simpleExtras": {},
-    "techOptional": []
-  }
-}
-`;
-
-// ============================================================
-// 4. e2e/smoke.spec.js
-// ============================================================
-const smokeSpec = `import { test, expect } from '@playwright/test';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('aplikasi berhasil dimuat', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: /PRD Architect/i })).toBeVisible();
-  await expect(page.getByText('Live Preview Dokumen')).toBeVisible();
-});
-
-test('mode switcher tampil', async ({ page }) => {
-  await expect(page.getByRole('button', { name: /Mode Simple/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Mode Enterprise/i })).toBeVisible();
-});
-
-test('tombol undo redo dan header tampil', async ({ page }) => {
-  await expect(page.getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Redo (Ctrl+Y)' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Muat Contoh/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Reset/i })).toBeVisible();
-});
-`;
-
-// ============================================================
-// 5. e2e/editor.spec.js
-// ============================================================
-const editorSpec = `import { test, expect } from '@playwright/test';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('nama proyek yang diisi muncul di cover preview', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  const coverTitle = page.locator('.doc-cover h1');
-
-  await expect(coverTitle).toContainText('KASIR KOPI');
-});
-
-test('problem statement yang diisi muncul di preview', async ({ page }) => {
-  const inputProblem = page.getByLabel('Latar Belakang / Problem Statement');
-
-  await inputProblem.fill('Pemilik warung sulit mencatat penjualan harian.');
-
-  const previewText = page.locator('#prdDocument');
-
-  await expect(previewText).toContainText(
-    'Pemilik warung sulit mencatat penjualan harian.'
-  );
-});
-
-test('mode enterprise menampilkan section NFR', async ({ page }) => {
-  await page.getByRole('button', { name: /Mode Enterprise/i }).click();
-
-  await expect(
-    page.getByText('NFR, Keamanan & Figma Prototype')
-  ).toBeVisible();
-});
-
-test('toggle persona menampilkan section persona di mode simple', async ({ page }) => {
-  const togglePersona = page.getByLabel('Persona & KPI Sukses');
-
-  await togglePersona.check();
-
-  await expect(
-    page.getByLabel('Target User Persona')
-  ).toBeVisible();
-});
-
-test('reset mengosongkan form', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  await page.getByRole('button', { name: /Reset/i }).click();
-
-  await expect(inputNamaProyek).toHaveValue('');
-});
-
-test('muat contoh mengisi data Instagram', async ({ page }) => {
-  await page.getByRole('button', { name: /Muat Contoh/i }).click();
-
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await expect(inputNamaProyek).toHaveValue('Instagram');
-});
-`;
-
-// ============================================================
-// 6. e2e/history.spec.js
-// ============================================================
-const historySpec = `import { test, expect } from '@playwright/test';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('undo dan redo bekerja pada input nama proyek', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  const tombolUndo = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
-  const tombolRedo = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
-
-  await expect(tombolUndo).toBeEnabled();
-
-  await tombolUndo.click();
-  await expect(inputNamaProyek).toHaveValue('');
-
-  await expect(tombolRedo).toBeEnabled();
-
-  await tombolRedo.click();
-  await expect(inputNamaProyek).toHaveValue('Kasir Kopi');
-});
-`;
-
-// ============================================================
-// 7. e2e/persistence.spec.js
-// ============================================================
-const persistenceSpec = `import { test, expect } from '@playwright/test';
-
-const STORAGE_KEY = 'prdArchitectV4';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('autosave menyimpan data ke localStorage', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  await page.waitForFunction((key) => {
-    const data = localStorage.getItem(key);
-    return data && data.includes('Kasir Kopi');
-  }, STORAGE_KEY);
-
-  const saved = await page.evaluate((key) => {
-    return localStorage.getItem(key);
-  }, STORAGE_KEY);
-
-  expect(saved).toContain('Kasir Kopi');
-});
-
-test('data tetap ada setelah reload', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  await page.waitForFunction((key) => {
-    const data = localStorage.getItem(key);
-    return data && data.includes('Kasir Kopi');
-  }, STORAGE_KEY);
-
-  await page.reload();
-
-  await expect(inputNamaProyek).toHaveValue('Kasir Kopi');
-});
-`;
-
-// ============================================================
-// 8. e2e/preview.spec.js
-// ============================================================
-const previewSpec = `import { test, expect } from '@playwright/test';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('export JSON menghasilkan file download', async ({ page }) => {
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await inputNamaProyek.fill('Kasir Kopi');
-
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    page.getByRole('button', { name: 'Ekspor JSON' }).click(),
-  ]);
-
-  const filename = download.suggestedFilename();
-
-  expect(filename).toContain('.json');
-});
-
-test('import JSON mengisi form', async ({ page }) => {
-  const fileInput = page.locator('input[accept=".json"]');
-
-  await fileInput.setInputFiles('e2e/fixtures/sample-import.json');
-
-  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
-
-  await expect(inputNamaProyek).toHaveValue('Prime Property');
-});
-
-test('mode print menyembunyikan editor dan menampilkan preview', async ({ page }) => {
-  await page.emulateMedia({ media: 'print' });
-
-  await expect(page.locator('#editorPanel')).toBeHidden();
-  await expect(page.locator('#previewPanel')).toBeVisible();
-});
-`;
-
-// ============================================================
-// 9. e2e/mobile.spec.js
-// ============================================================
-const mobileSpec = `import { test, expect } from '@playwright/test';
-
-test.use({
-  viewport: { width: 390, height: 844 },
-});
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('tab bar mobile muncul', async ({ page }) => {
-  await expect(page.getByRole('button', { name: /Editor PRD/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Preview PDF/i })).toBeVisible();
-});
-
-test('bisa pindah ke preview dari tab bar', async ({ page }) => {
-  await page.getByRole('button', { name: /Preview PDF/i }).click();
-
-  await expect(page.locator('#previewPanel')).toBeVisible();
-});
-
-test('bisa kembali ke editor dari tab bar', async ({ page }) => {
-  await page.getByRole('button', { name: /Preview PDF/i }).click();
-  await page.getByRole('button', { name: /Editor PRD/i }).click();
-
-  await expect(page.locator('#editorPanel')).toBeVisible();
-});
-`;
-
-// ============================================================
-// 10. e2e/ai.spec.js
-// ============================================================
-const aiSpec = `import { test, expect } from '@playwright/test';
-import { mockGroq, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('analisis AI menampilkan hasil mock', async ({ page }) => {
-  await mockGeminiStream(page, [
-    '## 1. Analisis System Analyst\\n',
-    'PRD perlu menambahkan acceptance criteria yang lebih detail.',
-  ]);
-
-  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
-
-  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
-
-  await page.getByRole('button', { name: /Analisis PRD/i }).click();
-
-  await expect(
-    page.getByText('PRD perlu menambahkan acceptance criteria yang lebih detail.')
-  ).toBeVisible({ timeout: 15000 });
-});
-
-test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
-  await mockGroq(
-    page,
-    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
-  );
-
-  const textarea = page.getByLabel('Latar Belakang / Problem Statement');
-
-  await textarea.fill('masalah pencatatan');
-
-  const tombolRefine = page.getByRole(
-    'button',
-    { name: 'Perhalus teks Problem Statement dengan AI' }
-  );
-
-  await tombolRefine.click();
-
-  await expect(textarea).toHaveValue(
-    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
-  );
-});
-
-test('analisis AI menampilkan pesan error ketika API gagal', async ({ page }) => {
-  await mockGeminiError(page, 429, 'Quota exceeded for free tier');
-
-  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
-
-  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
-
-  await page.getByRole('button', { name: /Analisis PRD/i }).click();
-
-  await expect(
-    page.getByText(/Kuota harian/i)
-  ).toBeVisible({ timeout: 10000 });
-});
-`;
-
-// ============================================================
-// Tulis semua file
-// ============================================================
-console.log('Memulai pembuatan file E2E testing...\n');
-
-writeFile('playwright.config.js', playwrightConfig);
-writeFile(path.join('e2e', 'helpers', 'mockAi.js'), mockAiHelper);
-writeFile(path.join('e2e', 'fixtures', 'sample-import.json'), sampleImportJson);
-writeFile(path.join('e2e', 'smoke.spec.js'), smokeSpec);
-writeFile(path.join('e2e', 'editor.spec.js'), editorSpec);
-writeFile(path.join('e2e', 'history.spec.js'), historySpec);
-writeFile(path.join('e2e', 'persistence.spec.js'), persistenceSpec);
-writeFile(path.join('e2e', 'preview.spec.js'), previewSpec);
-writeFile(path.join('e2e', 'mobile.spec.js'), mobileSpec);
-writeFile(path.join('e2e', 'ai.spec.js'), aiSpec);
-
-// ============================================================
-// Update package.json: tambahkan script test
-// ============================================================
-const packageJsonPath = path.join(__dirname, 'package.json');
-
-if (fs.existsSync(packageJsonPath)) {
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-
-  packageJson.scripts = packageJson.scripts || {};
-
-  packageJson.scripts['test:e2e'] = 'playwright test';
-  packageJson.scripts['test:e2e:ui'] = 'playwright test --ui';
-  packageJson.scripts['test:e2e:headed'] = 'playwright test --headed';
-  packageJson.scripts['test:e2e:debug'] = 'playwright test --debug';
-  packageJson.scripts['test:e2e:report'] = 'playwright show-report';
-
-  fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
-  console.log('Berhasil diperbarui: package.json (script test ditambahkan)');
-} else {
-  console.log('Peringatan: package.json tidak ditemukan, script test tidak ditambahkan.');
-}
-
-console.log('\nSemua file E2E testing berhasil dibuat.');
-console.log('Langkah selanjutnya, jalankan: npm run test:e2e');
-````
-
 ## File: public/logo-riskychici.svg
 ````xml
 <svg width="6804" height="6804" viewBox="0 0 6804 6804" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1246,159 +959,6 @@ ${JSON.stringify(prdData, null, 2)}`
 }
 ````
 
-## File: src/components/editor/EditorSection.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-
-export default function EditorSection(props) {
-  const title = props.title;
-  const icon = props.icon;
-  const color = props.color || 'blue';
-  const action = props.action;
-  const children = props.children;
-  const c = { blue: 'text-blue-400', amber: 'text-amber-400' };
-  const b = { blue: 'border-slate-700/80', amber: 'border-blue-900/60' };
-  return (
-    <div className={'bg-slate-800 p-5 rounded-xl border shadow-md space-y-4 ' + b[color]}>
-      <div className="flex justify-between items-center gap-2">
-        <h2 className={'text-sm font-bold uppercase tracking-wider flex items-center ' + c[color]}>
-          {icon && <FontAwesomeIcon icon={icon} className="mr-2" />}
-          {title}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
-````
-
-## File: src/components/editor/ExtrasPicker.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPuzzlePiece, faRotateLeft, faUsers, faPalette, faUserShield, faClipboardCheck, faTableList, faShieldHalved } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../store/usePrdStore';
-import { EXTRAS_DEFINITIONS } from '../../utils/constants';
-import { useToast } from '../../hooks/useToast';
-import ToggleSwitch from '../shared/ToggleSwitch';
-
-const IM = { faUsers: faUsers, faPalette: faPalette, faUserShield: faUserShield, faClipboardCheck: faClipboardCheck, faTableList: faTableList, faShieldHalved: faShieldHalved };
-const CM = { indigo: 'text-indigo-400', pink: 'text-pink-400', emerald: 'text-emerald-400', amber: 'text-amber-400', cyan: 'text-cyan-400', rose: 'text-rose-400' };
-
-export default function ExtrasPicker() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const toggle = usePrdStore(function (s) { return s.toggleSimpleExtra; });
-  const resetAll = usePrdStore(function (s) { return s.resetAllExtras; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  if (mode === 'enterprise') return null;
-  return (
-    <div className="bg-gradient-to-br from-indigo-950/40 to-purple-950/40 p-5 rounded-xl border border-indigo-700/60 shadow-md space-y-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-sm font-bold text-indigo-300 uppercase tracking-wider flex items-center"><FontAwesomeIcon icon={faPuzzlePiece} className="mr-2" />Section Opsional (Tambahan)</h2>
-          <p className="text-[11px] text-slate-400 mt-1">Aktifkan bagian Enterprise yang Anda butuhkan di mode Simple</p>
-        </div>
-        <button onClick={function () { resetAll(); commit(); showToast('Semua section opsional dinonaktifkan', 'info'); }} className="text-[10px] text-slate-400 hover:text-slate-200 px-2 py-1 rounded border border-slate-700 hover:border-slate-600 transition">
-          <FontAwesomeIcon icon={faRotateLeft} className="mr-1" />Reset Semua
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-        {EXTRAS_DEFINITIONS.map(function (d) {
-          return (
-            <ToggleSwitch key={d.key} checked={se[d.key]} onChange={function (v) { toggle(d.key, v); commit(); }} label={d.label}
-              icon={<FontAwesomeIcon icon={IM[d.icon]} />} iconColor={CM[d.color]} />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/editor/ModeBanner.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../store/usePrdStore';
-
-const isVis = function (mode, se, key) { return mode === 'enterprise' || se[key] === true; };
-
-export default function ModeBanner() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const features = usePrdStore(function (s) { return s.features; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  const acModules = usePrdStore(function (s) { return s.acModules; });
-  const schemaTables = usePrdStore(function (s) { return s.schemaTables; });
-
-  const checks = [];
-  ['projectName','author','problemStatement','productGoal','userFlow','techFrontend','techBackend','techDatabase','defOfDone'].forEach(function (id) { checks.push(!!(f[id] || '').trim()); });
-  checks.push(features.length > 0);
-  if (isVis(mode, se, 'persona')) { checks.push(!!(f.userPersona || '').trim()); checks.push(!!(f.successMetrics || '').trim()); }
-  if (isVis(mode, se, 'branding')) { checks.push(palette.length > 0); checks.push(!!(f.brandTypography || '').trim()); checks.push(!!(f.brandLayout || '').trim()); checks.push(['bpMobile','bpTablet','bpDesktop'].some(function (id) { return !!(f[id] || '').trim(); })); }
-  if (isVis(mode, se, 'roles')) checks.push(roles.length > 0);
-  if (isVis(mode, se, 'ac')) checks.push(acModules.length > 0);
-  if (isVis(mode, se, 'schema')) checks.push(schemaTables.length > 0);
-  if (isVis(mode, se, 'nfr')) ['nfrSpecs','nfrPerformance','nfrLocalization','nfrBrowser','figmaLink','riskMitigation'].forEach(function (id) { checks.push(!!(f[id] || '').trim()); });
-  const pct = checks.length ? Math.round(checks.filter(Boolean).length / checks.length * 100) : 0;
-  const txt = mode === 'enterprise' ? 'Enterprise Mode (Kompleks & Profesional)' : 'Simple MVP (Praktis & Cepat)';
-
-  return (
-    <div className="p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl text-xs flex justify-between items-center text-blue-300">
-      <span className="font-medium"><FontAwesomeIcon icon={faCircleInfo} className="mr-1.5" />Mode Aktif: <strong className="text-white">{txt}</strong></span>
-      <span className="flex items-center space-x-2 text-[10px] text-slate-400">
-        <span>Kelengkapan:</span>
-        <span className="w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden"><span className="block h-full bg-emerald-500 rounded-full transition-all duration-300" style={{ width: pct + '%' }} /></span>
-        <strong className="text-emerald-400">{pct}%</strong>
-      </span>
-    </div>
-  );
-}
-````
-
-## File: src/components/mobile/MobileTabBar.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPenToSquare, faEye } from '@fortawesome/free-solid-svg-icons';
-import { useViewStore } from '../../store/useViewStore';
-import { useSwipe } from '../../hooks/useSwipe';
-
-export default function MobileTabBar() {
-  const view = useViewStore(function (s) { return s.view; });
-  const setView = useViewStore(function (s) { return s.setView; });
-
-  function go(v) {
-    setView(v);
-    const s = document.getElementById('panelSlider');
-    if (s) s.classList.toggle('slide-preview', v === 'preview');
-  }
-
-  useSwipe(function () { go('preview'); }, function () { go('editor'); });
-  const isP = view === 'preview';
-  const indCls = 'absolute top-1 bottom-1 rounded-xl shadow-md transition-all duration-300 ' + (isP
-    ? 'left-[calc(50%+2px)] right-1 bg-gradient-to-br from-emerald-600 to-emerald-800'
-    : 'left-1 right-[calc(50%+2px)] bg-gradient-to-br from-blue-600 to-blue-800');
-
-  return (
-    <nav className="lg:hidden no-print fixed bottom-0 left-0 right-0 z-40 bg-slate-800/95 backdrop-blur border-t border-slate-700" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      <div className="relative flex p-1">
-        <span id="tabIndicator" className={indCls} />
-        <button onClick={function () { go('editor'); }} className={'relative z-10 flex-1 h-12 flex items-center justify-center space-x-2 text-xs font-semibold transition-colors duration-300 ' + (isP ? 'text-slate-400' : 'text-white')}>
-          <FontAwesomeIcon icon={faPenToSquare} /><span>Editor PRD</span>
-        </button>
-        <button onClick={function () { go('preview'); }} className={'relative z-10 flex-1 h-12 flex items-center justify-center space-x-2 text-xs font-semibold transition-colors duration-300 ' + (isP ? 'text-white' : 'text-slate-400')}>
-          <FontAwesomeIcon icon={faEye} /><span>Preview PDF</span>
-        </button>
-      </div>
-    </nav>
-  );
-}
-````
-
 ## File: src/components/preview/DocFooter.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
@@ -1424,54 +984,20 @@ export default function DocFooter() {
 }
 ````
 
-## File: src/components/shared/Toast.jsx
-````javascript
-import { useToastStore } from '../../hooks/useToast';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleCheck, faCircleExclamation, faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-
-export default function ToastContainer() {
-  const toasts = useToastStore(function (s) { return s.toasts; });
-  const colors = { success: 'bg-emerald-600', error: 'bg-rose-600', info: 'bg-blue-600' };
-  const icons = { success: faCircleCheck, error: faCircleExclamation, info: faCircleInfo };
-  return (
-    <div className="fixed bottom-5 right-5 z-[100] space-y-2 no-print">
-      {toasts.map(function (t) {
-        return (
-          <div key={t.id} className={'px-4 py-3 rounded-lg shadow-lg text-xs font-semibold text-white flex items-center space-x-2 ' + colors[t.type] + ' animate-[slideUp_0.3s_ease]'}>
-            <FontAwesomeIcon icon={icons[t.type]} />
-            <span>{t.msg}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-````
-
 ## File: src/hooks/useAutoTagline.js
 ````javascript
 import { useEffect, useRef } from 'react';
 import { debounce } from 'lodash';
 import { usePrdStore } from '../store/usePrdStore';
 import { taglineHash, summarizeForCover } from '../utils/helpers';
+import { callAi, requireAiKey } from '../services/aiService';
 
 // ============================================================
-// AUTO TAGLINE: PERINGKAS SAMPUL CERDAS DENGAN DUAL MODEL FALLBACK
-// Model utama: qwen/qwen3.8-27b
-// Model cadangan: qwen/qwen3.6-27b
+// AUTO TAGLINE: PERINGKAS SAMPUL CERDAS VIA OPENROUTER (GEMMA 4)
 // Fallback terakhir: heuristik lokal (summarizeForCover)
 // ============================================================
-
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const PRIMARY_MODEL = 'qwen/qwen3.8-27b';
-const FALLBACK_MODEL = 'qwen/qwen3.6-27b';
-
-// Hanya aktif jika teks cukup panjang untuk butuh peringkasan
 const MIN_CHARS = 140;
-// Batas keras panjang tagline agar sampul selalu ringkas
 const MAX_TAGLINE_CHARS = 90;
-// Tunggu user benar-benar berhenti mengetik sebelum memanggil AI
 const DEBOUNCE_MS = 2500;
 
 const buildPrompt = function (text) {
@@ -1484,63 +1010,17 @@ const buildPrompt = function (text) {
     '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
     '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
     '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Contoh 1:\n' +
-    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
-    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
-    'Contoh 2:\n' +
-    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
-    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
-    'Contoh 3:\n' +
-    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
-    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
     'Teks: """' + text + '"""\n' +
     'Tagline:';
 };
 
-const callGroq = async function (apiKey, model, prompt) {
-  const res = await fetch(GROQ_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: 60,
-    }),
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(function () { return {}; });
-    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-
-  const data = await res.json();
-  if (data.choices && data.choices[0] && data.choices[0].message) {
-    return data.choices[0].message.content || '';
-  }
-  return '';
-};
-
-// Bersihkan output model dan paksa batas panjang
 const cleanTagline = function (raw, originalLength) {
   let t = (raw || '');
-  // Buang blok thinking jika model mengeluarkannya
   t = t.replace(/[\s\S]*<\/think>\s*/g, '');
-  // Ambil baris pertama saja
   t = t.split('\n')[0];
-  // Buang awalan "Tagline:" jika model mengulanginya
   t = t.replace(/^tagline\s*:\s*/i, '');
-  // Buang bold markdown, kutip, dan tanda baca akhir
   t = t.replace(/\*\*/g, '').replace(/["']/g, '').replace(/[.!?]+$/, '').trim();
   if (!t || t.length > originalLength) return '';
-  // Jika model masih mengirim terlalu panjang, potong di batas
-  // klausa alami dan akhiri dengan titik (tanpa elipsis).
   if (t.length > MAX_TAGLINE_CHARS) {
     t = summarizeForCover(t, MAX_TAGLINE_CHARS);
   }
@@ -1550,66 +1030,33 @@ const cleanTagline = function (raw, originalLength) {
 export const useAutoTagline = function () {
   const productGoal = usePrdStore(function (s) { return s.fields.productGoal; });
   const busyRef = useRef(false);
-
   useEffect(function () {
     const run = debounce(async function () {
       const state = usePrdStore.getState();
       const text = (state.fields.productGoal || '').trim();
-
-      // Teks pendek tidak butuh peringkasan AI
       if (text.length < MIN_CHARS) return;
-
-      // Hash memakai versi prompt, sehingga tagline lama dari
-      // prompt versi sebelumnya otomatis dibuat ulang.
       const hash = taglineHash(text);
-
-      // Teks yang sama sudah pernah diproses, jangan panggil ulang
       if (state.fields.coverTaglineHash === hash) return;
-
-      // Cegah pemanggilan bersamaan
       if (busyRef.current) return;
-
-      const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-      if (!apiKey) return;
-
+      let apiKey = '';
+      try { apiKey = requireAiKey(); } catch (e) { return; }
       busyRef.current = true;
       let tagline = '';
-
       try {
-        // Percobaan 1: model utama
-        try {
-          const raw = await callGroq(apiKey, PRIMARY_MODEL, buildPrompt(text));
-          tagline = cleanTagline(raw, text.length);
-        } catch (primaryErr) {
-          // Fallback hanya untuk error kuota, server, atau jaringan
-          const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
-          if (!retryable) throw primaryErr;
-          console.warn('[AutoTagline] Model utama gagal, mencoba cadangan:', primaryErr.message);
-        }
-
-        // Percobaan 2: model cadangan (jika utama error retryable
-        // atau utama sukses tapi hasilnya kosong tidak wajar)
-        if (!tagline) {
-          const raw2 = await callGroq(apiKey, FALLBACK_MODEL, buildPrompt(text));
-          tagline = cleanTagline(raw2, text.length);
-        }
-
+        const raw = await callAi(apiKey, buildPrompt(text), 60);
+        tagline = cleanTagline(raw, text.length);
         if (tagline) state.setField('coverTagline', tagline);
         state.setField('coverTaglineHash', hash);
       } catch (e) {
-        // Gagal diam-diam: sampul jatuh ke heuristik lokal.
-        // Hash tetap disimpan agar teks sama tidak di-retry terus.
-        console.error('[AutoTagline] Semua model gagal:', e.message);
+        console.error('[AutoTagline] Gagal:', e.message);
         state.setField('coverTaglineHash', hash);
       } finally {
         busyRef.current = false;
       }
     }, DEBOUNCE_MS);
-
     run();
     return function () { run.cancel(); };
   }, [productGoal]);
-
   return null;
 };
 ````
@@ -1730,6 +1177,32 @@ usePrdStore.subscribe(function () {
     rafScheduled = false;
     usePreviewStore.setState(pick(usePrdStore.getState()));
   });
+});
+````
+
+## File: src/store/useThemeStore.js
+````javascript
+import { create } from 'zustand';
+
+const KEY = 'prdTheme';
+
+export const applyTheme = function (t) {
+  const root = document.documentElement;
+  if (t === 'dark') root.classList.add('dark');
+  else root.classList.remove('dark');
+};
+
+export const useThemeStore = create(function (set) {
+  let initial = 'dark';
+  try { initial = localStorage.getItem(KEY) || 'dark'; } catch (e) {}
+  return {
+    theme: initial,
+    setTheme: function (t) {
+      applyTheme(t);
+      try { localStorage.setItem(KEY, t); } catch (e) {}
+      set({ theme: t });
+    },
+  };
 });
 ````
 
@@ -1872,6 +1345,53 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+````
+
+## File: playwright.config.js
+````javascript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 30000,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : undefined,
+
+use: {
+  baseURL: 'http://localhost:5173',
+  launchOptions: {
+    slowMo: 1000,
+  },
+  trace: 'on-first-retry',
+  screenshot: 'only-on-failure',
+  video: 'retain-on-failure',
+},
+
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    env: {
+      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
+      VITE_OPENROUTER_API_KEY: 'dummy-groq-key',
+    },
+  },
+
+  projects: [
+    {
+      name: 'desktop-chrome',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'mobile-chrome',
+      use: {
+        ...devices['Pixel 7'],
+      },
+    },
+  ],
+});
 ````
 
 ## File: README.md
@@ -2027,6 +1547,168 @@ Proyek ini didistribusikan di bawah lisensi **MIT**. Silakan merujuk ke berkas [
 <p align="center">
   Didesain untuk efisiensi tim produk modern. Dipelihara oleh komunitas open-source.
 </p>
+````
+
+## File: src/components/editor/EditorSection.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+
+export default function EditorSection(props) {
+  const title = props.title;
+  const icon = props.icon;
+  const action = props.action;
+  const children = props.children;
+
+  return (
+    <div className="bg-card p-5 rounded-xl border border-line space-y-4">
+      <div className="flex justify-between items-center gap-2">
+        <h2 className="text-sm font-bold uppercase tracking-wider flex items-center text-ink">
+          {icon && <FontAwesomeIcon icon={icon} className="mr-2 text-accent" />}
+          {title}
+        </h2>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+````
+
+## File: src/components/editor/ExtrasPicker.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faPuzzlePiece, faRotateLeft, faUsers, faPalette, faUserShield, faClipboardCheck, faTableList, faShieldHalved } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+import { EXTRAS_DEFINITIONS } from '../../utils/constants';
+import { useToast } from '../../hooks/useToast';
+import ToggleSwitch from '../shared/ToggleSwitch';
+
+const IM = { faUsers: faUsers, faPalette: faPalette, faUserShield: faUserShield, faClipboardCheck: faClipboardCheck, faTableList: faTableList, faShieldHalved: faShieldHalved };
+
+export default function ExtrasPicker() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const toggle = usePrdStore(function (s) { return s.toggleSimpleExtra; });
+  const resetAll = usePrdStore(function (s) { return s.resetAllExtras; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+
+  if (mode === 'enterprise') return null;
+
+  return (
+    <div className="bg-card p-5 rounded-xl border border-line space-y-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center">
+            <FontAwesomeIcon icon={faPuzzlePiece} className="mr-2 text-accent" />Section Opsional (Tambahan)
+          </h2>
+          <p className="text-[11px] text-mut mt-1">Aktifkan bagian Enterprise yang Anda butuhkan di mode Simple</p>
+        </div>
+        <button onClick={function () { resetAll(); commit(); showToast('Semua section opsional dinonaktifkan', 'info'); }} className="text-[10px] text-mut hover:text-ink px-2 py-1 rounded border border-line hover:border-mut transition">
+          <FontAwesomeIcon icon={faRotateLeft} className="mr-1" />Reset Semua
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        {EXTRAS_DEFINITIONS.map(function (d) {
+          return (
+            <ToggleSwitch key={d.key} checked={se[d.key]} onChange={function (v) { toggle(d.key, v); commit(); }} label={d.label}
+              icon={<FontAwesomeIcon icon={IM[d.icon]} />} iconColor="text-accent" />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/editor/ModeBanner.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+
+const isVis = function (mode, se, key) { return mode === 'enterprise' || se[key] === true; };
+
+export default function ModeBanner() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const features = usePrdStore(function (s) { return s.features; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  const acModules = usePrdStore(function (s) { return s.acModules; });
+  const schemaTables = usePrdStore(function (s) { return s.schemaTables; });
+
+  const checks = [];
+  ['projectName','author','problemStatement','productGoal','userFlow','techFrontend','techBackend','techDatabase','defOfDone'].forEach(function (id) { checks.push(!!(f[id] || '').trim()); });
+  checks.push(features.length > 0);
+
+  if (isVis(mode, se, 'persona')) { checks.push(!!(f.userPersona || '').trim()); checks.push(!!(f.successMetrics || '').trim()); }
+  if (isVis(mode, se, 'branding')) { checks.push(palette.length > 0); checks.push(!!(f.brandTypography || '').trim()); checks.push(!!(f.brandLayout || '').trim()); checks.push(['bpMobile','bpTablet','bpDesktop'].some(function (id) { return !!(f[id] || '').trim(); })); }
+  if (isVis(mode, se, 'roles')) checks.push(roles.length > 0);
+  if (isVis(mode, se, 'ac')) checks.push(acModules.length > 0);
+  if (isVis(mode, se, 'schema')) checks.push(schemaTables.length > 0);
+  if (isVis(mode, se, 'nfr')) ['nfrSpecs','nfrPerformance','nfrLocalization','nfrBrowser','figmaLink','riskMitigation'].forEach(function (id) { checks.push(!!(f[id] || '').trim()); });
+
+  const pct = checks.length ? Math.round(checks.filter(Boolean).length / checks.length * 100) : 0;
+  const txt = mode === 'enterprise' ? 'Enterprise Mode (Kompleks & Profesional)' : 'Simple MVP (Praktis & Cepat)';
+
+  return (
+    <div className="p-3 bg-card border border-line rounded-xl text-xs flex justify-between items-center text-ink">
+      <span className="font-medium">
+        <FontAwesomeIcon icon={faCircleInfo} className="mr-1.5 text-accent" />
+        Mode Aktif: <strong>{txt}</strong>
+      </span>
+      <span className="flex items-center space-x-2 text-[10px] text-mut">
+        <span>Kelengkapan:</span>
+        <span className="w-24 h-1.5 bg-line rounded-full overflow-hidden">
+          <span className="block h-full bg-accent rounded-full transition-all duration-300" style={{ width: pct + '%' }} />
+        </span>
+        <strong className="text-accent">{pct}%</strong>
+      </span>
+    </div>
+  );
+}
+````
+
+## File: src/components/mobile/MobileTabBar.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faPenToSquare, faEye } from '@fortawesome/free-solid-svg-icons';
+import { useViewStore } from '../../store/useViewStore';
+import { useSwipe } from '../../hooks/useSwipe';
+
+export default function MobileTabBar() {
+  const view = useViewStore(function (s) { return s.view; });
+  const setView = useViewStore(function (s) { return s.setView; });
+
+  function go(v) {
+    setView(v);
+    const s = document.getElementById('panelSlider');
+    if (s) s.classList.toggle('slide-preview', v === 'preview');
+  }
+
+  useSwipe(function () { go('preview'); }, function () { go('editor'); });
+
+  const isP = view === 'preview';
+  const indCls = 'absolute top-1 bottom-1 rounded-lg transition-all duration-300 ' + (isP
+    ? 'left-[calc(50%+2px)] right-1 bg-accent'
+    : 'left-1 right-[calc(50%+2px)] bg-accent');
+
+  return (
+    <nav className="lg:hidden no-print fixed bottom-0 left-0 right-0 z-40 bg-panel border-t border-line" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="relative flex p-1">
+        <span id="tabIndicator" className={indCls} />
+        <button onClick={function () { go('editor'); }} className={'relative z-10 flex-1 h-12 flex items-center justify-center space-x-2 text-xs font-semibold transition-colors duration-300 ' + (isP ? 'text-mut' : 'text-white')}>
+          <FontAwesomeIcon icon={faPenToSquare} /><span>Editor PRD</span>
+        </button>
+        <button onClick={function () { go('preview'); }} className={'relative z-10 flex-1 h-12 flex items-center justify-center space-x-2 text-xs font-semibold transition-colors duration-300 ' + (isP ? 'text-white' : 'text-mut')}>
+          <FontAwesomeIcon icon={faEye} /><span>Preview PDF</span>
+        </button>
+      </div>
+    </nav>
+  );
+}
 ````
 
 ## File: src/components/preview/sections/AcPreview.jsx
@@ -2260,251 +1942,28 @@ export default function TechStackPreview() {
 }
 ````
 
-## File: src/components/preview/PreviewActions.jsx
+## File: src/components/shared/Toast.jsx
 ````javascript
-import { useRef } from 'react';
+import { useToastStore } from '../../hooks/useToast';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEye, faFileExport, faFileImport, faCopy, faPrint } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../store/usePrdStore';
-import { exportService } from '../../services/exportService';
-import { useToast } from '../../hooks/useToast';
-import IconButton from '../shared/IconButton';
+import { faCircleCheck, faCircleExclamation, faCircleInfo } from '@fortawesome/free-solid-svg-icons';
 
-export default function PreviewActions() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const getSnap = usePrdStore(function (s) { return s.getSnapshot; });
-  const restore = usePrdStore(function (s) { return s.restoreState; });
-  const setMode = usePrdStore(function (s) { return s.setMode; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const ref = useRef(null);
-  const showToast = useToast();
-
-  function handleImport(e) {
-    const f = e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = function () {
-      try {
-        const d = JSON.parse(r.result);
-        const st = d.state || d;
-        if (!st || typeof st !== 'object' || !st.fields) {
-          showToast('File JSON tidak valid', 'error');
-          return;
-        }
-        if (d.mode) setMode(d.mode);
-        restore(st);
-        setTimeout(function () { commit(); }, 0);
-        showToast('Dokumen berhasil diimpor');
-      } catch (err) {
-        showToast('File JSON tidak valid', 'error');
-      }
-    };
-    r.readAsText(f);
-    e.target.value = '';
-  }
-
-  const badge = mode === 'enterprise'
-    ? 'bg-amber-900 text-amber-200 border-amber-700'
-    : 'bg-blue-900 text-blue-200 border-blue-700';
+export default function ToastContainer() {
+  const toasts = useToastStore(function (s) { return s.toasts; });
+  const colors = { success: 'bg-ok', error: 'bg-danger', info: 'bg-accent' };
+  const icons = { success: faCircleCheck, error: faCircleExclamation, info: faCircleInfo };
 
   return (
-    <div className="no-print flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3 bg-slate-950 pb-4 pt-1 mb-4 border-b border-slate-800">
-      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-        <FontAwesomeIcon icon={faEye} className="mr-1.5" aria-hidden="true" />
-        Live Preview Dokumen
-        <span className={'ml-2 px-2 py-0.5 rounded text-[10px] border ' + badge}>
-          {mode === 'enterprise' ? 'ENTERPRISE' : 'SIMPLE'} MODE
-        </span>
-      </span>
-      <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
-        <IconButton icon={faFileExport} onClick={function () { exportService.exportJSON(getSnap()); showToast('JSON berhasil diunduh'); }} className="w-full sm:w-auto" ariaLabel="Ekspor JSON">JSON</IconButton>
-        <IconButton icon={faFileImport} onClick={function () { ref.current && ref.current.click(); }} className="w-full sm:w-auto" ariaLabel="Impor JSON">Impor</IconButton>
-        <input ref={ref} type="file" accept=".json" className="hidden" onChange={handleImport} aria-label="Pilih file JSON untuk diimpor" />
-        <IconButton icon={faCopy} onClick={function () { exportService.copyMarkdown(getSnap()); showToast('Markdown disalin'); }} className="col-span-2 w-full sm:w-auto" ariaLabel="Salin Markdown">Salin Markdown</IconButton>
-        <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto" ariaLabel="Ekspor PDF atau cetak">Ekspor PDF / Cetak</IconButton>
-      </div>
+    <div className="fixed bottom-5 right-5 z-[100] space-y-2 no-print">
+      {toasts.map(function (t) {
+        return (
+          <div key={t.id} className={'px-4 py-3 rounded-lg text-xs font-semibold text-white flex items-center space-x-2 ' + colors[t.type] + ' animate-[slideUp_0.3s_ease]'}>
+            <FontAwesomeIcon icon={icons[t.type]} />
+            <span>{t.msg}</span>
+          </div>
+        );
+      })}
     </div>
-  );
-}
-````
-
-## File: src/components/preview/PreviewDocument.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { resolveCoverTheme } from '../../utils/helpers';
-import CoverPage from './CoverPage';
-import DocFooter from './DocFooter';
-import OverviewPreview from './sections/OverviewPreview';
-import FeaturesPreview from './sections/FeaturesPreview';
-import TechStackPreview from './sections/TechStackPreview';
-import PersonaPreview from './sections/PersonaPreview';
-import BrandingPreview from './sections/BrandingPreview';
-import RolesPreview from './sections/RolesPreview';
-import AcPreview from './sections/AcPreview';
-import SchemaPreview from './sections/SchemaPreview';
-import NfrPreview from './sections/NfrPreview';
-import ScopeDonePreview from './sections/ScopeDonePreview';
-
-export default function PreviewDocument() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const theme = resolveCoverTheme(f, palette);
-  return (
-    <>
-      <CoverPage />
-      <div
-        id="prdDocument"
-        className="bg-white text-slate-900 p-8 rounded-lg shadow-2xl border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
-        style={{
-          '--doc-primary': theme.primary,
-          '--doc-primary-text': theme.primaryText,
-          '--doc-accent': theme.accent,
-          '--doc-accent-text': theme.accentText,
-        }}
-      >
-        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
-        <div className="space-y-2 keep-together">
-          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
-          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">{f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}</div>
-        </div>
-        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
-        <DocFooter />
-      </div>
-    </>
-  );
-}
-````
-
-## File: src/components/preview/PreviewPanel.jsx
-````javascript
-import PreviewActions from './PreviewActions';
-import PreviewDocument from './PreviewDocument';
-
-export default function PreviewPanel() {
-  return (
-    <section
-      id="previewPanel"
-      className="bg-slate-950 p-6 overflow-y-auto overflow-x-hidden"
-      style={{ height: '100%' }}
-    >
-      <PreviewActions />
-      <PreviewDocument />
-    </section>
-  );
-}
-````
-
-## File: src/components/shared/AiRefineButton.jsx
-````javascript
-import { useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { refineText } from '../../services/groqService';
-import { usePrdStore } from '../../store/usePrdStore';
-import { useToast } from '../../hooks/useToast';
-
-// ============================================================
-// TOMBOL PERHALUS TEKS AI (IN-LINE TEXT ENHANCER)
-// - Nonaktif otomatis jika kolom kosong.
-// - Menampilkan spinner saat AI bekerja.
-// - Mengirim nama kolom (label) sebagai konteks.
-// - Setelah refine selesai, tombol TERKUNCI selama value kolom
-//   belum diubah. Begitu user mengubah value, tombol aktif lagi.
-// - Jika refine gagal karena error jaringan/API, tombol tetap
-//   aktif supaya user bisa langsung mencoba ulang.
-// - FIX UNDO/REDO: hasil AI dicatat ke history SESUDAH diterapkan.
-// ============================================================
-export default function AiRefineButton(props) {
-  const value = props.value || '';
-  const onApply = props.onApply;
-  const mode = props.mode || 'paragraph';
-  const label = props.label || 'kolom ini';
-  const className = props.className || '';
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [lastRefined, setLastRefined] = useState(null);
-
-  const trimmed = value.trim();
-  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
-  const disabled = busy || !trimmed || unchangedSinceRefine;
-
-  async function handle() {
-    if (disabled) return;
-    setBusy(true);
-    try {
-      const result = await refineText(trimmed, mode, label);
-      if (result && result.trim()) {
-        if (result.trim() !== trimmed) {
-          onApply(result.trim());
-          commit();
-          showToast('Teks berhasil diperhalus oleh AI', 'success');
-        } else {
-          showToast('AI: Teks ini sudah cukup profesional', 'info');
-        }
-        setLastRefined(result.trim());
-      } else {
-        setLastRefined(trimmed);
-        showToast('AI tidak menghasilkan output', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal memperhalus: ' + e.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const title = busy
-    ? 'Sedang memperhalus teks...'
-    : unchangedSinceRefine
-      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
-      : 'Perhalus teks dengan AI (Qwen)';
-
-  return (
-    <button
-      type="button"
-      onClick={handle}
-      disabled={disabled}
-      title={title}
-      aria-label={'Perhalus teks ' + label + ' dengan AI'}
-      className={
-        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 hover:bg-purple-700/40 transition disabled:opacity-30 disabled:cursor-not-allowed ' +
-        className
-      }
-    >
-      <FontAwesomeIcon
-        icon={busy ? faSpinner : faWandMagicSparkles}
-        className={'text-[11px] ' + (busy ? 'animate-spin' : '')}
-      />
-    </button>
-  );
-}
-````
-
-## File: src/components/shared/ToggleSwitch.jsx
-````javascript
-export default function ToggleSwitch(props) {
-  const checked = props.checked;
-  const onChange = props.onChange;
-  const label = props.label;
-  const icon = props.icon;
-  const iconColor = props.iconColor || 'text-slate-400';
-  const id = 'toggle-' + (label || '').replace(/\s+/g, '-').toLowerCase();
-
-  return (
-    <label htmlFor={id} className="extra-toggle flex items-center justify-between p-2.5 bg-slate-900/60 hover:bg-slate-900 border border-slate-700 rounded-lg cursor-pointer transition">
-      <span className="flex items-center space-x-2 text-slate-200">
-        {icon && <span className={'text-xs w-4 ' + iconColor}>{icon}</span>}
-        <span className="text-[11px] font-medium">{label}</span>
-      </span>
-      <input
-        id={id}
-        type="checkbox"
-        checked={!!checked}
-        onChange={function (e) { onChange && onChange(e.target.checked); }}
-        className="appearance-none w-9 h-5 bg-slate-600 rounded-full relative cursor-pointer transition-colors checked:bg-emerald-500 after:content-[''] after:absolute after:w-4 after:h-4 after:rounded-full after:bg-white after:top-0.5 after:left-0.5 after:transition-all checked:after:left-[18px]"
-      />
-    </label>
   );
 }
 ````
@@ -2606,342 +2065,6 @@ export const useAutoSave = function () {
 
     return function () { save.cancel(); };
   }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, aiFeedback, aiDraft, setSaveIndicator]);
-};
-````
-
-## File: src/services/groqService.js
-````javascript
-// ============================================================
-// LAYANAN GROQ DENGAN DUAL MODEL FALLBACK
-// Model utama: qwen/qwen3.8-27b
-// Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
-// ============================================================
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
-export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
-
-// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
-// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
-// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
-const NO_THINK_SUFFIX =
-  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
-  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
-
-const callGroq = async function (apiKey, model, prompt, maxTokens) {
-  const res = await fetch(GROQ_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: maxTokens || 300,
-    }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(function () { return {}; });
-    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  if (data.choices && data.choices[0] && data.choices[0].message) {
-    return data.choices[0].message.content || '';
-  }
-  return '';
-};
-
-export const callGroqWithFallback = async function (prompt, maxTokens) {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY belum diisi pada .env.local');
-  try {
-    return await callGroq(apiKey, GROQ_PRIMARY_MODEL, prompt, maxTokens);
-  } catch (primaryErr) {
-    const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
-    if (!retryable) throw primaryErr;
-    console.warn('[Groq] Model utama gagal, memakai cadangan:', primaryErr.message);
-    return await callGroq(apiKey, GROQ_FALLBACK_MODEL, prompt, maxTokens);
-  }
-};
-
-// ============================================================
-// PEMBERSIH BLOK THINKING (3 LAPIS)
-// 1. Buang blok think yang utuh (ada pembuka dan penutup).
-// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
-//    tidak pernah muncul karena output habis token).
-// 3. Buang sisa penutup tanpa pembuka, jika ada.
-// ============================================================
-const cleanThink = function (t) {
-  let s = (t || '');
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
-  s = s.replace(/<think>[\s\S]*$/gi, '');
-  s = s.replace(/[\s\S]*?<\/think>/gi, '');
-  return s.trim();
-};
-
-// Panggil AI lalu bersihkan blok thinking.
-// Jika hasil bersih kosong (artinya seluruh token model habis
-// untuk berpikir), ulangi SEKALI dengan penekanan agar model
-// langsung menulis hasil akhir.
-const callGroqClean = async function (prompt, maxTokens) {
-  const raw = await callGroqWithFallback(prompt, maxTokens);
-  let out = cleanThink(raw).trim();
-  if (!out) {
-    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
-    const raw2 = await callGroqWithFallback(
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
-      maxTokens
-    );
-    out = cleanThink(raw2).trim();
-  }
-  return out;
-};
-
-// ============================================================
-// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
-// ============================================================
-export const generateCoverTagline = async function (goalText) {
-  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
-    'Aturan wajib:\n' +
-    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
-    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
-    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
-    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
-    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
-    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
-    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Contoh 1:\n' +
-    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
-    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
-    'Contoh 2:\n' +
-    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
-    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
-    'Contoh 3:\n' +
-    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
-    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
-    'Teks: """' + goalText + '"""\n' +
-    'Tagline:' + NO_THINK_SUFFIX;
-  const out = await callGroqClean(prompt, 2048);
-  return out
-    .split('\n')[0]
-    .replace(/^tagline\s*:\s*/i, '')
-    .replace(/\*\*/g, '')
-    .replace(/["']/g, '')
-    .replace(/[.!?]+$/, '')
-    .trim();
-};
-
-// ============================================================
-// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
-// KALIBRASI "KE INTI": hasil harus profesional, jelas, dan padat.
-// Model dilarang memperpanjang draf atau menulis basa-basi,
-// tetapi juga dilarang membuang fakta penting.
-// ============================================================
-const MODE_INSTRUCTIONS = {
-  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
-    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
-    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
-    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
-  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
-    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
-  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
-  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
-  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
-  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
-};
-
-// ============================================================
-// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
-// Parameter context berisi nama kolom tujuan (misalnya
-// "Problem Statement"), sehingga AI membingkai ulang tulisan
-// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
-// ============================================================
-export const refineText = async function (text, mode, context) {
-  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
-  const example = mode === 'paragraph'
-    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
-      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
-      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
-      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
-      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
-    : '';
-  const contextRule = context
-    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
-      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
-      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
-      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
-      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
-    : '';
-  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
-    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
-    'Aturan khusus:\n' + instruction + '\n' +
-    example +
-    'Aturan umum:\n' +
-    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
-    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
-    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
-    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
-    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
-    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
-    contextRule +
-    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
-  const out = await callGroqClean(prompt, 4096);
-  return out
-    .replace(/^hasil\s*:\s*/i, '')
-    .replace(/^["']+|["']+$/g, '')
-    .trim();
-};
-
-// ============================================================
-// GENERATOR SCHEMA DARI USER FLOW
-// ============================================================
-export const generateSchemaFromFlow = async function (flowText) {
-  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
-    'Aturan:\n' +
-    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
-    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
-    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
-    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
-    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
-    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
-    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
-    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
-    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
-  let raw = await callGroqWithFallback(prompt, 4096);
-  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
-  // ulangi sekali dengan instruksi langsung.
-  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
-    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
-    raw = await callGroqWithFallback(
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
-      4096
-    );
-  }
-  const tables = parseSchemaJson(raw);
-  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
-  return tables.map(function (t, ti) {
-    return {
-      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
-      desc: String(t.desc || ''),
-      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
-        return {
-          field: String(fi.field || 'kolom'),
-          type: String(fi.type || 'VARCHAR'),
-          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
-          note: String(fi.note || ''),
-        };
-      }) : [],
-    };
-  });
-};
-
-// ============================================================
-// PARSER JSON SCHEMA YANG TAHAN BANTING
-// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
-// output yang terpotong batas token.
-// ============================================================
-const repairInnerQuotes = function (text) {
-  let out = '';
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (!inString) {
-      if (ch === '"') inString = true;
-      out += ch;
-      continue;
-    }
-    if (ch === '\\') {
-      out += ch + (text[i + 1] || '');
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      let j = i + 1;
-      while (j < text.length && /\s/.test(text[j])) j++;
-      const next = text[j];
-      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
-        inString = false;
-        out += ch;
-      } else {
-        out += '\\"';
-      }
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-};
-
-const removeTrailingCommas = function (text) {
-  return text.replace(/,\s*([}\]])/g, '$1');
-};
-
-const closeOpenStructures = function (text) {
-  const stack = [];
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === '\\') i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
-      inString = true;
-    } else if (ch === '{' || ch === '[') {
-      stack.push(ch);
-    } else if (ch === '}' || ch === ']') {
-      stack.pop();
-    }
-  }
-  let out = text.replace(/,\s*$/, '');
-  for (let i = stack.length - 1; i >= 0; i--) {
-    out += stack[i] === '{' ? '}' : ']';
-  }
-  return out;
-};
-
-const salvageTruncated = function (text) {
-  let search = text;
-  while (search.length) {
-    const lastClose = search.lastIndexOf('}');
-    if (lastClose === -1) return null;
-    const cut = search.slice(0, lastClose + 1);
-    const closed = closeOpenStructures(cut);
-    try {
-      const parsed = JSON.parse(closed);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    } catch (e) {}
-    search = search.slice(0, lastClose);
-  }
-  return null;
-};
-
-const parseSchemaJson = function (rawText) {
-  const cleaned = cleanThink(rawText).replace(/```json|```/gi, '').trim();
-  const start = cleaned.indexOf('[');
-  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
-  const end = cleaned.lastIndexOf(']');
-  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
-
-  const repaired = removeTrailingCommas(repairInnerQuotes(body));
-  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
-
-  let lastErr = null;
-  for (let i = 0; i < candidates.length; i++) {
-    try {
-      const parsed = JSON.parse(candidates[i]);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) { lastErr = e; }
-  }
-
-  const salvaged = salvageTruncated(repaired);
-  if (salvaged) {
-    console.warn('[Groq] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
-    return salvaged;
-  }
-
-  console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
-  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
 };
 ````
 
@@ -3253,840 +2376,6 @@ export default defineConfig({
 });
 ````
 
-## File: src/components/editor/sections/AcSection.jsx
-````javascript
-import { faClipboardCheck, faXmark, faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function AcSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const ac = usePrdStore(function (s) { return s.acModules; });
-  const addM = usePrdStore(function (s) { return s.addAcModule; });
-  const updM = usePrdStore(function (s) { return s.updateAcModule; });
-  const remM = usePrdStore(function (s) { return s.removeAcModule; });
-  const addI = usePrdStore(function (s) { return s.addAcItem; });
-  const updI = usePrdStore(function (s) { return s.updateAcItem; });
-  const remI = usePrdStore(function (s) { return s.removeAcItem; });
-  if (mode !== 'enterprise' && !se.ac) return null;
-  return (
-    <EditorSection title="Acceptance Criteria per Modul" icon={faClipboardCheck} color="amber"
-      action={<IconButton onClick={addM} variant="accent" ariaLabel="Tambah modul baru">+ Modul</IconButton>}>
-      <div className="space-y-4">
-        {ac.map(function (m, mi) {
-          return (
-            <div key={mi} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
-              <div className="flex justify-between items-center">
-                <div className="relative w-2/3">
-                  <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
-                  <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 font-semibold" />
-                  <AiRefineButton value={m.title} onApply={function (v) { updM(mi, { title: v }); }} mode="phrase" label={'nama modul ' + (mi + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-                <button onClick={function () { remM(mi); }} aria-label={'Hapus modul ' + (m.title || (mi + 1))} className="text-rose-400 hover:text-rose-300">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
-              </div>
-              <div className="space-y-2">
-                {m.items.map(function (it, ii) {
-                  return (
-                    <div key={ii} className="p-2 bg-slate-800/60 border border-slate-700 rounded space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-amber-400">AC-{mi + 1}.{ii + 1}</span>
-                        <button onClick={function () { remI(mi, ii); }} aria-label={'Hapus kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="text-rose-400 hover:text-rose-300">
-                          <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
-                        <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                        <AiRefineButton value={it.title} onApply={function (v) { updI(mi, ii, { title: v }); }} mode="phrase" label={'judul kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                      </div>
-                      <div className="relative">
-                        <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
-                        <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
-                        <AiRefineButton value={it.desc} onApply={function (v) { updI(mi, ii, { desc: v }); }} mode="paragraph" label={'deskripsi kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addI(mi); }} aria-label={'Tambah kriteria ke modul ' + (m.title || (mi + 1))} className="text-amber-400 hover:text-amber-300 font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kriteria
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/BrandingSection.jsx
-````javascript
-import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { liveHexColor, normalizeHex } from '../../../utils/helpers';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function BrandingSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const addP = usePrdStore(function (s) { return s.addPalette; });
-  const updP = usePrdStore(function (s) { return s.updatePalette; });
-  const remP = usePrdStore(function (s) { return s.removePalette; });
-  if (mode !== 'enterprise' && !se.branding) return null;
-  const bps = [
-    { l: 'Mobile', k: 'bpMobile' },
-    { l: 'Tablet', k: 'bpTablet' },
-    { l: 'Desktop', k: 'bpDesktop' },
-  ];
-  return (
-    <EditorSection title="Branding & Design System" icon={faPalette} color="amber"
-      action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
-      <div className="space-y-2">
-        {palette.map(function (p, i) {
-          const d = (p.hex || '').replace(/^#/, '');
-          return (
-            <div key={i} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs">
-              <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
-                <span className="w-5 h-5 rounded-full border border-slate-600" style={{ background: liveHexColor(d) || '#0f172a' }} />
-              </span>
-              <label htmlFor={'palette-name-' + i} className="sr-only">Nama warna {i + 1}</label>
-              <input id={'palette-name-' + i} value={p.name} onChange={function (e) { updP(i, { name: e.target.value }); }} placeholder="Nama warna" className="col-span-4 md:col-span-3 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100" />
-              <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
-                <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
-                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="FFFFFF" maxLength="6" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pl-6 pr-8 text-slate-100 font-mono focus:border-amber-500 focus:outline-none" />
-                <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
-                <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
-                <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" aria-hidden="true" />
-              </div>
-              <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
-              <div className="relative col-span-3 order-5 md:order-4">
-                <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                <AiRefineButton value={p.usage} onApply={function (v) { updP(i, { usage: v }); }} mode="phrase" label={'penggunaan warna ' + (p.name || (i + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-              </div>
-              <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
-                <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      <div className="space-y-3 text-xs pt-2">
-        <div>
-          <label htmlFor="brandTypography" className="block text-slate-300 font-medium mb-1">Typography</label>
-          <div className="relative">
-            <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none" />
-            <AiRefineButton value={f.brandTypography} onApply={function (v) { set('brandTypography', v); }} mode="phrase" label="Typography" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="brandLayout" className="block text-slate-300 font-medium mb-1">Prinsip Layout</label>
-          <div className="relative">
-            <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.brandLayout} onApply={function (v) { set('brandLayout', v); }} mode="paragraph" label="Prinsip Layout" className="absolute right-2 top-2" />
-          </div>
-        </div>
-        <div>
-          <span className="block text-slate-300 font-medium mb-1">Breakpoint Responsif</span>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            {bps.map(function (bp) {
-              return (
-                <div key={bp.k}>
-                  <label htmlFor={bp.k + '-op'} className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">{bp.l} operator</label>
-                  <div className="flex">
-                    <select id={bp.k + '-op'} value={f[bp.k + 'Op']} onChange={function (e) { set(bp.k + 'Op', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-l-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
-                      <option value={'\u2264'}>{'\u2264'}</option>
-                      <option value={'\u2265'}>{'\u2265'}</option>
-                      <option value="=">=</option>
-                    </select>
-                    <label htmlFor={bp.k} className="sr-only">{bp.l} breakpoint value</label>
-                    <input id={bp.k} type="text" value={f[bp.k]} onChange={function (e) { set(bp.k, e.target.value.replace(/[^0-9.]/g, '')); }} placeholder={bp.l === 'Mobile' ? '640' : '1024'} className="w-full min-w-0 bg-slate-900 border-y border-slate-700 px-2 py-2 text-[11px] text-slate-100 font-mono" />
-                    <label htmlFor={bp.k + '-unit'} className="sr-only">{bp.l} unit</label>
-                    <select id={bp.k + '-unit'} value={f[bp.k + 'Unit']} onChange={function (e) { set(bp.k + 'Unit', e.target.value); }} className="bg-slate-800 border border-slate-700 rounded-r-lg px-1.5 py-2 text-[11px] text-slate-300 font-mono">
-                      <option value="px">px</option>
-                      <option value="rem">rem</option>
-                      <option value="em">em</option>
-                      <option value="%">%</option>
-                      <option value="vw">vw</option>
-                    </select>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/FeaturesList.jsx
-````javascript
-import { faListCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function FeaturesList() {
-  const features = usePrdStore(function (s) { return s.features; });
-  const add = usePrdStore(function (s) { return s.addFeature; });
-  const upd = usePrdStore(function (s) { return s.updateFeature; });
-  const rem = usePrdStore(function (s) { return s.removeFeature; });
-  return (
-    <EditorSection title="3. Fitur Utama (Requirements)" icon={faListCheck}
-      action={<IconButton onClick={add} ariaLabel="Tambah fitur baru">+ Tambah Fitur</IconButton>}>
-      <div className="space-y-3">
-        {features.map(function (f, i) {
-          return (
-            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-blue-400">{f.id}</span>
-                <button onClick={function () { rem(i); }} aria-label={'Hapus fitur ' + (f.name || f.id)} className="text-rose-400 hover:text-rose-300 text-xs">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <div className="relative">
-                  <label htmlFor={'feat-name-' + i} className="sr-only">Nama fitur {i + 1}</label>
-                  <input id={'feat-name-' + i} type="text" value={f.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama Fitur" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                  <AiRefineButton value={f.name} onApply={function (v) { upd(i, { name: v }); }} mode="phrase" label={'nama fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-                <div className="relative md:col-span-2">
-                  <label htmlFor={'feat-story-' + i} className="sr-only">Deskripsi fitur {i + 1}</label>
-                  <input id={'feat-story-' + i} type="text" value={f.story} onChange={function (e) { upd(i, { story: e.target.value }); }} placeholder="Deskripsi / User Story" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                  <AiRefineButton value={f.story} onApply={function (v) { upd(i, { story: v }); }} mode="paragraph" label={'deskripsi fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-              <label htmlFor={'feat-priority-' + i} className="sr-only">Prioritas fitur {i + 1}</label>
-              <select id={'feat-priority-' + i} value={f.priority} onChange={function (e) { upd(i, { priority: e.target.value }); }} className="bg-slate-800 border border-slate-700 rounded p-1 text-slate-100 text-[11px]">
-                <option value="High">High (Must-Have)</option>
-                <option value="Medium">Medium (Should-Have)</option>
-                <option value="Low">Low (Nice-to-Have)</option>
-              </select>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/NfrSection.jsx
-````javascript
-import { faShieldHalved } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-function TA(props) {
-  return (
-    <div>
-      <label htmlFor={props.id} className="block text-slate-300 font-medium mb-1">{props.label}</label>
-      <div className="relative">
-        <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-        <AiRefineButton value={props.value} onApply={props.onChange} mode={props.mode || 'paragraph'} label={props.label} className="absolute right-2 top-2" />
-      </div>
-    </div>
-  );
-}
-
-export default function NfrSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  if (mode !== 'enterprise' && !se.nfr) return null;
-  return (
-    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved} color="amber">
-      <div className="space-y-3 text-xs">
-        <TA id="nfrSpecs" label="Keamanan & Compliance" value={f.nfrSpecs} onChange={function (v) { set('nfrSpecs', v); }} ph="OAuth 2.0, HTTPS, CSRF" mode="technical" />
-        <TA id="nfrPerformance" label="Performance" value={f.nfrPerformance} onChange={function (v) { set('nfrPerformance', v); }} ph="FCP < 1.5s, Lighthouse >= 85" mode="technical" />
-        <TA id="nfrLocalization" label="Bahasa & Lokalisasi" value={f.nfrLocalization} onChange={function (v) { set('nfrLocalization', v); }} ph="UI Bahasa Indonesia, format Rupiah" mode="phrase" />
-        <TA id="nfrBrowser" label="Browser Support" value={f.nfrBrowser} onChange={function (v) { set('nfrBrowser', v); }} ph="Chrome/Edge/Firefox/Safari" mode="technical" />
-        <div>
-          <label htmlFor="figmaLink" className="block text-slate-300 font-medium mb-1">Figma Link</label>
-          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
-        </div>
-        <TA id="riskMitigation" label="Analisis Risiko & Mitigasi" value={f.riskMitigation} onChange={function (v) { set('riskMitigation', v); }} ph="Risiko teknis / bisnis..." mode="paragraph" />
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/OutOfScope.jsx
-````javascript
-import { faBan } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function OutOfScope() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  return (
-    <EditorSection title="5. Batasan (Out of Scope) & Definition of Done" icon={faBan}>
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="outOfScope" className="block text-rose-300 font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
-          <div className="relative">
-            <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.outOfScope} onApply={function (v) { set('outOfScope', v); }} mode="list" label="Out of Scope" className="absolute right-2 top-2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="defOfDone" className="block text-emerald-300 font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
-          <div className="relative">
-            <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.defOfDone} onApply={function (v) { set('defOfDone', v); }} mode="list" label="Definition of Done" className="absolute right-2 top-2" />
-          </div>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/PersonaSection.jsx
-````javascript
-import { faUsers } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function PersonaSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  if (mode !== 'enterprise' && !se.persona) return null;
-  return (
-    <EditorSection title="Target User Persona & KPI Sukses" icon={faUsers} color="amber">
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="userPersona" className="block text-slate-300 font-medium mb-1">Target User Persona</label>
-          <div className="relative">
-            <textarea id="userPersona" value={f.userPersona} onChange={function (e) { set('userPersona', e.target.value); }} rows="2" placeholder="Siapa segmen target pengguna utama?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.userPersona} onApply={function (v) { set('userPersona', v); }} mode="paragraph" label="Target User Persona" className="absolute right-2 top-2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="successMetrics" className="block text-slate-300 font-medium mb-1">Metrik & Analytics KPI</label>
-          <div className="relative">
-            <textarea id="successMetrics" value={f.successMetrics} onChange={function (e) { set('successMetrics', e.target.value); }} rows="2" placeholder="Indikator keberhasilan" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.successMetrics} onApply={function (v) { set('successMetrics', v); }} mode="list" label="Metrik KPI" className="absolute right-2 top-2" />
-          </div>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/ProblemGoal.jsx
-````javascript
-import { faBullseye } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function ProblemGoal() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  return (
-    <EditorSection title="2. Masalah & Tujuan (Problem & Goal)" icon={faBullseye}>
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="problemStatement" className="block text-slate-300 font-medium mb-1">Latar Belakang / Problem Statement</label>
-          <div className="relative">
-            <textarea id="problemStatement" value={f.problemStatement} onChange={function (e) { set('problemStatement', e.target.value); }} rows="3" placeholder="Masalah utama apa yang dihadapi calon pengguna?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.problemStatement} onApply={function (v) { set('problemStatement', v); }} mode="paragraph" label="Problem Statement" className="absolute right-2 top-2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="productGoal" className="block text-slate-300 font-medium mb-1">Tujuan Utama Produk (Goals)</label>
-          <div className="relative">
-            <textarea id="productGoal" value={f.productGoal} onChange={function (e) { set('productGoal', e.target.value); }} rows="3" placeholder="Solusi konkret dan target yang ingin dicapai..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-            <AiRefineButton value={f.productGoal} onApply={function (v) { set('productGoal', v); }} mode="paragraph" label="Tujuan Utama Produk" className="absolute right-2 top-2" />
-          </div>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/RolesSection.jsx
-````javascript
-import { faUserShield, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-export default function RolesSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  const add = usePrdStore(function (s) { return s.addRole; });
-  const upd = usePrdStore(function (s) { return s.updateRole; });
-  const rem = usePrdStore(function (s) { return s.removeRole; });
-  if (mode !== 'enterprise' && !se.roles) return null;
-  return (
-    <EditorSection title="Role & Permission Matrix" icon={faUserShield} color="amber"
-      action={<IconButton onClick={add} variant="accent" ariaLabel="Tambah role baru">+ Role</IconButton>}>
-      <div className="space-y-3">
-        {roles.map(function (r, i) {
-          return (
-            <div key={i} className="p-3 bg-slate-900 border border-slate-700 rounded-lg space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <div className="relative w-1/2">
-                  <label htmlFor={'role-name-' + i} className="sr-only">Nama role {i + 1}</label>
-                  <input id={'role-name-' + i} value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 font-semibold" />
-                  <AiRefineButton value={r.name} onApply={function (v) { upd(i, { name: v }); }} mode="name" label={'nama role ' + (i + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-                <button onClick={function () { rem(i); }} aria-label={'Hapus role ' + (r.name || (i + 1))} className="text-rose-400 hover:text-rose-300">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
-                </button>
-              </div>
-              <div className="relative">
-                <label htmlFor={'role-can-' + i} className="sr-only">Hak akses role {i + 1}</label>
-                <textarea id={'role-can-' + i} value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
-                <AiRefineButton value={r.can} onApply={function (v) { upd(i, { can: v }); }} mode="list" label={'hak akses role ' + (i + 1)} className="absolute right-1 top-1" />
-              </div>
-              <div className="relative">
-                <label htmlFor={'role-cannot-' + i} className="sr-only">Batasan role {i + 1}</label>
-                <textarea id={'role-cannot-' + i} value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100 resize-none" />
-                <AiRefineButton value={r.cannot} onApply={function (v) { upd(i, { cannot: v }); }} mode="list" label={'batasan role ' + (i + 1)} className="absolute right-1 top-1" />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/SchemaSection.jsx
-````javascript
-import { useState } from 'react';
-import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import ComboBox from '../../shared/ComboBox';
-import AiRefineButton from '../../shared/AiRefineButton';
-import { generateSchemaFromFlow } from '../../../services/groqService';
-import { useToast } from '../../../hooks/useToast';
-
-export default function SchemaSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const st = usePrdStore(function (s) { return s.schemaTables; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
-  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
-  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
-  const addF = usePrdStore(function (s) { return s.addSchemaField; });
-  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
-  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
-  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [genBusy, setGenBusy] = useState(false);
-  const flowText = (f.userFlow || '').trim();
-
-  async function handleGenerate() {
-    if (!flowText || genBusy) return;
-    setGenBusy(true);
-    try {
-      const tables = await generateSchemaFromFlow(flowText);
-      setTables(tables);
-      commit();
-      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
-    } catch (e) {
-      showToast('Gagal membuat schema: ' + e.message, 'error');
-    } finally {
-      setGenBusy(false);
-    }
-  }
-
-  if (mode !== 'enterprise' && !se.schema) return null;
-  return (
-    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList} color="amber"
-      action={
-        <div className="flex items-center gap-2">
-          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
-            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
-            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
-          </IconButton>
-          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
-        </div>
-      }>
-      <p className="text-[11px] text-slate-500 -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
-      <div className="space-y-4">
-        {st.map(function (t, ti) {
-          return (
-            <div key={ti} className="p-3 bg-slate-900 border border-amber-900/50 rounded-lg space-y-3 text-xs">
-              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
-                <span className="col-span-1 order-1 text-amber-400 text-center" aria-hidden="true">
-                  <FontAwesomeIcon icon={faTableList} />
-                </span>
-                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
-                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-slate-800 border border-slate-700 rounded p-1.5 text-slate-100 font-mono font-semibold" />
-                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-rose-400 hover:text-rose-300 flex justify-center">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                </button>
-                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
-                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
-                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-slate-800 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                {t.fields.map(function (s, fi) {
-                  return (
-                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-slate-800/60 border border-slate-700 rounded-lg">
-                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
-                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100 font-mono" />
-                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-rose-400 hover:text-rose-300 flex justify-center">
-                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                      </button>
-                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
-                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
-                      </div>
-                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
-                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-100">
-                        <option value="Ya">Not Null</option>
-                        <option value="Opsional">Opsional</option>
-                      </select>
-                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
-                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
-                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 pr-9 text-slate-100" />
-                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-amber-400 hover:amber-300 font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/TechStack.jsx
-````javascript
-import { useState, useRef, useEffect } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faLayerGroup, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-function FieldRow(props) {
-  const def = props.def;
-  const value = props.value;
-  const onChange = props.onChange;
-  const onRemove = props.onRemove;
-  const fieldId = 'tech-' + def.key;
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label htmlFor={fieldId} className="text-slate-300 font-medium flex items-center">
-          <FontAwesomeIcon icon={def.icon} className={def.color + ' mr-1'} aria-hidden="true" />
-          {def.label}
-        </label>
-        {onRemove && (
-          <button onClick={onRemove} className="text-rose-400 hover:text-rose-300 text-[10px] font-semibold" title="Hapus stack ini" aria-label={'Hapus ' + def.label}>
-            <FontAwesomeIcon icon={faXmark} className="mr-1" aria-hidden="true" />
-            Hapus
-          </button>
-        )}
-      </div>
-      <div className="relative">
-        <input
-          id={fieldId}
-          type="text"
-          value={value}
-          onChange={function (e) { onChange(e.target.value); }}
-          placeholder={def.ph || ''}
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none"
-        />
-        <AiRefineButton value={value} onApply={onChange} mode="technical" label={def.label} className="absolute right-2 top-1/2 -translate-y-1/2" />
-      </div>
-    </div>
-  );
-}
-
-export default function TechStack() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const techOptional = usePrdStore(function (s) { return s.techOptional; });
-  const addTech = usePrdStore(function (s) { return s.addTechExtra; });
-  const remTech = usePrdStore(function (s) { return s.removeTechExtra; });
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-  useEffect(function () {
-    function onDoc(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDoc);
-    return function () { document.removeEventListener('mousedown', onDoc); };
-  }, []);
-  const availEssential = TECH_OPTIONAL.filter(function (d) { return d.category === 'Esensial' && !techOptional.includes(d.key); });
-  const availAdvanced = TECH_OPTIONAL.filter(function (d) { return d.category === 'Lanjutan' && !techOptional.includes(d.key); });
-  const addedOptional = TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); });
-  return (
-    <EditorSection
-      title="4. Spesifikasi Tech Stack & Arsitektur"
-      icon={faLayerGroup}
-      action={
-        <div className="relative" ref={wrapRef}>
-          <IconButton icon={faPlus} onClick={function () { setOpen(!open); }} ariaLabel="Tambah stack lanjutan">Tambah Stack Lanjutan</IconButton>
-          {open && (
-            <div className="absolute z-40 right-0 mt-2 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-72 overflow-y-auto" role="menu">
-              {availEssential.length > 0 && (
-                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Esensial</div>
-              )}
-              {availEssential.map(function (d) {
-                return (
-                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
-                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
-                    {d.label}
-                  </button>
-                );
-              })}
-              {availAdvanced.length > 0 && (
-                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">Lanjutan</div>
-              )}
-              {availAdvanced.map(function (d) {
-                return (
-                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-slate-200 hover:bg-blue-600/30">
-                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
-                    {d.label}
-                  </button>
-                );
-              })}
-              {availEssential.length === 0 && availAdvanced.length === 0 && (
-                <div className="px-3 py-2 text-[11px] text-slate-500 italic">Semua stack sudah ditambahkan.</div>
-              )}
-            </div>
-          )}
-        </div>
-      }
-    >
-      <div className="space-y-3 text-xs">
-        <div>
-          <label htmlFor="userFlow" className="block text-slate-300 font-medium mb-1">Alur Pengguna (User Flow)</label>
-          <div className="relative">
-            <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
-            <AiRefineButton value={f.userFlow} onApply={function (v) { set('userFlow', v); }} mode="flow" label="User Flow" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          {TECH_REQUIRED.map(function (d) {
-            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} />;
-          })}
-          {addedOptional.map(function (d) {
-            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} onRemove={function () { remTech(d.key); }} />;
-          })}
-        </div>
-        <div className="pt-1">
-          <label htmlFor="dbSchema" className="block text-slate-300 font-medium mb-1">Skema Database & Model Relasi</label>
-          <textarea id="dbSchema" value={f.dbSchema} onChange={function (e) { set('dbSchema', e.target.value); }} rows="3" placeholder="users: id, name, email" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none font-mono resize-none" />
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/header/ModeSwitcher.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBolt, faBuilding } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../store/usePrdStore';
-export default function ModeSwitcher() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const setMode = usePrdStore(function (s) { return s.setMode; });
-  const sw = function (m) { if (mode === m) return; setMode(m); };
-  const a = 'flex-1 md:flex-none h-10 md:h-auto flex items-center justify-center space-x-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 shadow-md ';
-  const i = 'flex-1 md:flex-none h-10 md:h-auto flex items-center justify-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white rounded-lg transition-all duration-200';
-  return (
-    <div className="flex items-center bg-slate-900 border border-slate-700 p-1 rounded-xl shadow-inner space-x-1 order-3 md:order-2 w-full md:w-auto">
-      <button onClick={function () { sw('simple'); }} className={mode === 'simple' ? a + 'bg-blue-600 text-white' : i}>
-        <FontAwesomeIcon icon={faBolt} className="text-amber-300" /><span>Mode Simple</span>
-      </button>
-      <button onClick={function () { sw('enterprise'); }} className={mode === 'enterprise' ? a + 'bg-amber-600 text-white' : i}>
-        <FontAwesomeIcon icon={faBuilding} className="text-blue-400" /><span>Mode Enterprise</span>
-      </button>
-    </div>
-  );
-}
-````
-
-## File: src/components/mobile/ScrollButtons.jsx
-````javascript
-import { useState, useEffect, useRef } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowDown, faArrowUp } from '@fortawesome/free-solid-svg-icons';
-import { useViewStore } from '../../store/useViewStore';
-
-const AMBANG_NAIK = 0.8;
-const AMBANG_TURUN = 0.2;
-
-export default function ScrollButtons() {
-  const view = useViewStore(function (s) { return s.view; });
-  const [atTop, setAtTop] = useState({ editor: true, preview: true });
-  const autoScroll = useRef({ editor: false, preview: false });
-  const timers = useRef({ editor: null, preview: null });
-  const guards = useRef({ editor: null, preview: null });
-
-  function getEl(panel) {
-    return document.getElementById(panel === 'editor' ? 'editorPanel' : 'previewPanel');
-  }
-
-  function updateIcon(panel) {
-    const el = getEl(panel);
-    if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    setAtTop(function (prev) {
-      let top = prev[panel];
-      if (max <= 4) {
-        top = true;
-      } else {
-        const p = el.scrollTop / max;
-        if (p >= AMBANG_NAIK) top = false;
-        else if (p <= AMBANG_TURUN) top = true;
-      }
-      if (prev[panel] === top) return prev;
-      const next = { editor: prev.editor, preview: prev.preview };
-      next[panel] = top;
-      return next;
-    });
-  }
-
-  function stopAuto(panel) {
-    if (timers.current[panel]) { clearInterval(timers.current[panel]); timers.current[panel] = null; }
-    if (guards.current[panel]) { clearTimeout(guards.current[panel]); guards.current[panel] = null; }
-    if (autoScroll.current[panel]) {
-      autoScroll.current[panel] = false;
-      updateIcon(panel);
-    }
-  }
-
-  function watchEnd(panel, el, dest) {
-    if (timers.current[panel]) clearInterval(timers.current[panel]);
-    if (guards.current[panel]) clearTimeout(guards.current[panel]);
-    let last = el.scrollTop;
-    let same = 0;
-    timers.current[panel] = setInterval(function () {
-      const cur = el.scrollTop;
-      const reached = Math.abs(cur - dest) <= 4;
-      same = cur === last ? same + 1 : 0;
-      last = cur;
-      if (reached || same >= 3) stopAuto(panel);
-    }, 80);
-    guards.current[panel] = setTimeout(function () { stopAuto(panel); }, 3000);
-  }
-
-  function scroll(panel, down) {
-    const el = getEl(panel);
-    if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    if (max <= 4) return;
-    const dest = down ? max : 0;
-    autoScroll.current[panel] = true;
-    el.scrollTo({ top: dest, behavior: 'smooth' });
-    watchEnd(panel, el, dest);
-  }
-
-  useEffect(function () {
-    function onScrollCapture(e) {
-      const t = e.target;
-      if (!t || t.nodeType !== 1) return;
-      if (t.id === 'editorPanel' && !autoScroll.current.editor) updateIcon('editor');
-      else if (t.id === 'previewPanel' && !autoScroll.current.preview) updateIcon('preview');
-    }
-
-    document.addEventListener('scroll', onScrollCapture, { capture: true, passive: true });
-
-    function interrupt() {
-      if (autoScroll.current.editor) stopAuto('editor');
-      if (autoScroll.current.preview) stopAuto('preview');
-    }
-
-    document.addEventListener('touchstart', interrupt, { passive: true });
-    document.addEventListener('wheel', interrupt, { passive: true });
-    document.addEventListener('keydown', interrupt, { passive: true });
-
-    updateIcon('editor');
-    updateIcon('preview');
-
-    return function () {
-      document.removeEventListener('scroll', onScrollCapture, { capture: true });
-      document.removeEventListener('touchstart', interrupt);
-      document.removeEventListener('wheel', interrupt);
-      document.removeEventListener('keydown', interrupt);
-      stopAuto('editor');
-      stopAuto('preview');
-    };
-  }, []);
-
-  function btn(panel) {
-    const top = atTop[panel];
-    return (
-      <button
-        onClick={function () { scroll(panel, top); }}
-        className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-800 text-slate-200 border border-slate-600 shadow-lg hover:bg-blue-600 hover:text-white transition"
-        title={panel === 'editor' ? 'Scroll editor' : 'Scroll preview'}
-      >
-        <FontAwesomeIcon icon={top ? faArrowDown : faArrowUp} />
-      </button>
-    );
-  }
-
-  const editorCls = 'no-print fixed z-[45] bottom-20 lg:bottom-5 right-3 lg:right-[calc(50%+14px)] flex-col gap-2 ' + (view === 'editor' ? 'flex' : 'hidden lg:flex');
-  const previewCls = 'no-print fixed z-[45] bottom-20 lg:bottom-5 right-3 lg:right-5 flex-col gap-2 ' + (view === 'preview' ? 'flex' : 'hidden lg:flex');
-
-  return (
-    <div>
-      <div className={editorCls}>{btn('editor')}</div>
-      <div className={previewCls}>{btn('preview')}</div>
-    </div>
-  );
-}
-````
-
 ## File: src/components/preview/sections/NfrPreview.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
@@ -4305,6 +2594,1080 @@ export default function CoverPage() {
 }
 ````
 
+## File: src/components/preview/PreviewActions.jsx
+````javascript
+import { useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faEye, faFileExport, faFileImport, faCopy, faPrint } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+import { exportService } from '../../services/exportService';
+import { useToast } from '../../hooks/useToast';
+import IconButton from '../shared/IconButton';
+
+export default function PreviewActions() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const getSnap = usePrdStore(function (s) { return s.getSnapshot; });
+  const restore = usePrdStore(function (s) { return s.restoreState; });
+  const setMode = usePrdStore(function (s) { return s.setMode; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const ref = useRef(null);
+  const showToast = useToast();
+
+  function handleImport(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = function () {
+      try {
+        const d = JSON.parse(r.result);
+        const st = d.state || d;
+        if (!st || typeof st !== 'object' || !st.fields) {
+          showToast('File JSON tidak valid', 'error');
+          return;
+        }
+        if (d.mode) setMode(d.mode);
+        restore(st);
+        setTimeout(function () { commit(); }, 0);
+        showToast('Dokumen berhasil diimpor');
+      } catch (err) {
+        showToast('File JSON tidak valid', 'error');
+      }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  }
+
+  const badge = mode === 'enterprise'
+    ? 'bg-accent/15 text-accent border-accent/30'
+    : 'bg-field text-mut border-line';
+
+  return (
+    <div className="no-print flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3 bg-base pb-4 pt-1 mb-4 border-b border-line">
+      <span className="text-xs font-semibold text-mut uppercase tracking-wider flex items-center">
+        <FontAwesomeIcon icon={faEye} className="mr-1.5 text-accent" aria-hidden="true" />
+        Live Preview Dokumen
+        <span className={'ml-2 px-2 py-0.5 rounded text-[10px] border ' + badge}>
+          {mode === 'enterprise' ? 'ENTERPRISE' : 'SIMPLE'} MODE
+        </span>
+      </span>
+      <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
+        <IconButton icon={faFileExport} onClick={function () { exportService.exportJSON(getSnap()); showToast('JSON berhasil diunduh'); }} className="w-full sm:w-auto" ariaLabel="Ekspor JSON">JSON</IconButton>
+        <IconButton icon={faFileImport} onClick={function () { ref.current && ref.current.click(); }} className="w-full sm:w-auto" ariaLabel="Impor JSON">Impor</IconButton>
+        <input ref={ref} type="file" accept=".json" className="hidden" onChange={handleImport} aria-label="Pilih file JSON untuk diimpor" />
+        <IconButton icon={faCopy} onClick={function () { exportService.copyMarkdown(getSnap()); showToast('Markdown disalin'); }} className="col-span-2 w-full sm:w-auto" ariaLabel="Salin Markdown">Salin Markdown</IconButton>
+        <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto" ariaLabel="Ekspor PDF atau cetak">Ekspor PDF / Cetak</IconButton>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/PreviewDocument.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import { resolveCoverTheme } from '../../utils/helpers';
+import CoverPage from './CoverPage';
+import DocFooter from './DocFooter';
+import OverviewPreview from './sections/OverviewPreview';
+import FeaturesPreview from './sections/FeaturesPreview';
+import TechStackPreview from './sections/TechStackPreview';
+import PersonaPreview from './sections/PersonaPreview';
+import BrandingPreview from './sections/BrandingPreview';
+import RolesPreview from './sections/RolesPreview';
+import AcPreview from './sections/AcPreview';
+import SchemaPreview from './sections/SchemaPreview';
+import NfrPreview from './sections/NfrPreview';
+import ScopeDonePreview from './sections/ScopeDonePreview';
+
+export default function PreviewDocument() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const theme = resolveCoverTheme(f, palette);
+
+  return (
+    <>
+      <CoverPage />
+      <div
+        id="prdDocument"
+        className="bg-white text-slate-900 p-8 rounded-lg border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
+        style={{
+          '--doc-primary': theme.primary,
+          '--doc-primary-text': theme.primaryText,
+          '--doc-accent': theme.accent,
+          '--doc-accent-text': theme.accentText,
+        }}
+      >
+        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
+        <div className="space-y-2 keep-together">
+          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">
+            {f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}
+          </div>
+        </div>
+        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
+        <DocFooter />
+      </div>
+    </>
+  );
+}
+````
+
+## File: src/components/preview/PreviewPanel.jsx
+````javascript
+import PreviewActions from './PreviewActions';
+import PreviewDocument from './PreviewDocument';
+
+export default function PreviewPanel() {
+  return (
+    <section id="previewPanel" className="bg-base p-6 overflow-y-auto overflow-x-hidden" style={{ height: '100%' }}>
+      <PreviewActions />
+      <PreviewDocument />
+    </section>
+  );
+}
+````
+
+## File: src/components/shared/AiRefineButton.jsx
+````javascript
+import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { refineText } from '../../services/aiService';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useToast } from '../../hooks/useToast';
+
+export default function AiRefineButton(props) {
+  const value = props.value || '';
+  const onApply = props.onApply;
+  const mode = props.mode || 'paragraph';
+  const label = props.label || 'kolom ini';
+  const className = props.className || '';
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [lastRefined, setLastRefined] = useState(null);
+
+  const trimmed = value.trim();
+  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
+  const disabled = busy || !trimmed || unchangedSinceRefine;
+
+  async function handle() {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const result = await refineText(trimmed, mode, label);
+      if (result && result.trim()) {
+        if (result.trim() !== trimmed) {
+          onApply(result.trim());
+          commit();
+          showToast('Teks berhasil diperhalus oleh AI', 'success');
+        } else {
+          showToast('AI: Teks ini sudah cukup profesional', 'info');
+        }
+        setLastRefined(result.trim());
+      } else {
+        setLastRefined(trimmed);
+        showToast('AI tidak menghasilkan output', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal memperhalus: ' + e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title = busy
+    ? 'Sedang memperhalus teks...'
+    : unchangedSinceRefine
+      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
+      : 'Perhalus teks dengan AI (Gemma)';
+
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={disabled}
+      title={title}
+      aria-label={'Perhalus teks ' + label + ' dengan AI'}
+      className={
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed ' +
+        className
+      }
+    >
+      <FontAwesomeIcon icon={busy ? faSpinner : faWandMagicSparkles} className={'text-[11px] ' + (busy ? 'animate-spin' : '')} />
+    </button>
+  );
+}
+````
+
+## File: src/components/shared/ToggleSwitch.jsx
+````javascript
+export default function ToggleSwitch(props) {
+  const checked = props.checked;
+  const onChange = props.onChange;
+  const label = props.label;
+  const icon = props.icon;
+  const iconColor = props.iconColor || 'text-mut';
+  const id = 'toggle-' + (label || '').replace(/\s+/g, '-').toLowerCase();
+
+  return (
+    <label htmlFor={id} className="extra-toggle flex items-center justify-between p-2.5 bg-field hover:bg-card border border-line rounded-lg cursor-pointer transition">
+      <span className="flex items-center space-x-2 text-ink">
+        {icon && <span className={'text-xs w-4 ' + iconColor}>{icon}</span>}
+        <span className="text-[11px] font-medium">{label}</span>
+      </span>
+      <input
+        id={id}
+        type="checkbox"
+        checked={!!checked}
+        onChange={function (e) { onChange && onChange(e.target.checked); }}
+        className="appearance-none w-9 h-5 bg-line rounded-full relative cursor-pointer transition-colors checked:bg-accent after:content-[''] after:absolute after:w-4 after:h-4 after:rounded-full after:bg-white after:top-0.5 after:left-0.5 after:transition-all checked:after:left-[18px]"
+      />
+    </label>
+  );
+}
+````
+
+## File: src/components/editor/sections/AcSection.jsx
+````javascript
+import { faClipboardCheck, faXmark, faPlus } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function AcSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const ac = usePrdStore(function (s) { return s.acModules; });
+  const addM = usePrdStore(function (s) { return s.addAcModule; });
+  const updM = usePrdStore(function (s) { return s.updateAcModule; });
+  const remM = usePrdStore(function (s) { return s.removeAcModule; });
+  const addI = usePrdStore(function (s) { return s.addAcItem; });
+  const updI = usePrdStore(function (s) { return s.updateAcItem; });
+  const remI = usePrdStore(function (s) { return s.removeAcItem; });
+
+  if (mode !== 'enterprise' && !se.ac) return null;
+
+  return (
+    <EditorSection title="Acceptance Criteria per Modul" icon={faClipboardCheck}
+      action={<IconButton onClick={addM} variant="accent" ariaLabel="Tambah modul baru">+ Modul</IconButton>}>
+      <div className="space-y-4">
+        {ac.map(function (m, mi) {
+          return (
+            <div key={mi} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
+              <div className="flex justify-between items-center">
+                <div className="relative w-2/3">
+                  <label htmlFor={'ac-mod-title-' + mi} className="sr-only">Nama modul {mi + 1}</label>
+                  <input id={'ac-mod-title-' + mi} value={m.title} onChange={function (e) { updM(mi, { title: e.target.value }); }} placeholder="Nama modul" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink font-semibold" />
+                  <AiRefineButton value={m.title} onApply={function (v) { updM(mi, { title: v }); }} mode="phrase" label={'nama modul ' + (mi + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <button onClick={function () { remM(mi); }} aria-label={'Hapus modul ' + (m.title || (mi + 1))} className="text-danger">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="space-y-2">
+                {m.items.map(function (it, ii) {
+                  return (
+                    <div key={ii} className="p-2 bg-card border border-line rounded space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-accent">AC-{mi + 1}.{ii + 1}</span>
+                        <button onClick={function () { remI(mi, ii); }} aria-label={'Hapus kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="text-danger">
+                          <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <label htmlFor={'ac-item-title-' + mi + '-' + ii} className="sr-only">Judul kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <input id={'ac-item-title-' + mi + '-' + ii} value={it.title} onChange={function (e) { updI(mi, ii, { title: e.target.value }); }} placeholder="Judul kriteria" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
+                        <AiRefineButton value={it.title} onApply={function (v) { updI(mi, ii, { title: v }); }} mode="phrase" label={'judul kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <div className="relative">
+                        <label htmlFor={'ac-item-desc-' + mi + '-' + ii} className="sr-only">Deskripsi kriteria AC-{mi + 1}.{ii + 1}</label>
+                        <textarea id={'ac-item-desc-' + mi + '-' + ii} value={it.desc} onChange={function (e) { updI(mi, ii, { desc: e.target.value }); }} rows="2" placeholder="Deskripsi kriteria..." className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink resize-none" />
+                        <AiRefineButton value={it.desc} onApply={function (v) { updI(mi, ii, { desc: v }); }} mode="paragraph" label={'deskripsi kriteria AC-' + (mi + 1) + '.' + (ii + 1)} className="absolute right-1 top-1" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addI(mi); }} aria-label={'Tambah kriteria ke modul ' + (m.title || (mi + 1))} className="text-accent font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kriteria
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/BrandingSection.jsx
+````javascript
+import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { liveHexColor, normalizeHex } from '../../../utils/helpers';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function BrandingSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const addP = usePrdStore(function (s) { return s.addPalette; });
+  const updP = usePrdStore(function (s) { return s.updatePalette; });
+  const remP = usePrdStore(function (s) { return s.removePalette; });
+
+  if (mode !== 'enterprise' && !se.branding) return null;
+
+  const bps = [
+    { l: 'Mobile', k: 'bpMobile' },
+    { l: 'Tablet', k: 'bpTablet' },
+    { l: 'Desktop', k: 'bpDesktop' },
+  ];
+
+  return (
+    <EditorSection title="Branding & Design System" icon={faPalette}
+      action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
+      <div className="space-y-2">
+        {palette.map(function (p, i) {
+          const d = (p.hex || '').replace(/^#/, '');
+          return (
+            <div key={i} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-field border border-line rounded-lg text-xs">
+              <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
+                <span className="w-5 h-5 rounded-full border border-line" style={{ background: liveHexColor(d) || '#0f172a' }} />
+              </span>
+              <label htmlFor={'palette-name-' + i} className="sr-only">Nama warna {i + 1}</label>
+              <input id={'palette-name-' + i} value={p.name} onChange={function (e) { updP(i, { name: e.target.value }); }} placeholder="Nama warna" className="col-span-4 md:col-span-3 order-2 bg-card border border-line rounded p-1.5 text-ink" />
+              <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
+                <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
+                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="FFFFFF" maxLength="6" className="w-full bg-card border border-line rounded p-1.5 pl-6 pr-8 text-ink font-mono focus:border-accent focus:outline-none" />
+                <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
+                <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
+                <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-mut pointer-events-none" aria-hidden="true" />
+              </div>
+              <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
+              <div className="relative col-span-3 order-5 md:order-4">
+                <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                <AiRefineButton value={p.usage} onApply={function (v) { updP(i, { usage: v }); }} mode="phrase" label={'penggunaan warna ' + (p.name || (i + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+              </div>
+              <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-danger flex justify-center">
+                <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="space-y-3 text-xs pt-2">
+        <div>
+          <label htmlFor="brandTypography" className="block text-ink font-medium mb-1">Typography</label>
+          <div className="relative">
+            <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.brandTypography} onApply={function (v) { set('brandTypography', v); }} mode="phrase" label="Typography" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="brandLayout" className="block text-ink font-medium mb-1">Prinsip Layout</label>
+          <div className="relative">
+            <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.brandLayout} onApply={function (v) { set('brandLayout', v); }} mode="paragraph" label="Prinsip Layout" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <span className="block text-ink font-medium mb-1">Breakpoint Responsif</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {bps.map(function (bp) {
+              return (
+                <div key={bp.k}>
+                  <label htmlFor={bp.k + '-op'} className="block text-[10px] text-mut mb-1 uppercase tracking-wider">{bp.l} operator</label>
+                  <div className="flex">
+                    <select id={bp.k + '-op'} value={f[bp.k + 'Op']} onChange={function (e) { set(bp.k + 'Op', e.target.value); }} className="bg-card border border-line rounded-l-lg px-1.5 py-2 text-[11px] text-mut font-mono">
+                      <option value={'\u2264'}>{'\u2264'}</option>
+                      <option value={'\u2265'}>{'\u2265'}</option>
+                      <option value="=">=</option>
+                    </select>
+                    <label htmlFor={bp.k} className="sr-only">{bp.l} breakpoint value</label>
+                    <input id={bp.k} type="text" value={f[bp.k]} onChange={function (e) { set(bp.k, e.target.value.replace(/[^0-9.]/g, '')); }} placeholder={bp.l === 'Mobile' ? '640' : '1024'} className="w-full min-w-0 bg-field border-y border-line px-2 py-2 text-[11px] text-ink font-mono" />
+                    <label htmlFor={bp.k + '-unit'} className="sr-only">{bp.l} unit</label>
+                    <select id={bp.k + '-unit'} value={f[bp.k + 'Unit']} onChange={function (e) { set(bp.k + 'Unit', e.target.value); }} className="bg-card border border-line rounded-r-lg px-1.5 py-2 text-[11px] text-mut font-mono">
+                      <option value="px">px</option>
+                      <option value="rem">rem</option>
+                      <option value="em">em</option>
+                      <option value="%">%</option>
+                      <option value="vw">vw</option>
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/FeaturesList.jsx
+````javascript
+import { faListCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function FeaturesList() {
+  const features = usePrdStore(function (s) { return s.features; });
+  const add = usePrdStore(function (s) { return s.addFeature; });
+  const upd = usePrdStore(function (s) { return s.updateFeature; });
+  const rem = usePrdStore(function (s) { return s.removeFeature; });
+
+  return (
+    <EditorSection title="3. Fitur Utama (Requirements)" icon={faListCheck}
+      action={<IconButton onClick={add} ariaLabel="Tambah fitur baru">+ Tambah Fitur</IconButton>}>
+      <div className="space-y-3">
+        {features.map(function (f, i) {
+          return (
+            <div key={i} className="p-3 bg-field border border-line rounded-lg space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-accent">{f.id}</span>
+                <button onClick={function () { rem(i); }} aria-label={'Hapus fitur ' + (f.name || f.id)} className="text-danger text-xs">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="relative">
+                  <label htmlFor={'feat-name-' + i} className="sr-only">Nama fitur {i + 1}</label>
+                  <input id={'feat-name-' + i} type="text" value={f.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama Fitur" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                  <AiRefineButton value={f.name} onApply={function (v) { upd(i, { name: v }); }} mode="phrase" label={'nama fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <div className="relative md:col-span-2">
+                  <label htmlFor={'feat-story-' + i} className="sr-only">Deskripsi fitur {i + 1}</label>
+                  <input id={'feat-story-' + i} type="text" value={f.story} onChange={function (e) { upd(i, { story: e.target.value }); }} placeholder="Deskripsi / User Story" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                  <AiRefineButton value={f.story} onApply={function (v) { upd(i, { story: v }); }} mode="paragraph" label={'deskripsi fitur ' + f.id} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <label htmlFor={'feat-priority-' + i} className="sr-only">Prioritas fitur {i + 1}</label>
+              <select id={'feat-priority-' + i} value={f.priority} onChange={function (e) { upd(i, { priority: e.target.value }); }} className="bg-card border border-line rounded p-1 text-ink text-[11px]">
+                <option value="High">High (Must-Have)</option>
+                <option value="Medium">Medium (Should-Have)</option>
+                <option value="Low">Low (Nice-to-Have)</option>
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/NfrSection.jsx
+````javascript
+import { faShieldHalved } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+function TA(props) {
+  return (
+    <div>
+      <label htmlFor={props.id} className="block text-ink font-medium mb-1">{props.label}</label>
+      <div className="relative">
+        <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+        <AiRefineButton value={props.value} onApply={props.onChange} mode={props.mode || 'paragraph'} label={props.label} className="absolute right-2 top-2" />
+      </div>
+    </div>
+  );
+}
+
+export default function NfrSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  if (mode !== 'enterprise' && !se.nfr) return null;
+
+  return (
+    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved}>
+      <div className="space-y-3 text-xs">
+        <TA id="nfrSpecs" label="Keamanan & Compliance" value={f.nfrSpecs} onChange={function (v) { set('nfrSpecs', v); }} ph="OAuth 2.0, HTTPS, CSRF" mode="technical" />
+        <TA id="nfrPerformance" label="Performance" value={f.nfrPerformance} onChange={function (v) { set('nfrPerformance', v); }} ph="FCP < 1.5s, Lighthouse >= 85" mode="technical" />
+        <TA id="nfrLocalization" label="Bahasa & Lokalisasi" value={f.nfrLocalization} onChange={function (v) { set('nfrLocalization', v); }} ph="UI Bahasa Indonesia, format Rupiah" mode="phrase" />
+        <TA id="nfrBrowser" label="Browser Support" value={f.nfrBrowser} onChange={function (v) { set('nfrBrowser', v); }} ph="Chrome/Edge/Firefox/Safari" mode="technical" />
+        <div>
+          <label htmlFor="figmaLink" className="block text-ink font-medium mb-1">Figma Link</label>
+          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <TA id="riskMitigation" label="Analisis Risiko & Mitigasi" value={f.riskMitigation} onChange={function (v) { set('riskMitigation', v); }} ph="Risiko teknis / bisnis..." mode="paragraph" />
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/OutOfScope.jsx
+````javascript
+import { faBan } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function OutOfScope() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  return (
+    <EditorSection title="5. Batasan (Out of Scope) & Definition of Done" icon={faBan}>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="outOfScope" className="block text-danger font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
+          <div className="relative">
+            <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.outOfScope} onApply={function (v) { set('outOfScope', v); }} mode="list" label="Out of Scope" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="defOfDone" className="block text-ok font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
+          <div className="relative">
+            <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.defOfDone} onApply={function (v) { set('defOfDone', v); }} mode="list" label="Definition of Done" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/PersonaSection.jsx
+````javascript
+import { faUsers } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function PersonaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  if (mode !== 'enterprise' && !se.persona) return null;
+
+  return (
+    <EditorSection title="Target User Persona & KPI Sukses" icon={faUsers}>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="userPersona" className="block text-ink font-medium mb-1">Target User Persona</label>
+          <div className="relative">
+            <textarea id="userPersona" value={f.userPersona} onChange={function (e) { set('userPersona', e.target.value); }} rows="2" placeholder="Siapa segmen target pengguna utama?" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.userPersona} onApply={function (v) { set('userPersona', v); }} mode="paragraph" label="Target User Persona" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="successMetrics" className="block text-ink font-medium mb-1">Metrik & Analytics KPI</label>
+          <div className="relative">
+            <textarea id="successMetrics" value={f.successMetrics} onChange={function (e) { set('successMetrics', e.target.value); }} rows="2" placeholder="Indikator keberhasilan" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.successMetrics} onApply={function (v) { set('successMetrics', v); }} mode="list" label="Metrik KPI" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/ProblemGoal.jsx
+````javascript
+import { faBullseye } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function ProblemGoal() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  return (
+    <EditorSection title="2. Masalah & Tujuan (Problem & Goal)" icon={faBullseye}>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="problemStatement" className="block text-ink font-medium mb-1">Latar Belakang / Problem Statement</label>
+          <div className="relative">
+            <textarea id="problemStatement" value={f.problemStatement} onChange={function (e) { set('problemStatement', e.target.value); }} rows="3" placeholder="Masalah utama apa yang dihadapi calon pengguna?" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.problemStatement} onApply={function (v) { set('problemStatement', v); }} mode="paragraph" label="Problem Statement" className="absolute right-2 top-2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="productGoal" className="block text-ink font-medium mb-1">Tujuan Utama Produk (Goals)</label>
+          <div className="relative">
+            <textarea id="productGoal" value={f.productGoal} onChange={function (e) { set('productGoal', e.target.value); }} rows="3" placeholder="Solusi konkret dan target yang ingin dicapai..." className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
+            <AiRefineButton value={f.productGoal} onApply={function (v) { set('productGoal', v); }} mode="paragraph" label="Tujuan Utama Produk" className="absolute right-2 top-2" />
+          </div>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/RolesSection.jsx
+````javascript
+import { faUserShield, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+export default function RolesSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  const add = usePrdStore(function (s) { return s.addRole; });
+  const upd = usePrdStore(function (s) { return s.updateRole; });
+  const rem = usePrdStore(function (s) { return s.removeRole; });
+
+  if (mode !== 'enterprise' && !se.roles) return null;
+
+  return (
+    <EditorSection title="Role & Permission Matrix" icon={faUserShield}
+      action={<IconButton onClick={add} variant="accent" ariaLabel="Tambah role baru">+ Role</IconButton>}>
+      <div className="space-y-3">
+        {roles.map(function (r, i) {
+          return (
+            <div key={i} className="p-3 bg-field border border-line rounded-lg space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <div className="relative w-1/2">
+                  <label htmlFor={'role-name-' + i} className="sr-only">Nama role {i + 1}</label>
+                  <input id={'role-name-' + i} value={r.name} onChange={function (e) { upd(i, { name: e.target.value }); }} placeholder="Nama role" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink font-semibold" />
+                  <AiRefineButton value={r.name} onApply={function (v) { upd(i, { name: v }); }} mode="name" label={'nama role ' + (i + 1)} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+                <button onClick={function () { rem(i); }} aria-label={'Hapus role ' + (r.name || (i + 1))} className="text-danger">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" /> Hapus
+                </button>
+              </div>
+              <div className="relative">
+                <label htmlFor={'role-can-' + i} className="sr-only">Hak akses role {i + 1}</label>
+                <textarea id={'role-can-' + i} value={r.can} onChange={function (e) { upd(i, { can: e.target.value }); }} rows="2" placeholder="Yang boleh dilakukan" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink resize-none" />
+                <AiRefineButton value={r.can} onApply={function (v) { upd(i, { can: v }); }} mode="list" label={'hak akses role ' + (i + 1)} className="absolute right-1 top-1" />
+              </div>
+              <div className="relative">
+                <label htmlFor={'role-cannot-' + i} className="sr-only">Batasan role {i + 1}</label>
+                <textarea id={'role-cannot-' + i} value={r.cannot} onChange={function (e) { upd(i, { cannot: e.target.value }); }} rows="2" placeholder="Yang TIDAK boleh dilakukan" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink resize-none" />
+                <AiRefineButton value={r.cannot} onApply={function (v) { upd(i, { cannot: v }); }} mode="list" label={'batasan role ' + (i + 1)} className="absolute right-1 top-1" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/SchemaSection.jsx
+````javascript
+import { useState } from 'react';
+import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import ComboBox from '../../shared/ComboBox';
+import AiRefineButton from '../../shared/AiRefineButton';
+import { generateSchemaFromFlow } from '../../../services/aiService';
+import { useToast } from '../../../hooks/useToast';
+
+export default function SchemaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
+  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
+  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
+  const addF = usePrdStore(function (s) { return s.addSchemaField; });
+  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
+  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
+  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [genBusy, setGenBusy] = useState(false);
+  const flowText = (f.userFlow || '').trim();
+
+  async function handleGenerate() {
+    if (!flowText || genBusy) return;
+    setGenBusy(true);
+    try {
+      const tables = await generateSchemaFromFlow(flowText);
+      setTables(tables);
+      commit();
+      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
+    } catch (e) {
+      showToast('Gagal membuat schema: ' + e.message, 'error');
+    } finally {
+      setGenBusy(false);
+    }
+  }
+
+  if (mode !== 'enterprise' && !se.schema) return null;
+
+  return (
+    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList}
+      action={
+        <div className="flex items-center gap-2">
+          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
+            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
+            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
+          </IconButton>
+          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
+        </div>
+      }>
+      <p className="text-[11px] text-mut -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
+      <div className="space-y-4">
+        {st.map(function (t, ti) {
+          return (
+            <div key={ti} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
+              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
+                <span className="col-span-1 order-1 text-accent text-center" aria-hidden="true">
+                  <FontAwesomeIcon icon={faTableList} />
+                </span>
+                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
+                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-card border border-line rounded p-1.5 text-ink font-mono font-semibold" />
+                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-danger flex justify-center">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                </button>
+                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
+                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
+                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {t.fields.map(function (s, fi) {
+                  return (
+                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-card border border-line rounded-lg">
+                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
+                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-field border border-line rounded p-1.5 text-ink font-mono" />
+                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-danger flex justify-center">
+                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                      </button>
+                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
+                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
+                      </div>
+                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
+                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-field border border-line rounded p-1.5 text-ink">
+                        <option value="Ya">Not Null</option>
+                        <option value="Opsional">Opsional</option>
+                      </select>
+                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
+                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
+                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
+                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-accent font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/TechStack.jsx
+````javascript
+import { useState, useRef, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faLayerGroup, faPlus, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+function FieldRow(props) {
+  const def = props.def;
+  const value = props.value;
+  const onChange = props.onChange;
+  const onRemove = props.onRemove;
+  const fieldId = 'tech-' + def.key;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label htmlFor={fieldId} className="text-ink font-medium flex items-center">
+          <FontAwesomeIcon icon={def.icon} className={def.color + ' mr-1'} aria-hidden="true" />
+          {def.label}
+        </label>
+        {onRemove && (
+          <button onClick={onRemove} className="text-danger text-[10px] font-semibold" title="Hapus stack ini" aria-label={'Hapus ' + def.label}>
+            <FontAwesomeIcon icon={faXmark} className="mr-1" aria-hidden="true" />
+            Hapus
+          </button>
+        )}
+      </div>
+      <div className="relative">
+        <input id={fieldId} type="text" value={value} onChange={function (e) { onChange(e.target.value); }} placeholder={def.ph || ''} className="w-full bg-field border border-line rounded-lg p-2 pr-10 text-ink focus:border-accent focus:outline-none" />
+        <AiRefineButton value={value} onApply={onChange} mode="technical" label={def.label} className="absolute right-2 top-1/2 -translate-y-1/2" />
+      </div>
+    </div>
+  );
+}
+
+export default function TechStack() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const addTech = usePrdStore(function (s) { return s.addTechExtra; });
+  const remTech = usePrdStore(function (s) { return s.removeTechExtra; });
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(function () {
+    function onDoc(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return function () { document.removeEventListener('mousedown', onDoc); };
+  }, []);
+
+  const availEssential = TECH_OPTIONAL.filter(function (d) { return d.category === 'Esensial' && !techOptional.includes(d.key); });
+  const availAdvanced = TECH_OPTIONAL.filter(function (d) { return d.category === 'Lanjutan' && !techOptional.includes(d.key); });
+  const addedOptional = TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); });
+
+  return (
+    <EditorSection title="4. Spesifikasi Tech Stack & Arsitektur" icon={faLayerGroup}
+      action={
+        <div className="relative" ref={wrapRef}>
+          <IconButton icon={faPlus} onClick={function () { setOpen(!open); }} ariaLabel="Tambah stack lanjutan">Tambah Stack Lanjutan</IconButton>
+          {open && (
+            <div className="absolute z-40 right-0 mt-2 w-80 bg-card border border-line rounded-lg shadow-lg max-h-72 overflow-y-auto" role="menu">
+              {availEssential.length > 0 && (
+                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-mut bg-field sticky top-0">Esensial</div>
+              )}
+              {availEssential.map(function (d) {
+                return (
+                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-ink hover:bg-accent/15">
+                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
+                    {d.label}
+                  </button>
+                );
+              })}
+              {availAdvanced.length > 0 && (
+                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-mut bg-field sticky top-0">Lanjutan</div>
+              )}
+              {availAdvanced.map(function (d) {
+                return (
+                  <button key={d.key} onClick={function () { addTech(d.key); }} role="menuitem" className="block w-full text-left px-3 py-2 text-[11px] text-ink hover:bg-accent/15">
+                    <FontAwesomeIcon icon={d.icon} className={d.color + ' mr-2'} aria-hidden="true" />
+                    {d.label}
+                  </button>
+                );
+              })}
+              {availEssential.length === 0 && availAdvanced.length === 0 && (
+                <div className="px-3 py-2 text-[11px] text-mut italic">Semua stack sudah ditambahkan.</div>
+              )}
+            </div>
+          )}
+        </div>
+      }>
+      <div className="space-y-3 text-xs">
+        <div>
+          <label htmlFor="userFlow" className="block text-ink font-medium mb-1">Alur Pengguna (User Flow)</label>
+          <div className="relative">
+            <input id="userFlow" type="text" value={f.userFlow} onChange={function (e) { set('userFlow', e.target.value); }} placeholder="Landing -> Auth -> Dashboard" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.userFlow} onApply={function (v) { set('userFlow', v); }} mode="flow" label="User Flow" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+          {TECH_REQUIRED.map(function (d) {
+            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} />;
+          })}
+          {addedOptional.map(function (d) {
+            return <FieldRow key={d.key} def={d} value={f[d.key]} onChange={function (v) { set(d.key, v); }} onRemove={function () { remTech(d.key); }} />;
+          })}
+        </div>
+        <div className="pt-1">
+          <label htmlFor="dbSchema" className="block text-ink font-medium mb-1">Skema Database & Model Relasi</label>
+          <textarea id="dbSchema" value={f.dbSchema} onChange={function (e) { set('dbSchema', e.target.value); }} rows="3" placeholder="users: id, name, email" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none font-mono resize-none" />
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/header/ModeSwitcher.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faBolt, faBuilding } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+
+export default function ModeSwitcher() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const setMode = usePrdStore(function (s) { return s.setMode; });
+  const sw = function (m) { if (mode === m) return; setMode(m); };
+
+  const a = 'flex-1 md:flex-none h-10 md:h-auto flex items-center justify-center space-x-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ';
+  const i = 'flex-1 md:flex-none h-10 md:h-auto flex items-center justify-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-mut hover:text-ink rounded-lg transition-all duration-200';
+
+  return (
+    <div className="flex items-center bg-base border border-line p-1 rounded-xl space-x-1 order-3 md:order-2 w-full md:w-auto">
+      <button onClick={function () { sw('simple'); }} className={mode === 'simple' ? a + 'bg-accent text-white' : i}>
+        <FontAwesomeIcon icon={faBolt} /><span>Mode Simple</span>
+      </button>
+      <button onClick={function () { sw('enterprise'); }} className={mode === 'enterprise' ? a + 'bg-accent text-white' : i}>
+        <FontAwesomeIcon icon={faBuilding} /><span>Mode Enterprise</span>
+      </button>
+    </div>
+  );
+}
+````
+
+## File: src/components/mobile/ScrollButtons.jsx
+````javascript
+import { useState, useEffect, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowDown, faArrowUp } from '@fortawesome/free-solid-svg-icons';
+import { useViewStore } from '../../store/useViewStore';
+
+const AMBANG_NAIK = 0.8;
+const AMBANG_TURUN = 0.2;
+
+export default function ScrollButtons() {
+  const view = useViewStore(function (s) { return s.view; });
+  const [atTop, setAtTop] = useState({ editor: true, preview: true });
+  const autoScroll = useRef({ editor: false, preview: false });
+  const timers = useRef({ editor: null, preview: null });
+  const guards = useRef({ editor: null, preview: null });
+
+  function getEl(panel) {
+    return document.getElementById(panel === 'editor' ? 'editorPanel' : 'previewPanel');
+  }
+
+  function updateIcon(panel) {
+    const el = getEl(panel);
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    setAtTop(function (prev) {
+      let top = prev[panel];
+      if (max <= 4) { top = true; }
+      else {
+        const p = el.scrollTop / max;
+        if (p >= AMBANG_NAIK) top = false;
+        else if (p <= AMBANG_TURUN) top = true;
+      }
+      if (prev[panel] === top) return prev;
+      const next = { editor: prev.editor, preview: prev.preview };
+      next[panel] = top;
+      return next;
+    });
+  }
+
+  function stopAuto(panel) {
+    if (timers.current[panel]) { clearInterval(timers.current[panel]); timers.current[panel] = null; }
+    if (guards.current[panel]) { clearTimeout(guards.current[panel]); guards.current[panel] = null; }
+    if (autoScroll.current[panel]) {
+      autoScroll.current[panel] = false;
+      updateIcon(panel);
+    }
+  }
+
+  function watchEnd(panel, el, dest) {
+    if (timers.current[panel]) clearInterval(timers.current[panel]);
+    if (guards.current[panel]) clearTimeout(guards.current[panel]);
+    let last = el.scrollTop;
+    let same = 0;
+    timers.current[panel] = setInterval(function () {
+      const cur = el.scrollTop;
+      const reached = Math.abs(cur - dest) <= 4;
+      same = cur === last ? same + 1 : 0;
+      last = cur;
+      if (reached || same >= 3) stopAuto(panel);
+    }, 80);
+    guards.current[panel] = setTimeout(function () { stopAuto(panel); }, 3000);
+  }
+
+  function scroll(panel, down) {
+    const el = getEl(panel);
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max <= 4) return;
+    const dest = down ? max : 0;
+    autoScroll.current[panel] = true;
+    el.scrollTo({ top: dest, behavior: 'smooth' });
+    watchEnd(panel, el, dest);
+  }
+
+  useEffect(function () {
+    function onScrollCapture(e) {
+      const t = e.target;
+      if (!t || t.nodeType !== 1) return;
+      if (t.id === 'editorPanel' && !autoScroll.current.editor) updateIcon('editor');
+      else if (t.id === 'previewPanel' && !autoScroll.current.preview) updateIcon('preview');
+    }
+    document.addEventListener('scroll', onScrollCapture, { capture: true, passive: true });
+    function interrupt() {
+      if (autoScroll.current.editor) stopAuto('editor');
+      if (autoScroll.current.preview) stopAuto('preview');
+    }
+    document.addEventListener('touchstart', interrupt, { passive: true });
+    document.addEventListener('wheel', interrupt, { passive: true });
+    document.addEventListener('keydown', interrupt, { passive: true });
+    updateIcon('editor');
+    updateIcon('preview');
+    return function () {
+      document.removeEventListener('scroll', onScrollCapture, { capture: true });
+      document.removeEventListener('touchstart', interrupt);
+      document.removeEventListener('wheel', interrupt);
+      document.removeEventListener('keydown', interrupt);
+      stopAuto('editor');
+      stopAuto('preview');
+    };
+  }, []);
+
+  function btn(panel) {
+    const top = atTop[panel];
+    return (
+      <button
+        onClick={function () { scroll(panel, top); }}
+        className="w-11 h-11 rounded-full flex items-center justify-center bg-card text-ink border border-line shadow-sm hover:bg-accent hover:text-white transition"
+        title={panel === 'editor' ? 'Scroll editor' : 'Scroll preview'}
+      >
+        <FontAwesomeIcon icon={top ? faArrowDown : faArrowUp} />
+      </button>
+    );
+  }
+
+  const editorCls = 'no-print fixed z-[45] bottom-20 lg:bottom-5 right-3 lg:right-[calc(50%+14px)] flex-col gap-2 ' + (view === 'editor' ? 'flex' : 'hidden lg:flex');
+  const previewCls = 'no-print fixed z-[45] bottom-20 lg:bottom-5 right-3 lg:right-5 flex-col gap-2 ' + (view === 'preview' ? 'flex' : 'hidden lg:flex');
+
+  return (
+    <div>
+      <div className={editorCls}>{btn('editor')}</div>
+      <div className={previewCls}>{btn('preview')}</div>
+    </div>
+  );
+}
+````
+
 ## File: src/components/shared/ComboBox.jsx
 ````javascript
 import { useState, useRef, useEffect } from 'react';
@@ -4317,7 +3680,7 @@ export default function ComboBox(props) {
   const onChange = props.onChange;
   const placeholder = props.placeholder || 'Tipe data';
   const label = props.label || 'Tipe data';
-  // FIX: id dibuat sekali saat mount agar stabil antar render.
+
   const [inputId] = useState(function () {
     return 'combo-' + (label || '').replace(/\s+/g, '-').toLowerCase() + '-' + Math.random().toString(36).slice(2, 7);
   });
@@ -4340,6 +3703,7 @@ export default function ComboBox(props) {
       flat.push({ cat: cat.category, value: it });
     });
   });
+
   const grouped = {};
   flat.forEach(function (it) {
     if (!grouped[it.cat]) grouped[it.cat] = [];
@@ -4367,24 +3731,24 @@ export default function ComboBox(props) {
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
-        className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 pr-6 text-slate-100 font-mono text-xs focus:border-amber-500 focus:outline-none"
+        className="w-full bg-field border border-line rounded p-1.5 pr-6 text-ink font-mono text-xs focus:border-accent focus:outline-none"
       />
-      <FontAwesomeIcon icon={faChevronDown} className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-500 pointer-events-none" aria-hidden="true" />
+      <FontAwesomeIcon icon={faChevronDown} className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-mut pointer-events-none" aria-hidden="true" />
       {open && (
-        <div className="absolute z-40 left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg max-h-56 overflow-y-auto shadow-xl" role="listbox">
+        <div className="absolute z-40 left-0 right-0 mt-1 bg-card border border-line rounded-lg max-h-56 overflow-y-auto shadow-lg" role="listbox">
           {Object.keys(grouped).length === 0 ? (
-            <div className="px-2.5 py-2 text-[11px] text-slate-500 italic">Tidak ada tipe data yang cocok</div>
+            <div className="px-2.5 py-2 text-[11px] text-mut italic">Tidak ada tipe data yang cocok</div>
           ) : Object.entries(grouped).map(function (entry) {
             const cat = entry[0];
             const items = entry[1];
             return (
               <div key={cat}>
-                <div className="px-2.5 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">{cat}</div>
+                <div className="px-2.5 py-1 text-[9px] uppercase tracking-wider text-mut bg-field sticky top-0">{cat}</div>
                 {items.map(function (it) {
                   const gi = flat.findIndex(function (x) { return x.value === it; });
                   return (
                     <button key={it} type="button" role="option" aria-selected={gi === ai} onClick={function () { onChange && onChange(it); setOpen(false); }}
-                      className={'block w-full text-left px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-blue-600/30 font-mono ' + (gi === ai ? 'bg-blue-600/40' : '')}>{it}</button>
+                      className={'block w-full text-left px-2.5 py-1.5 text-[11px] text-ink hover:bg-accent/15 font-mono ' + (gi === ai ? 'bg-accent/20' : '')}>{it}</button>
                   );
                 })}
               </div>
@@ -4400,6 +3764,7 @@ export default function ComboBox(props) {
 ## File: src/components/shared/IconButton.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+
 export default function IconButton(props) {
   const icon = props.icon;
   const onClick = props.onClick;
@@ -4409,12 +3774,14 @@ export default function IconButton(props) {
   const children = props.children;
   const title = props.title;
   const ariaLabel = props['aria-label'] || props.ariaLabel || title;
+
   const v = {
-    default: 'bg-slate-700 hover:bg-slate-600 text-slate-200 border-slate-600',
-    danger: 'bg-rose-950/60 hover:bg-rose-900 text-rose-300 border-rose-800',
-    primary: 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500',
-    accent: 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500',
+    default: 'bg-field hover:bg-line text-ink border-line',
+    danger: 'bg-danger/10 hover:bg-danger/20 text-danger border-danger/30',
+    primary: 'bg-accent hover:bg-accent2 text-white border-accent',
+    accent: 'bg-accent hover:bg-accent2 text-white border-accent',
   };
+
   return (
     <button
       onClick={onClick}
@@ -4428,692 +3795,6 @@ export default function IconButton(props) {
     </button>
   );
 }
-````
-
-## File: src/App.jsx
-````javascript
-import { useEffect, useRef, lazy, Suspense } from 'react';
-import { debounce } from 'lodash';
-import { usePrdStore } from './store/usePrdStore';
-import { storageService } from './services/storageService';
-import Header from './components/header/Header';
-import EditorPanel from './components/editor/EditorPanel';
-import MobileTabBar from './components/mobile/MobileTabBar';
-import ScrollButtons from './components/mobile/ScrollButtons';
-import ToastContainer from './components/shared/Toast';
-
-const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
-
-export default function App() {
-  const restoreState = usePrdStore(function (s) { return s.restoreState; });
-  const setMode = usePrdStore(function (s) { return s.setMode; });
-  const initDoneRef = useRef(false);
-
-  useEffect(function () {
-    if (initDoneRef.current) return;
-    initDoneRef.current = true;
-    const saved = storageService.load();
-    if (saved && saved.state) {
-      if (saved.mode) setMode(saved.mode);
-      restoreState(saved.state);
-    }
-    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
-  }, []);
-
-  useEffect(function () {
-    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
-    function onInput(e) {
-      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
-    }
-    function onClick(e) {
-      const b = e.target.closest ? e.target.closest('button') : null;
-      if (!b) return;
-      const t = b.title || '';
-      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
-      commit();
-    }
-    document.addEventListener('input', onInput);
-    document.addEventListener('change', onInput);
-    document.addEventListener('click', onClick);
-    return function () {
-      document.removeEventListener('input', onInput);
-      document.removeEventListener('change', onInput);
-      document.removeEventListener('click', onClick);
-      commit.cancel();
-    };
-  }, []);
-
-  useEffect(function () {
-    function handler(e) {
-      const tag = (e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        usePrdStore.getState().undo();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-        e.preventDefault();
-        usePrdStore.getState().redo();
-      }
-    }
-    document.addEventListener('keydown', handler);
-    return function () { document.removeEventListener('keydown', handler); };
-  }, []);
-
-  return (
-    <div className="app-shell flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      <a
-        href="#editorPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Editor
-      </a>
-      <a
-        href="#previewPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Preview
-      </a>
-      <Header />
-      <main className="flex-grow min-h-0 overflow-hidden relative">
-        <div id="panelSlider">
-          <div><EditorPanel /></div>
-          <div>
-            <Suspense fallback={
-              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center h-full">
-                <div className="text-slate-400 text-sm">Memuat preview...</div>
-              </div>
-            }>
-              <PreviewPanel />
-            </Suspense>
-          </div>
-        </div>
-        <ScrollButtons />
-      </main>
-      <MobileTabBar />
-      <ToastContainer />
-    </div>
-  );
-}
-````
-
-## File: index.html
-````html
-<!doctype html>
-<html lang="id">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PRD Architect Pro - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
-    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
-    <meta name="author" content="PRD Architect Pro" />
-    <meta name="theme-color" content="#0f172a" />
-    <meta name="robots" content="index, follow" />
-
-    <!-- Open Graph -->
-    <meta property="og:title" content="PRD Architect Pro" />
-    <meta property="og:description" content="Perancang Dokumen PRD Profesional - Simple MVP & Enterprise Mode" />
-    <meta property="og:type" content="website" />
-    <meta property="og:locale" content="id_ID" />
-
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="PRD Architect Pro" />
-    <meta name="twitter:description" content="Perancang Dokumen PRD Profesional" />
-
-    <title>PRD Architect Pro - Perancang Dokumen PRD Profesional</title>
-
-    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
-
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
-
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "PRD Architect Pro",
-      "description": "Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise.",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web",
-      "inLanguage": "id-ID",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "IDR"
-      }
-    }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-````
-
-## File: package.json
-````json
-{
-  "name": "prd-architect-pro",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report"
-  },
-  "dependencies": {
-    "@fortawesome/free-brands-svg-icons": "^7.3.1",
-    "@fortawesome/free-regular-svg-icons": "^7.3.1",
-    "@fortawesome/free-solid-svg-icons": "^7.3.1",
-    "@fortawesome/react-fontawesome": "^3.5.0",
-    "copy-to-clipboard": "^4.0.2",
-    "file-saver": "^2.0.5",
-    "lodash": "^4.18.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-markdown": "^10.1.0",
-    "zustand": "^5.0.15"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.57.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.10.1",
-    "@vitejs/plugin-react": "^6.1.1",
-    "autoprefixer": "^10.5.4",
-    "tailwindcss": "^4.3.3",
-    "vite": "^8.2.2"
-  }
-}
-````
-
-## File: src/components/editor/sections/CoverFooterSection.jsx
-````javascript
-import { useState } from 'react';
-import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
-import { generateCoverTagline } from '../../../services/groqService';
-import { useToast } from '../../../hooks/useToast';
-import EditorSection from '../EditorSection';
-import ToggleSwitch from '../../shared/ToggleSwitch';
-
-// Field warna manual untuk sampul.
-// Simbol # dijadikan span statis yang tidak bisa diklik atau
-// diubah (pointer-events-none + select-none), sama seperti pola
-// di section Branding. Input teks hanya menerima 6 digit hex,
-// sedangkan nilai yang tersimpan tetap berawalan # agar logika
-// tema (resolveCoverTheme & isValidHex) tetap aman.
-function ColorField(props) {
-  const digits = (props.value || '').replace(/^#/, '');
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
-  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
-  return (
-    <div>
-      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={safe}
-          onChange={function (e) { props.onChange(e.target.value); }}
-          aria-label={'Pilih ' + props.label}
-          className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0"
-        />
-        <div className="relative w-full min-w-0">
-          <span
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none select-none"
-            aria-hidden="true"
-          >#</span>
-          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
-          <input
-            id={inputId}
-            type="text"
-            value={digits}
-            onChange={function (e) {
-              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
-              props.onChange(c ? '#' + c : '');
-            }}
-            placeholder="C9A961"
-            maxLength="6"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pl-6 text-slate-100 font-mono focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function CoverFooterSection() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [aiBusy, setAiBusy] = useState(false);
-  const auto = f.coverThemeAuto !== false;
-
-  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
-  // ke field manual supaya tampilan tidak melompat.
-  const handleToggleAuto = function (v) {
-    if (!v) {
-      const t = resolveCoverTheme(f, palette);
-      set('coverPrimary', t.primary);
-      set('coverAccent', t.accent);
-      set('coverBg', t.bg);
-    }
-    set('coverThemeAuto', v);
-  };
-
-  const goalText = (f.productGoal || '').trim();
-
-  // AI hanya membaca Goals untuk mengisi field Subtitle Sampul.
-  // Setelah terisi, user bebas mengeditnya. Tidak ada sync otomatis.
-  // FIX UNDO/REDO: commit dipanggil setelah subtitle diterapkan.
-  async function handleUseAi() {
-    if (aiBusy || !goalText) return;
-    setAiBusy(true);
-    try {
-      const t = await generateCoverTagline(goalText);
-      if (t) {
-        set('coverSubtitle', t);
-        commit();
-        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
-      } else {
-        showToast('AI tidak menghasilkan saran', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal membuat saran: ' + e.message, 'error');
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  return (
-    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
-      <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
-        {auto ? (
-          <p className="text-[11px] text-slate-500">
-            {palette.length
-              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis. Warna yang kurang serasi disaring sendiri, jadi kamu tidak perlu pusing mengaturnya.'
-              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
-          </div>
-        )}
-
-        {/* SUBTITLE SAMPUL: satu-satunya sumber kebenaran untuk sampul */}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <label htmlFor="coverSubtitle" className="text-slate-300 font-medium">Subtitle Sampul (di bawah judul)</label>
-            <button
-              type="button"
-              onClick={handleUseAi}
-              disabled={aiBusy || !goalText}
-              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
-              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-            >
-              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
-              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
-            </button>
-          </div>
-          <input
-            id="coverSubtitle"
-            type="text"
-            value={f.coverSubtitle}
-            onChange={function (e) { set('coverSubtitle', e.target.value); }}
-            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none"
-          />
-          <p className="text-[10px] text-slate-500 mt-1">
-            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen. Kalau belum yakin menulisnya, tekan tombol Pakai saran AI untuk merangkum kolom Tujuan Utama Produk, lalu edit hasilnya sesuka hati.
-          </p>
-        </div>
-
-        <div>
-          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
-          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
-          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/ProjectInfo.jsx
-````javascript
-import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-const STATUS_OPTIONS = [
-  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
-  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
-  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
-  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
-  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
-  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
-];
-
-export default function ProjectInfo() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  return (
-    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div>
-          <label htmlFor="projectName" className="block text-slate-300 font-medium mb-1">Nama Proyek / Aplikasi</label>
-          <div className="relative">
-            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
-            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="docVersion" className="block text-slate-300 font-medium mb-1">Versi Dokumen</label>
-          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="author" className="block text-slate-300 font-medium mb-1">Penulis / Product Owner</label>
-          <div className="relative">
-            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none" />
-            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="docStatus" className="block text-slate-300 font-medium mb-1">Status Dokumen</label>
-          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
-            {STATUS_OPTIONS.map(function (o) {
-              return <option key={o.value} value={o.value}>{o.label}</option>;
-            })}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="targetDate" className="block text-slate-300 font-medium mb-1">Target Rilis</label>
-          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="targetDateFormat" className="block text-slate-300 font-medium mb-1">Format Tampilan Target Rilis</label>
-          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none">
-            <option value="full">Tanggal Lengkap</option>
-            <option value="month">Bulan + Tahun</option>
-            <option value="quarter">Kuartal + Tahun</option>
-          </select>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/styles/globals.css
-````css
-@import "tailwindcss";
-
-:root {
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
-
-button:not(:disabled) { cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-
-* { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: #64748b; }
-
-textarea { overflow-y: hidden; }
-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
-
-/* ============================================================
-   FIX TINGGI ROOT: gunakan dvh dengan fallback vh.
-   100dvh mengikuti viewport aktual browser mobile (address bar
-   expand/collapse), sehingga tidak ada area terpotong di bawah.
-   ============================================================ */
-.app-shell {
-  height: 100vh;
-  height: 100dvh;
-}
-
-/* Skip link utility */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-.sr-only:focus {
-  position: fixed;
-  width: auto;
-  height: auto;
-  padding: 0.5rem 1rem;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
-  white-space: normal;
-}
-
-@keyframes slideUp {
-  from { transform: translateY(12px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-/* ============================================================
-   PANEL SLIDER LAYOUT
-   min-height: 0 ditambahkan di panelSlider agar kalkulasi tinggi
-   flex tidak overflow. Height 100% di semua level memastikan
-   section fill penuh area yang tersedia.
-   ============================================================ */
-#panelSlider {
-  display: flex;
-  flex-direction: row;
-  height: 100%;
-  min-height: 0;
-  width: 200%;
-  transform: translateX(0);
-  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: transform;
-}
-#panelSlider.slide-preview { transform: translateX(-50%); }
-#panelSlider > div {
-  width: 50%;
-  height: 100%;
-  flex-shrink: 0;
-  min-height: 0;
-}
-
-/* ============================================================
-   DESKTOP (min 1024px): split view editor + preview
-   ============================================================ */
-@media (min-width: 1024px) {
-  #panelSlider {
-    width: 100% !important;
-    transform: none !important;
-    transition: none !important;
-  }
-  #panelSlider > div {
-    width: 50%;
-  }
-}
-
-/* ============================================================
-   MOBILE & TABLET (max 1023.98px): slide view + tab bar
-   padding-bottom mengompensasi MobileTabBar yang fixed di bawah.
-   ============================================================ */
-@media (max-width: 1023.98px) {
-  html, body {
-    overflow: hidden;
-  }
-  body {
-    height: 100vh;
-    height: 100dvh;
-    min-height: 0 !important;
-  }
-  #panelSlider {
-    height: 100%;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
-    box-sizing: border-box;
-  }
-  #panelSlider > div > section {
-    max-height: none !important;
-    height: 100% !important;
-    min-height: 0;
-    overflow-y: auto !important;
-    overscroll-behavior: contain;
-  }
-}
-
-/* ============================================================
-   SECTION EDITOR & PREVIEW
-   Pastikan kedua section selalu fill tinggi parent dan bisa
-   scroll internal tanpa memengaruhi layout luar.
-   ============================================================ */
-#editorPanel,
-#previewPanel {
-  height: 100%;
-  min-height: 0;
-  overscroll-behavior: contain;
-}
-
-#prdDocument { min-width: 0; }
-#prdDocument table { table-layout: fixed; width: 100%; }
-#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
-#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
-
-/* ============================================================
-   TEMA DOKUMEN
-   Warna heading & aksen dokumen mengikuti tema sampul/footer.
-   Nilai fallback sama dengan palet biru/amber lama, lalu
-   ditimpa lewat CSS variables inline dari PreviewDocument.
-   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
-   ============================================================ */
-#prdDocument {
-  --doc-primary: #2563eb;
-  --doc-primary-text: #1e40af;
-  --doc-accent: #f59e0b;
-  --doc-accent-text: #b45309;
-}
-#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
-#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
-#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
-#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
-#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
-
-@media screen and (max-width: 640px) {
-  #prdDocument { padding: 1.5rem 1rem; }
-  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
-  #prdDocument table.tbl-stack thead { display: none; }
-  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
-  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
-    display: block; width: 100%; box-sizing: border-box;
-  }
-  #prdDocument table.tbl-stack tr {
-    border: 1px solid #e2e8f0; border-radius: 10px;
-    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
-  }
-  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
-  #prdDocument table.tbl-stack td[data-label]::before {
-    content: attr(data-label); display: block; font-size: 9px;
-    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-    color: #64748b; margin-bottom: 1px;
-  }
-}
-
-/* ============================================================
-   PRINT STYLES
-   ============================================================ */
-@page { size: A4; margin: 14mm 12mm; }
-@page :first { margin: 0; }
-
-@media print {
-  .no-print, nav, header { display: none !important; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
-  #root { height: auto !important; }
-  #root > div {
-    display: block !important; height: auto !important;
-    overflow: visible !important; background: #ffffff !important;
-  }
-  main { display: block !important; height: auto !important; overflow: visible !important; }
-  #panelSlider {
-    display: block !important; width: 100% !important;
-    height: auto !important; transform: none !important; padding: 0 !important;
-  }
-  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
-  #panelSlider > div:first-child { display: none !important; }
-  #previewPanel {
-    height: auto !important; max-height: none !important;
-    overflow: visible !important; background: #ffffff !important; padding: 0 !important;
-  }
-  .doc-cover {
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 0 !important;
-    height: 296mm;
-    margin: 0 !important;
-    overflow: hidden;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    break-after: page;
-    page-break-after: always;
-  }
-  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
-  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
-  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
-  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-  .cover-meta .meta-label { font-size: 10px !important; }
-  #prdDocument {
-    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
-    border: none !important; border-radius: 0 !important;
-    box-shadow: none !important; background: #ffffff !important;
-  }
-  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
-  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
-  p, li { orphans: 3; widows: 3; }
-  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
-  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
-}
-
-/* ============================================================
-   TRANSISI SUBTITLE SAMPUL
-   Animasi hanya dijalankan pada momen subtitle naik kelas dari
-   heuristik ke hasil AI, sehingga perubahan teks terlihat seperti
-   fitur yang disengaja, bukan bug.
-   ============================================================ */
-@keyframes coverSubtitleIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
-.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
 ````
 
 ## File: src/utils/constants.js
@@ -5488,6 +4169,611 @@ export const titleCaseForCover = function (text) {
 };
 ````
 
+## File: src/App.jsx
+````javascript
+import { useEffect, useRef, lazy, Suspense } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from './store/usePrdStore';
+import { storageService } from './services/storageService';
+import Header from './components/header/Header';
+import EditorPanel from './components/editor/EditorPanel';
+import MobileTabBar from './components/mobile/MobileTabBar';
+import ScrollButtons from './components/mobile/ScrollButtons';
+import ToastContainer from './components/shared/Toast';
+
+const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
+
+export default function App() {
+  const restoreState = usePrdStore(function (s) { return s.restoreState; });
+  const setMode = usePrdStore(function (s) { return s.setMode; });
+  const initDoneRef = useRef(false);
+
+  useEffect(function () {
+    if (initDoneRef.current) return;
+    initDoneRef.current = true;
+    const saved = storageService.load();
+    if (saved && saved.state) {
+      if (saved.mode) setMode(saved.mode);
+      restoreState(saved.state);
+    }
+    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
+  }, []);
+
+  useEffect(function () {
+    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
+    function onInput(e) {
+      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
+    }
+    function onClick(e) {
+      const b = e.target.closest ? e.target.closest('button') : null;
+      if (!b) return;
+      const t = b.title || '';
+      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
+      commit();
+    }
+    document.addEventListener('input', onInput);
+    document.addEventListener('change', onInput);
+    document.addEventListener('click', onClick);
+    return function () {
+      document.removeEventListener('input', onInput);
+      document.removeEventListener('change', onInput);
+      document.removeEventListener('click', onClick);
+      commit.cancel();
+    };
+  }, []);
+
+  useEffect(function () {
+    function handler(e) {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        usePrdStore.getState().undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault();
+        usePrdStore.getState().redo();
+      }
+    }
+    document.addEventListener('keydown', handler);
+    return function () { document.removeEventListener('keydown', handler); };
+  }, []);
+
+  return (
+    <div className="app-shell flex flex-col bg-base text-ink overflow-hidden">
+      <a href="#editorPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Editor</a>
+      <a href="#previewPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Preview</a>
+      <Header />
+      <main className="flex-grow min-h-0 overflow-hidden relative">
+        <div id="panelSlider">
+          <div><EditorPanel /></div>
+          <div>
+            <Suspense fallback={
+              <div id="previewPanel" className="bg-base p-6 flex items-center justify-center h-full">
+                <div className="text-mut text-sm">Memuat preview...</div>
+              </div>
+            }>
+              <PreviewPanel />
+            </Suspense>
+          </div>
+        </div>
+        <ScrollButtons />
+      </main>
+      <MobileTabBar />
+      <ToastContainer />
+    </div>
+  );
+}
+````
+
+## File: index.html
+````html
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PRD Architect Pro - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
+    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
+    <meta name="author" content="PRD Architect Pro" />
+    <meta name="theme-color" content="#101013" />
+    <meta name="robots" content="index, follow" />
+    <script>
+      try {
+        if ((localStorage.getItem('prdTheme') || 'dark') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
+    <meta property="og:title" content="PRD Architect Pro" />
+    <meta property="og:description" content="Perancang Dokumen PRD Profesional - Simple MVP & Enterprise Mode" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="id_ID" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="PRD Architect Pro" />
+    <meta name="twitter:description" content="Perancang Dokumen PRD Profesional" />
+    <title>PRD Architect Pro - Perancang Dokumen PRD Profesional</title>
+    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+````
+
+## File: package.json
+````json
+{
+  "name": "prd-architect-pro",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
+  },
+  "dependencies": {
+    "@fortawesome/free-brands-svg-icons": "^7.3.1",
+    "@fortawesome/free-regular-svg-icons": "^7.3.1",
+    "@fortawesome/free-solid-svg-icons": "^7.3.1",
+    "@fortawesome/react-fontawesome": "^3.5.0",
+    "copy-to-clipboard": "^4.0.2",
+    "file-saver": "^2.0.5",
+    "lodash": "^4.18.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.5.4",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  }
+}
+````
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { useState } from 'react';
+import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import { generateCoverTagline } from '../../../services/aiService';
+import { useToast } from '../../../hooks/useToast';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+function ColorField(props) {
+  const digits = (props.value || '').replace(/^#/, '');
+  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
+  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+
+  return (
+    <div>
+      <span className="block text-ink font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          onChange={function (e) { props.onChange(e.target.value); }}
+          aria-label={'Pilih ' + props.label}
+          className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
+        />
+        <div className="relative w-full min-w-0">
+          <span
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none select-none"
+            aria-hidden="true"
+          >#</span>
+          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={digits}
+            onChange={function (e) {
+              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+              props.onChange(c ? '#' + c : '');
+            }}
+            placeholder="C9A961"
+            maxLength="6"
+            className="w-full bg-field border border-line rounded-lg p-2 pl-6 text-ink font-mono focus:border-accent focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [aiBusy, setAiBusy] = useState(false);
+  const auto = f.coverThemeAuto !== false;
+
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  const goalText = (f.productGoal || '').trim();
+
+  async function handleUseAi() {
+    if (aiBusy || !goalText) return;
+    setAiBusy(true);
+    try {
+      const t = await generateCoverTagline(goalText);
+      if (t) {
+        set('coverSubtitle', t);
+        commit();
+        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
+      } else {
+        showToast('AI tidak menghasilkan saran', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal membuat saran: ' + e.message, 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-mut">
+            {palette.length
+              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis.'
+              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="coverSubtitle" className="text-ink font-medium">Subtitle Sampul (di bawah judul)</label>
+            <button
+              type="button"
+              onClick={handleUseAi}
+              disabled={aiBusy || !goalText}
+              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
+              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
+            </button>
+          </div>
+          <input
+            id="coverSubtitle"
+            type="text"
+            value={f.coverSubtitle}
+            onChange={function (e) { set('coverSubtitle', e.target.value); }}
+            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
+            className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none"
+          />
+          <p className="text-[10px] text-mut mt-1">
+            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="coverKicker" className="block text-ink font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-ink font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/ProjectInfo.jsx
+````javascript
+import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+const STATUS_OPTIONS = [
+  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
+  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
+  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
+  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
+  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
+  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
+];
+
+export default function ProjectInfo() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  return (
+    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div>
+          <label htmlFor="projectName" className="block text-ink font-medium mb-1">Nama Proyek / Aplikasi</label>
+          <div className="relative">
+            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docVersion" className="block text-ink font-medium mb-1">Versi Dokumen</label>
+          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="author" className="block text-ink font-medium mb-1">Penulis / Product Owner</label>
+          <div className="relative">
+            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docStatus" className="block text-ink font-medium mb-1">Status Dokumen</label>
+          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
+            {STATUS_OPTIONS.map(function (o) { return <option key={o.value} value={o.value}>{o.label}</option>; })}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="targetDate" className="block text-ink font-medium mb-1">Target Rilis</label>
+          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="targetDateFormat" className="block text-ink font-medium mb-1">Format Tampilan Target Rilis</label>
+          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
+            <option value="full">Tanggal Lengkap</option>
+            <option value="month">Bulan + Tahun</option>
+            <option value="quarter">Kuartal + Tahun</option>
+          </select>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/services/exportService.js
+````javascript
+import { saveAs } from 'file-saver';
+import copyToClipboard from 'copy-to-clipboard';
+import { generateMarkdown } from '../utils/markdown';
+
+export const exportService = {
+  exportJSON: function (state) {
+    const data = { app: 'PRD Architect Pro', version: '3.5', mode: state.mode, state: state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
+  },
+  copyMarkdown: function (state) {
+    copyToClipboard(generateMarkdown(state));
+  },
+  printDocument: function () { window.print(); },
+};
+````
+
+## File: src/styles/globals.css
+````css
+@import "tailwindcss";
+
+@theme inline {
+  --color-base: var(--t-base);
+  --color-panel: var(--t-panel);
+  --color-card: var(--t-card);
+  --color-field: var(--t-field);
+  --color-line: var(--t-line);
+  --color-ink: var(--t-ink);
+  --color-mut: var(--t-mut);
+  --color-accent: var(--t-accent);
+  --color-accent2: var(--t-accent2);
+  --color-danger: var(--t-danger);
+  --color-ok: var(--t-ok);
+}
+
+:root {
+  --t-base: #eef0f3;
+  --t-panel: #ffffff;
+  --t-card: #ffffff;
+  --t-field: #f2f3f6;
+  --t-line: #e1e4e9;
+  --t-ink: #17181c;
+  --t-mut: #666b76;
+  --t-accent: #4d96e5;
+  --t-accent2: #3583d6;
+  --t-danger: #dd4b45;
+  --t-ok: #2ba36b;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.dark {
+  --t-base: #101013;
+  --t-panel: #17171b;
+  --t-card: #1c1c21;
+  --t-field: #232329;
+  --t-line: #2c2c34;
+  --t-ink: #f1f1f3;
+  --t-mut: #9c9ca6;
+  --t-accent: #5b9ee8;
+  --t-accent2: #74abec;
+  --t-danger: #e8564f;
+  --t-ok: #3fbe80;
+}
+
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--t-line) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--t-line); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
+
+textarea { overflow-y: hidden; }
+
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+.dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+.app-shell { height: 100vh; height: 100dvh; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.sr-only:focus {
+  position: fixed; width: auto; height: auto; padding: 0.5rem 1rem; margin: 0;
+  overflow: visible; clip: auto; white-space: normal;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+#panelSlider {
+  display: flex; flex-direction: row; height: 100%; min-height: 0;
+  width: 200%; transform: translateX(0);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+#panelSlider.slide-preview { transform: translateX(-50%); }
+#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
+
+@media (min-width: 1024px) {
+  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
+  #panelSlider > div { width: 50%; }
+}
+
+@media (max-width: 1023.98px) {
+  html, body { overflow: hidden; }
+  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
+  #panelSlider {
+    height: 100%;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  #panelSlider > div > section {
+    max-height: none !important; height: 100% !important; min-height: 0;
+    overflow-y: auto !important; overscroll-behavior: contain;
+  }
+}
+
+#editorPanel, #previewPanel { height: 100%; min-height: 0; overscroll-behavior: contain; }
+
+#prdDocument { min-width: 0; }
+#prdDocument table { table-layout: fixed; width: 100%; }
+#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
+#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+#prdDocument {
+  --doc-primary: #2563eb;
+  --doc-primary-text: #1e40af;
+  --doc-accent: #b45309;
+  --doc-accent-text: #92400e;
+}
+#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
+#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
+#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
+#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
+#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
+
+@media screen and (max-width: 640px) {
+  #prdDocument { padding: 1.5rem 1rem; }
+  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
+  #prdDocument table.tbl-stack thead { display: none; }
+  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
+  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  #prdDocument table.tbl-stack tr {
+    border: 1px solid #e2e8f0; border-radius: 8px;
+    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
+  }
+  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
+  #prdDocument table.tbl-stack td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: #64748b; margin-bottom: 1px;
+  }
+}
+
+@page { size: A4; margin: 14mm 12mm; }
+@page :first { margin: 0; }
+
+@media print {
+  .no-print, nav, header { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
+  #root { height: auto !important; }
+  #root > div { display: block !important; height: auto !important; overflow: visible !important; background: #ffffff !important; }
+  main { display: block !important; height: auto !important; overflow: visible !important; }
+  #panelSlider { display: block !important; width: 100% !important; height: auto !important; transform: none !important; padding: 0 !important; }
+  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
+  #panelSlider > div:first-child { display: none !important; }
+  #previewPanel { height: auto !important; max-height: none !important; overflow: visible !important; background: #ffffff !important; padding: 0 !important; }
+  .doc-cover {
+    width: 100% !important; max-width: none !important; min-height: 0 !important;
+    height: 296mm; margin: 0 !important; overflow: hidden;
+    border-radius: 0 !important; box-shadow: none !important;
+    break-after: page; page-break-after: always;
+  }
+  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
+  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
+  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
+  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .cover-meta .meta-label { font-size: 10px !important; }
+  #prdDocument {
+    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+    border: none !important; border-radius: 0 !important;
+    box-shadow: none !important; background: #ffffff !important;
+  }
+  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
+  p, li { orphans: 3; widows: 3; }
+  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
+  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
+}
+
+@keyframes coverSubtitleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
+.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
+````
+
 ## File: src/components/editor/AiAnalysisCard.jsx
 ````javascript
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -5497,13 +4783,6 @@ import ReactMarkdown from 'react-markdown';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
 
-// ============================================================
-// KONFIGURASI PERFORMA:
-// Tick 60ms (sekitar 16 update per detik) bukan 15ms.
-// Kecepatan ketik TETAP sama karena dihitung dari timestamp,
-// tapi beban parse ReactMarkdown turun 4x lipat sehingga
-// animasi lain (toggle, progress bar, undo/redo) tidak frame drop.
-// ============================================================
 const CHARS_PER_MS = 0.2;
 const TICK_MS = 60;
 
@@ -5514,41 +4793,39 @@ const BRIEF_EXAMPLES = [
   'Dashboard monitoring penjualan online shop',
 ];
 
-// Komponen Markdown di luar komponen React agar referensi stabil
-// (mencegah remount DOM yang membatalkan seleksi teks user)
 const MARKDOWN_COMPONENTS = {
   h1: function (props) {
-    return <h1 className="font-extrabold text-base text-purple-200 border-b border-purple-800/60 pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
+    return <h1 className="font-extrabold text-base text-ink border-b border-line pb-1 mt-4 mb-2 tracking-wide uppercase" {...props} />;
   },
   h2: function (props) {
-    return <h2 className="font-bold text-sm text-purple-300 mt-4 mb-2 flex items-center gap-1.5" {...props} />;
+    return <h2 className="font-bold text-sm text-accent mt-4 mb-2 flex items-center gap-1.5" {...props} />;
   },
   h3: function (props) {
-    return <h3 className="font-semibold text-xs text-indigo-300 mt-3 mb-1 pl-2 border-l-2 border-indigo-500/60" {...props} />;
+    return <h3 className="font-semibold text-xs text-accent mt-3 mb-1 pl-2 border-l-2 border-accent/60" {...props} />;
   },
   h4: function (props) {
-    return <h4 className="font-medium text-xs text-slate-300 mt-2 mb-1 italic" {...props} />;
+    return <h4 className="font-medium text-xs text-mut mt-2 mb-1 italic" {...props} />;
   },
   p: function (props) {
-    return <p className="text-xs text-slate-200 leading-relaxed my-1" {...props} />;
+    return <p className="text-xs text-ink leading-relaxed my-1" {...props} />;
   },
   ul: function (props) {
-    return <ul className="list-disc pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+    return <ul className="list-disc pl-5 space-y-1 my-1.5 text-mut" {...props} />;
   },
   ol: function (props) {
-    return <ol className="list-decimal pl-5 space-y-1 my-1.5 text-slate-300" {...props} />;
+    return <ol className="list-decimal pl-5 space-y-1 my-1.5 text-mut" {...props} />;
   },
   li: function (props) {
-    return <li className="text-slate-300 text-xs" {...props} />;
+    return <li className="text-mut text-xs" {...props} />;
   },
   strong: function (props) {
-    return <strong className="font-bold text-white" {...props} />;
+    return <strong className="font-bold text-ink" {...props} />;
   },
   code: function (props) {
-    return <code className="bg-slate-800 text-amber-300 px-1 py-0.5 rounded font-mono text-[11px]" {...props} />;
+    return <code className="bg-field text-accent px-1 py-0.5 rounded font-mono text-[11px]" {...props} />;
   },
   hr: function (props) {
-    return <hr className="border-purple-900/50 my-3" {...props} />;
+    return <hr className="border-line my-3" {...props} />;
   },
 };
 
@@ -5562,6 +4839,7 @@ export default function AiAnalysisCard() {
   const clearAiFeedback = usePrdStore((s) => s.clearAiFeedback);
   const aiTypewriterActive = usePrdStore((s) => s.aiTypewriterActive);
   const setAiTypewriterActive = usePrdStore((s) => s.setAiTypewriterActive);
+  const showToast = useToast();
 
   const isPrdEmpty = usePrdStore((s) => {
     const f = s.fields;
@@ -5571,7 +4849,6 @@ export default function AiAnalysisCard() {
       s.features.length === 0;
   });
 
-  const showToast = useToast();
   const feedbackBoxRef = useRef(null);
   const briefRef = useRef(null);
   const typewriterStartRef = useRef(null);
@@ -5583,82 +4860,53 @@ export default function AiAnalysisCard() {
   const [showJumpButton, setShowJumpButton] = useState(false);
   const [briefText, setBriefText] = useState('');
 
-  // Apakah box output sedang ter-render (untuk dependency effect listener)
   const boxMounted = !!(displayedText || isAnalyzing);
 
-  // ============================================================
-  // TYPEWRITER ENGINE
-  // Jika aiTypewriterActive false, teks langsung tampil penuh.
-  // Jika true, teks muncul huruf demi huruf seperti mengetik.
-  // ============================================================
   useEffect(() => {
     if (!rawAiFeedback) {
       setDisplayedText('');
       setIsTypingFinished(true);
       typewriterStartRef.current = null;
-
-      if (!isAnalyzing && aiTypewriterActive) {
-        setAiTypewriterActive(false);
-      }
-
+      if (!isAnalyzing && aiTypewriterActive) setAiTypewriterActive(false);
       return;
     }
-
-    // Jika ini bukan output baru dari analisis AI yang sedang berjalan,
-    // tampilkan langsung seluruh teks tanpa efek mengetik.
-    // Kasus ini terjadi saat web dibuka ulang dan data diambil dari localStorage.
     if (!aiTypewriterActive) {
       setDisplayedText(rawAiFeedback);
       setIsTypingFinished(true);
       typewriterStartRef.current = null;
       return;
     }
-
-    if (typewriterStartRef.current === null) {
-      typewriterStartRef.current = performance.now();
-    }
-
+    if (typewriterStartRef.current === null) typewriterStartRef.current = performance.now();
     setIsTypingFinished(false);
-
     const timer = setInterval(() => {
       const elapsed = performance.now() - typewriterStartRef.current;
       const expectedChars = Math.floor(elapsed * CHARS_PER_MS);
       const targetLength = Math.min(expectedChars, rawAiFeedback.length);
-
       setDisplayedText((prev) => {
         if (prev.length === targetLength) return prev;
         return rawAiFeedback.slice(0, targetLength);
       });
-
       if (targetLength >= rawAiFeedback.length && !isAnalyzing) {
         setIsTypingFinished(true);
         clearInterval(timer);
         setAiTypewriterActive(false);
       }
     }, TICK_MS);
-
     return () => clearInterval(timer);
   }, [rawAiFeedback, isAnalyzing, aiTypewriterActive, setAiTypewriterActive]);
 
-  // ============================================================
-  // AUTO-SCROLL: instant, hanya jika user di bottom
-  // ============================================================
   useEffect(() => {
     if ((isAnalyzing || !isTypingFinished) && feedbackBoxRef.current && !userScrolledUpRef.current) {
       if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
       rafScrollRef.current = requestAnimationFrame(() => {
         const el = feedbackBoxRef.current;
-        if (el && !userScrolledUpRef.current) {
-          el.scrollTop = el.scrollHeight;
-        }
+        if (el && !userScrolledUpRef.current) el.scrollTop = el.scrollHeight;
       });
     }
   }, [displayedText, isAnalyzing, isTypingFinished]);
 
   useEffect(() => {
-    return () => {
-      if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current);
-    };
+    return () => { if (rafScrollRef.current) cancelAnimationFrame(rafScrollRef.current); };
   }, []);
 
   const handleUserScrollIntent = useCallback(() => {
@@ -5685,20 +4933,12 @@ export default function AiAnalysisCard() {
     }
   }, []);
 
-  // ============================================================
-  // FIX PERFORMA: dependency hanya boxMounted (boolean),
-  // BUKAN displayedText. Sebelumnya effect ini re-run tiap tick
-  // (66x per detik) untuk remove+add 3 listener, sangat boros.
-  // Sekarang hanya re-run saat box muncul/hilang.
-  // ============================================================
   useEffect(() => {
     const el = feedbackBoxRef.current;
     if (!el) return;
-
     el.addEventListener('wheel', handleUserScrollIntent, { passive: true });
     el.addEventListener('touchmove', handleUserScrollIntent, { passive: true });
     el.addEventListener('pointerdown', handleUserScrollIntent, { passive: true });
-
     return () => {
       el.removeEventListener('wheel', handleUserScrollIntent);
       el.removeEventListener('touchmove', handleUserScrollIntent);
@@ -5727,7 +4967,6 @@ export default function AiAnalysisCard() {
       if (briefRef.current) briefRef.current.focus();
       return;
     }
-
     try {
       setDisplayedText('');
       userScrolledUpRef.current = false;
@@ -5742,37 +4981,30 @@ export default function AiAnalysisCard() {
 
   const handleApplyDraft = () => {
     const ok = applyAiDraft();
-    if (ok) {
-      showToast('Saran AI diterapkan', 'success');
-    } else {
-      showToast('Tidak ada draf AI', 'info');
-    }
+    if (ok) showToast('Saran AI diterapkan', 'success');
+    else showToast('Tidak ada draf AI', 'info');
   };
 
   const isBusy = isAnalyzing || !isTypingFinished;
   const hasDraft = !!aiDraft;
 
   return (
-    <div className="bg-gradient-to-br from-purple-950/40 via-slate-900 to-indigo-950/40 p-4 md:p-5 rounded-xl border border-purple-500/40 shadow-lg space-y-4">
-      {/* HEADER CARD: vertikal di mobile, horizontal di desktop */}
+    <div className="bg-card p-4 md:p-5 rounded-xl border border-line space-y-4">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
         <div className="flex items-start space-x-2.5 min-w-0">
-          <FontAwesomeIcon icon={faRobot} className="text-purple-400 text-base mt-1 shrink-0" />
+          <FontAwesomeIcon icon={faRobot} className="text-accent text-base mt-1 shrink-0" />
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-purple-300 uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
+            <h2 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
               <span>Analisis PRD Berbasis AI</span>
-              <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
-                Gemini AI
-              </span>
+              <span className="text-[9px] bg-accent/15 text-accent border border-accent/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">Gemini AI</span>
             </h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
+            <p className="text-[11px] text-mut mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
         </div>
-
         <button
           onClick={handleAnalyze}
           disabled={isBusy}
-          className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all duration-200 disabled:opacity-50 w-full md:w-auto md:shrink-0 cursor-pointer"
+          className="flex items-center justify-center space-x-1.5 px-3 py-2 bg-accent hover:bg-accent2 text-white text-xs font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 w-full md:w-auto md:shrink-0 cursor-pointer"
         >
           {isBusy ? (
             <>
@@ -5781,21 +5013,20 @@ export default function AiAnalysisCard() {
             </>
           ) : (
             <>
-              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-amber-300 text-xs" />
+              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-xs" />
               <span className="whitespace-nowrap">Analisis PRD</span>
             </>
           )}
         </button>
       </div>
 
-      {/* EMPTY STATE: muncul otomatis saat PRD masih kosong */}
       {isPrdEmpty && (
-        <div className="space-y-2.5 pt-3 border-t border-purple-900/40">
+        <div className="space-y-2.5 pt-3 border-t border-line">
           <div className="flex items-start gap-2">
-            <FontAwesomeIcon icon={faCircleQuestion} className="text-amber-300 mt-0.5 shrink-0" />
+            <FontAwesomeIcon icon={faCircleQuestion} className="text-accent mt-0.5 shrink-0" />
             <div>
-              <p className="text-xs font-semibold text-purple-200">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
+              <p className="text-xs font-semibold text-ink">PRD-mu masih kosong. Aplikasi seperti apa yang ingin kamu buat?</p>
+              <p className="text-[11px] text-mut mt-0.5">Ceritakan singkat, AI akan menyusun analisis & draf PRD lengkap dari deskripsimu.</p>
             </div>
           </div>
           <textarea
@@ -5804,20 +5035,17 @@ export default function AiAnalysisCard() {
             onChange={function (e) { setBriefText(e.target.value); }}
             rows="3"
             placeholder="Contoh: Aplikasi kasir untuk warung kopi dengan laporan penjualan harian dan manajemen stok bahan baku..."
-            className="w-full bg-slate-950/80 border border-purple-700/50 rounded-lg p-3 text-xs text-slate-100 focus:border-purple-500 focus:outline-none resize-none"
+            className="w-full bg-field border border-line rounded-lg p-3 text-xs text-ink focus:border-accent focus:outline-none resize-none"
           />
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] text-slate-500 inline-flex items-center gap-1">
-              <FontAwesomeIcon icon={faLightbulb} className="text-amber-400" />
+            <span className="text-[10px] text-mut inline-flex items-center gap-1">
+              <FontAwesomeIcon icon={faLightbulb} className="text-accent" />
               Contoh:
             </span>
             {BRIEF_EXAMPLES.map(function (ex) {
               return (
-                <button
-                  key={ex}
-                  onClick={function () { setBriefText(ex); }}
-                  className="text-[10px] px-2 py-1 rounded-full border border-purple-700/50 text-purple-300 hover:bg-purple-600/20 transition cursor-pointer"
-                >
+                <button key={ex} onClick={function () { setBriefText(ex); }}
+                  className="text-[10px] px-2 py-1 rounded-full border border-line text-mut hover:bg-field hover:text-ink transition cursor-pointer">
                   {ex}
                 </button>
               );
@@ -5827,20 +5055,19 @@ export default function AiAnalysisCard() {
       )}
 
       {aiError && (
-        <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-300">
-          ⚠️ {aiError}
+        <div className="p-3 bg-danger/10 border border-danger/40 rounded-lg text-xs text-danger">
+          {aiError}
         </div>
       )}
 
       {(displayedText || isAnalyzing) && (
-        <div className="space-y-3 pt-1 border-t border-purple-900/40">
-          {/* BARIS AKSI: vertikal di mobile, horizontal di desktop */}
+        <div className="space-y-3 pt-1 border-t border-line">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-            <span className="text-xs font-bold text-emerald-400 flex items-center gap-2 flex-wrap min-w-0">
+            <span className="text-xs font-bold text-accent flex items-center gap-2 flex-wrap min-w-0">
               Hasil Rekomendasi AI:
               {isBusy && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-normal text-purple-300">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping shrink-0" />
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-normal text-mut">
+                  <span className="w-2 h-2 rounded-full bg-accent animate-ping shrink-0" />
                   {displayedText ? 'Sedang mengetik masukan...' : 'AI sedang membaca dokumen PRD...'}
                 </span>
               )}
@@ -5850,11 +5077,7 @@ export default function AiAnalysisCard() {
                 <button
                   onClick={handleApplyDraft}
                   disabled={!hasDraft}
-                  className={`text-xs font-semibold px-2.5 py-1.5 rounded transition-all duration-200 inline-flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                    hasDraft
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer hover:shadow-emerald-500/20'
-                      : 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
-                  }`}
+                  className={'text-xs font-semibold px-2.5 py-1.5 rounded transition-all duration-200 inline-flex items-center gap-1.5 whitespace-nowrap ' + (hasDraft ? 'bg-accent hover:bg-accent2 text-white cursor-pointer' : 'bg-field text-mut cursor-not-allowed opacity-60')}
                   title={hasDraft ? 'Isi otomatis bagian form dengan saran AI' : 'Tidak ada draf JSON dari AI'}
                 >
                   <FontAwesomeIcon icon={faWandMagicSparkles} />
@@ -5862,58 +5085,42 @@ export default function AiAnalysisCard() {
                 </button>
               )}
               {!isBusy && (
-                <button
-                  onClick={clearAiFeedback}
-                  className="text-[10px] text-slate-400 hover:text-rose-400 transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap px-1 py-1.5"
-                  title="Hapus hasil analisis"
-                >
+                <button onClick={clearAiFeedback} className="text-[10px] text-mut hover:text-danger transition inline-flex items-center gap-1 cursor-pointer whitespace-nowrap px-1 py-1.5" title="Hapus hasil analisis">
                   <FontAwesomeIcon icon={faTrash} />
                   <span>Hapus</span>
                 </button>
               )}
             </div>
           </div>
-
           <div className="relative">
             <div
               ref={feedbackBoxRef}
               onScroll={handleScroll}
-              className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-200 space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
-              style={{
-                overscrollBehavior: 'auto',
-                contain: 'layout paint',
-              }}
+              className="p-3.5 bg-base border border-line rounded-lg text-xs text-ink space-y-2 font-sans leading-relaxed max-h-96 overflow-y-auto relative min-h-[90px]"
+              style={{ overscrollBehavior: 'auto', contain: 'layout paint' }}
             >
               {isAnalyzing && !displayedText ? (
                 <div className="space-y-2.5 animate-pulse py-1">
-                  <div className="h-3.5 bg-purple-900/40 rounded w-1/3" />
-                  <div className="h-3 bg-slate-800/80 rounded w-full" />
-                  <div className="h-3 bg-slate-800/80 rounded w-5/6" />
-                  <div className="h-3 bg-slate-800/80 rounded w-4/6" />
+                  <div className="h-3.5 bg-line rounded w-1/3" />
+                  <div className="h-3 bg-field rounded w-full" />
+                  <div className="h-3 bg-field rounded w-5/6" />
+                  <div className="h-3 bg-field rounded w-4/6" />
                   <div className="flex items-center gap-2 pt-1">
-                    <FontAwesomeIcon icon={faSpinner} className="animate-spin text-purple-400 text-xs" />
-                    <span className="text-[11px] text-purple-300/80 font-mono">Menyiapkan ulasan spesifikasi produk...</span>
+                    <FontAwesomeIcon icon={faSpinner} className="animate-spin text-accent text-xs" />
+                    <span className="text-[11px] text-mut font-mono">Menyiapkan ulasan spesifikasi produk...</span>
                   </div>
                 </div>
               ) : (
                 <>
-                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>
-                    {displayedText}
-                  </ReactMarkdown>
-                  {isBusy && (
-                    <span className="inline-block w-1.5 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
-                  )}
+                  <ReactMarkdown components={MARKDOWN_COMPONENTS}>{displayedText}</ReactMarkdown>
+                  {isBusy && <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-1 align-middle" />}
                 </>
               )}
             </div>
-
-            {/* Tombol "Ikuti AI" muncul saat user scroll ke atas */}
             {showJumpButton && !isTypingFinished && (
-              <button
-                onClick={jumpToBottom}
-                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold rounded-full shadow-lg transition-all duration-200 cursor-pointer z-10 whitespace-nowrap"
-                title="Kembali ke bawah dan lanjut auto-scroll"
-              >
+              <button onClick={jumpToBottom}
+                className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent2 text-white text-[10px] font-semibold rounded-full transition-all duration-200 cursor-pointer z-10 whitespace-nowrap"
+                title="Kembali ke bawah dan lanjut auto-scroll">
                 <FontAwesomeIcon icon={faArrowDown} />
                 <span>Ikuti AI</span>
               </button>
@@ -5924,25 +5131,6 @@ export default function AiAnalysisCard() {
     </div>
   );
 }
-````
-
-## File: src/services/exportService.js
-````javascript
-import { saveAs } from 'file-saver';
-import copyToClipboard from 'copy-to-clipboard';
-import { generateMarkdown } from '../utils/markdown';
-
-export const exportService = {
-  exportJSON: function (state) {
-    const data = { app: 'PRD Architect Pro', version: '3.5', mode: state.mode, state: state };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
-  },
-  copyMarkdown: function (state) {
-    copyToClipboard(generateMarkdown(state));
-  },
-  printDocument: function () { window.print(); },
-};
 ````
 
 ## File: .gitignore
@@ -5969,8 +5157,9 @@ repomix-output.md
 ## File: src/components/header/Header.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileContract, faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faFileContract, faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash, faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
 import { usePrdStore } from '../../store/usePrdStore';
+import { useThemeStore } from '../../store/useThemeStore';
 import ModeSwitcher from './ModeSwitcher';
 import IconButton from '../shared/IconButton';
 import { useToast } from '../../hooks/useToast';
@@ -5985,26 +5174,49 @@ export default function Header() {
   const loadSampleData = usePrdStore(function (s) { return s.loadSampleData; });
   const clearAll = usePrdStore(function (s) { return s.clearAll; });
   const commitHistory = usePrdStore(function (s) { return s.commitHistory; });
+  const theme = useThemeStore(function (s) { return s.theme; });
+  const setTheme = useThemeStore(function (s) { return s.setTheme; });
   const showToast = useToast();
 
   return (
-    <header className="bg-slate-800 border-b border-slate-700 py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
+    <header className="bg-panel border-b border-line py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
       <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
-        <div className="bg-blue-600 text-white p-2 rounded-lg shrink-0"><FontAwesomeIcon icon={faFileContract} className="text-lg md:text-xl" /></div>
+        <div className="bg-accent text-white p-2 rounded-lg shrink-0">
+          <FontAwesomeIcon icon={faFileContract} className="text-lg md:text-xl" />
+        </div>
         <div className="min-w-0">
-          <h1 className="font-bold text-base md:text-lg text-white leading-snug truncate py-0.5">PRD Architect <span className="align-middle whitespace-nowrap text-[10px] md:text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 md:px-2 py-0.5 rounded-full ml-1">Pro V3.4</span></h1>
-          <p className="text-[11px] md:text-xs text-slate-400 mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
+          <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">
+            PRD Architect{' '}
+            <span className="align-middle whitespace-nowrap text-[10px] md:text-xs bg-accent/15 text-accent border border-accent/30 px-1.5 md:px-2 py-0.5 rounded-full ml-1">
+              Pro V3.4
+            </span>
+          </h1>
+          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
         </div>
       </div>
       <ModeSwitcher />
       <div className="contents md:flex md:items-center md:space-x-3 md:order-3">
-        <span className="text-[10px] text-slate-500 hidden lg:inline">{saveIndicator}</span>
-        <div className="flex items-center space-x-1 bg-slate-900 border border-slate-700 rounded-lg p-0.5 shadow-inner order-2">
-          <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Undo</span></IconButton>
-          <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Redo</span></IconButton>
+        <span className="text-[10px] text-mut hidden lg:inline">{saveIndicator}</span>
+        <div className="flex items-center space-x-1 bg-base border border-line rounded-lg p-0.5 order-2">
+          <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto">
+            <span className="hidden md:inline">Undo</span>
+          </IconButton>
+          <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto">
+            <span className="hidden md:inline">Redo</span>
+          </IconButton>
+          <IconButton
+            icon={theme === 'dark' ? faSun : faMoon}
+            onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+            title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
+            className="w-10 h-10 md:w-auto md:h-auto"
+          />
         </div>
-        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">Muat Contoh</IconButton>
-        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); commitHistory(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">Reset</IconButton>
+        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">
+          Muat Contoh
+        </IconButton>
+        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); commitHistory(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">
+          Reset
+        </IconButton>
       </div>
     </header>
   );
@@ -6032,8 +5244,6 @@ import SchemaSection from './sections/SchemaSection';
 import NfrSection from './sections/NfrSection';
 import OutOfScope from './sections/OutOfScope';
 
-// Bridge: langganan store yang berat dipisah ke komponen
-// yang me-render null, supaya EditorPanel tidak re-render tiap ketikan.
 function AutoSaveBridge() {
   useAutoSave();
   return null;
@@ -6051,7 +5261,7 @@ export default function EditorPanel() {
   }, [ra.resize]);
 
   return (
-    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-slate-800 bg-slate-900" style={{ height: '100%' }}>
+    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base" style={{ height: '100%' }}>
       <AutoSaveBridge />
       <ModeBanner />
       <ExtrasPicker />

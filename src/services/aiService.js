@@ -1,14 +1,10 @@
 // ============================================================
 // LAYANAN AI VIA OPENROUTER (MODEL: google/gemma-4-31b-it:free)
-// Menggantikan Groq khusus untuk fitur Qwen (Refine Text, 
-// Tagline Sampul, Generate Schema).
-// Fitur Analisis PRD Besar (Gemini) di usePrdStore.js tidak disentuh.
+// Mengurus fitur: Refine Text (tombol wand), Tagline Sampul,
+// dan Generate Schema dari User Flow.
+// Fitur Analisis PRD Besar (Gemini) tetap terpisah di usePrdStore.js.
 // ============================================================
-
-// 1. ENDPOINT OPENROUTER
 const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-
-// 2. MODEL GRATIS DARI GOOGLE
 export const AI_MODEL = 'google/gemma-4-31b-it:free';
 
 // Instruksi agar model tidak membuang token untuk "berpikir"
@@ -16,25 +12,28 @@ const NO_THINK_SUFFIX =
   '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
   'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
 
-// 3. FUNGSI PANGGILAN API DASAR
-const callAi = async function (apiKey, model, prompt, maxTokens) {
+export const requireAiKey = function () {
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
+  return apiKey;
+};
+
+export const callAi = async function (apiKey, prompt, maxTokens) {
   const res = await fetch(AI_ENDPOINT, {
     method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json', 
+    headers: {
+      'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + apiKey,
-      // Header wajib OpenRouter agar aplikasi terdaftar di dashboard mereka
       'HTTP-Referer': window.location.origin,
-      'X-Title': 'PRD Architect Pro'
+      'X-Title': 'PRD Architect Pro',
     },
     body: JSON.stringify({
-      model: model,
+      model: AI_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
       max_tokens: maxTokens || 300,
     }),
   });
-
   if (!res.ok) {
     const errData = await res.json().catch(function () { return {}; });
     const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
@@ -42,7 +41,6 @@ const callAi = async function (apiKey, model, prompt, maxTokens) {
     err.status = res.status;
     throw err;
   }
-
   const data = await res.json();
   if (data.choices && data.choices[0] && data.choices[0].message) {
     return data.choices[0].message.content || '';
@@ -50,37 +48,24 @@ const callAi = async function (apiKey, model, prompt, maxTokens) {
   return '';
 };
 
-// Wrapper fallback (disederhanakan karena hanya pakai 1 model gratis)
-export const callGroqWithFallback = async function (prompt, maxTokens) {
-  // Mengambil key OpenRouter dari environment variable
-  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
-  
-  try {
-    return await callAi(apiKey, AI_MODEL, prompt, maxTokens);
-  } catch (err) {
-    console.warn('[OpenRouter] Request gagal:', err.message);
-    throw err;
-  }
-};
-
 // ============================================================
-// PEMBERSIH BLOK THINKING (TETAP SAMA)
+// PEMBERSIH BLOK THINKING (3 LAPIS)
 // ============================================================
 const cleanThink = function (t) {
   let s = (t || '');
-  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
   s = s.replace(/<think>[\s\S]*$/gi, '');
   s = s.replace(/[\s\S]*?<\/think>/gi, '');
   return s.trim();
 };
 
-const callGroqClean = async function (prompt, maxTokens) {
-  const raw = await callGroqWithFallback(prompt, maxTokens);
+const callAiClean = async function (prompt, maxTokens) {
+  const raw = await callAi(requireAiKey(), prompt, maxTokens);
   let out = cleanThink(raw).trim();
   if (!out) {
-    console.warn('[OpenRouter] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
-    const raw2 = await callGroqWithFallback(
+    console.warn('[AI] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callAi(
+      requireAiKey(),
       prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
       maxTokens
     );
@@ -90,7 +75,7 @@ const callGroqClean = async function (prompt, maxTokens) {
 };
 
 // ============================================================
-// GENERATOR TAGLINE SAMPUL (TETAP SAMA)
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
 // ============================================================
 export const generateCoverTagline = async function (goalText) {
   const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
@@ -113,8 +98,7 @@ export const generateCoverTagline = async function (goalText) {
     'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
     'Teks: """' + goalText + '"""\n' +
     'Tagline:' + NO_THINK_SUFFIX;
-    
-  const out = await callGroqClean(prompt, 2048);
+  const out = await callAiClean(prompt, 2048);
   return out
     .split('\n')[0]
     .replace(/^tagline\s*:\s*/i, '')
@@ -125,7 +109,7 @@ export const generateCoverTagline = async function (goalText) {
 };
 
 // ============================================================
-// MODE PERHALUS TEKS / TOMBOL WAND (TETAP SAMA)
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
 // ============================================================
 const MODE_INSTRUCTIONS = {
   paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
@@ -169,8 +153,7 @@ export const refineText = async function (text, mode, context) {
     '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
     contextRule +
     '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
-    
-  const out = await callGroqClean(prompt, 4096);
+  const out = await callAiClean(prompt, 4096);
   return out
     .replace(/^hasil\s*:\s*/i, '')
     .replace(/^["']+|["']+$/g, '')
@@ -178,7 +161,7 @@ export const refineText = async function (text, mode, context) {
 };
 
 // ============================================================
-// GENERATOR SCHEMA DARI USER FLOW (TETAP SAMA)
+// GENERATOR SCHEMA DARI USER FLOW
 // ============================================================
 export const generateSchemaFromFlow = async function (flowText) {
   const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
@@ -192,20 +175,17 @@ export const generateSchemaFromFlow = async function (flowText) {
     '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
     '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
     'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
-    
-  let raw = await callGroqWithFallback(prompt, 4096);
-  
+  let raw = await callAi(requireAiKey(), prompt, 4096);
   if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
-    console.warn('[OpenRouter] Schema habis untuk thinking, mengulang sekali...');
-    raw = await callGroqWithFallback(
+    console.warn('[AI] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callAi(
+      requireAiKey(),
       prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
       4096
     );
   }
-  
   const tables = parseSchemaJson(raw);
   if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
-  
   return tables.map(function (t, ti) {
     return {
       name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
@@ -223,7 +203,7 @@ export const generateSchemaFromFlow = async function (flowText) {
 };
 
 // ============================================================
-// PARSER JSON SCHEMA YANG TAHAN BANTING (TETAP SAMA)
+// PARSER JSON SCHEMA YANG TAHAN BANTING
 // ============================================================
 const repairInnerQuotes = function (text) {
   let out = '';
@@ -320,9 +300,9 @@ const parseSchemaJson = function (rawText) {
   }
   const salvaged = salvageTruncated(repaired);
   if (salvaged) {
-    console.warn('[OpenRouter] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    console.warn('[AI] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
     return salvaged;
   }
-  console.error('[OpenRouter] JSON schema tidak bisa diparse:', lastErr, rawText);
+  console.error('[AI] JSON schema tidak bisa diparse:', lastErr, rawText);
   throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
 };

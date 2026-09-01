@@ -1,5 +1,5 @@
-export async function mockGroq(page, outputText) {
-  await page.route('**/api.groq.com/**', async (route) => {
+export async function mockOpenRouter(page, outputText) {
+  await page.route('**/openrouter.ai/**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -15,11 +15,22 @@ export async function mockGroq(page, outputText) {
     });
   });
 }
-
+export async function mockOpenRouterError(page, statusCode, errorMessage) {
+  await page.route('**/openrouter.ai/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
 export async function mockGeminiStream(page, chunks) {
   await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
     let body = '';
-
     chunks.forEach((chunk) => {
       const payload = {
         candidates: [
@@ -34,12 +45,9 @@ export async function mockGeminiStream(page, chunks) {
           },
         ],
       };
-
       body += 'data: ' + JSON.stringify(payload) + '\n\n';
     });
-
     body += 'data: [DONE]\n\n';
-
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -47,23 +55,8 @@ export async function mockGeminiStream(page, chunks) {
     });
   });
 }
-
 export async function mockGeminiError(page, statusCode, errorMessage) {
   await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-
-export async function mockGroqError(page, statusCode, errorMessage) {
-  await page.route('**/api.groq.com/**', async (route) => {
     await route.fulfill({
       status: statusCode,
       contentType: 'application/json',

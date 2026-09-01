@@ -6,7 +6,7 @@ import EditorSection from '../EditorSection';
 import IconButton from '../../shared/IconButton';
 import ComboBox from '../../shared/ComboBox';
 import AiRefineButton from '../../shared/AiRefineButton';
-import { generateSchemaFromFlow } from '../../../services/groqService';
+import { generateSchemaFromFlow } from '../../../services/aiService';
 import { useToast } from '../../../hooks/useToast';
 
 export default function SchemaSection() {

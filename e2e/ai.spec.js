@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockGroq, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
+import { mockOpenRouter, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -26,7 +26,7 @@ test('analisis AI menampilkan hasil mock', async ({ page }) => {
 });
 
 test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
-  await mockGroq(
+  await mockOpenRouter(
     page,
     'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
   );

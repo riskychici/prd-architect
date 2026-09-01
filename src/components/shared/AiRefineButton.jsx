@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { refineText } from '../../services/groqService';
+import { refineText } from '../../services/aiService';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
 
@@ -49,7 +49,7 @@ export default function AiRefineButton(props) {
     ? 'Sedang memperhalus teks...'
     : unchangedSinceRefine
       ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
-      : 'Perhalus teks dengan AI (Qwen)';
+      : 'Perhalus teks dengan AI (Gemma)';
 
   return (
     <button

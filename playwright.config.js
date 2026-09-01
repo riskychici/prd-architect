@@ -22,7 +22,7 @@ use: {
     reuseExistingServer: !process.env.CI,
     env: {
       VITE_GEMINI_API_KEY: 'dummy-gemini-key',
-      VITE_GROQ_API_KEY: 'dummy-groq-key',
+      VITE_OPENROUTER_API_KEY: 'dummy-groq-key',
     },
   },
 
