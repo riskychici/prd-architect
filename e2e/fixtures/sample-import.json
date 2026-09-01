@@ -1,0 +1,16 @@
+{
+  "mode": "simple",
+  "state": {
+    "fields": {
+      "projectName": "Prime Property",
+      "problemStatement": "Agen properti kesulitan mengelola listing dan jadwal survei."
+    },
+    "features": [],
+    "palette": [],
+    "roles": [],
+    "schemaTables": [],
+    "acModules": [],
+    "simpleExtras": {},
+    "techOptional": []
+  }
+}

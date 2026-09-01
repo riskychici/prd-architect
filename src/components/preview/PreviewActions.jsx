@@ -40,13 +40,13 @@ export default function PreviewActions() {
   }
 
   const badge = mode === 'enterprise'
-    ? 'bg-amber-900 text-amber-200 border-amber-700'
-    : 'bg-blue-900 text-blue-200 border-blue-700';
+    ? 'bg-accent/15 text-accent border-accent/30'
+    : 'bg-field text-mut border-line';
 
   return (
-    <div className="no-print flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3 bg-slate-950 pb-4 pt-1 mb-4 border-b border-slate-800">
-      <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center">
-        <FontAwesomeIcon icon={faEye} className="mr-1.5" aria-hidden="true" />
+    <div className="no-print flex flex-col sm:flex-row sm:flex-wrap sm:justify-between sm:items-center gap-3 bg-base pb-4 pt-1 mb-4 border-b border-line">
+      <span className="text-xs font-semibold text-mut uppercase tracking-wider flex items-center">
+        <FontAwesomeIcon icon={faEye} className="mr-1.5 text-accent" aria-hidden="true" />
         Live Preview Dokumen
         <span className={'ml-2 px-2 py-0.5 rounded text-[10px] border ' + badge}>
           {mode === 'enterprise' ? 'ENTERPRISE' : 'SIMPLE'} MODE

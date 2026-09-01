@@ -5,17 +5,6 @@ import { refineText } from '../../services/groqService';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useToast } from '../../hooks/useToast';
 
-// ============================================================
-// TOMBOL PERHALUS TEKS AI (IN-LINE TEXT ENHANCER)
-// - Nonaktif otomatis jika kolom kosong.
-// - Menampilkan spinner saat AI bekerja.
-// - Mengirim nama kolom (label) sebagai konteks.
-// - Setelah refine selesai, tombol TERKUNCI selama value kolom
-//   belum diubah. Begitu user mengubah value, tombol aktif lagi.
-// - Jika refine gagal karena error jaringan/API, tombol tetap
-//   aktif supaya user bisa langsung mencoba ulang.
-// - FIX UNDO/REDO: hasil AI dicatat ke history SESUDAH diterapkan.
-// ============================================================
 export default function AiRefineButton(props) {
   const value = props.value || '';
   const onApply = props.onApply;
@@ -70,14 +59,11 @@ export default function AiRefineButton(props) {
       title={title}
       aria-label={'Perhalus teks ' + label + ' dengan AI'}
       className={
-        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 hover:bg-purple-700/40 transition disabled:opacity-30 disabled:cursor-not-allowed ' +
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed ' +
         className
       }
     >
-      <FontAwesomeIcon
-        icon={busy ? faSpinner : faWandMagicSparkles}
-        className={'text-[11px] ' + (busy ? 'animate-spin' : '')}
-      />
+      <FontAwesomeIcon icon={busy ? faSpinner : faWandMagicSparkles} className={'text-[11px] ' + (busy ? 'animate-spin' : '')} />
     </button>
   );
 }

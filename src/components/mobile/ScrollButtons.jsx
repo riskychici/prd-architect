@@ -23,9 +23,8 @@ export default function ScrollButtons() {
     const max = el.scrollHeight - el.clientHeight;
     setAtTop(function (prev) {
       let top = prev[panel];
-      if (max <= 4) {
-        top = true;
-      } else {
+      if (max <= 4) { top = true; }
+      else {
         const p = el.scrollTop / max;
         if (p >= AMBANG_NAIK) top = false;
         else if (p <= AMBANG_TURUN) top = true;
@@ -79,21 +78,16 @@ export default function ScrollButtons() {
       if (t.id === 'editorPanel' && !autoScroll.current.editor) updateIcon('editor');
       else if (t.id === 'previewPanel' && !autoScroll.current.preview) updateIcon('preview');
     }
-
     document.addEventListener('scroll', onScrollCapture, { capture: true, passive: true });
-
     function interrupt() {
       if (autoScroll.current.editor) stopAuto('editor');
       if (autoScroll.current.preview) stopAuto('preview');
     }
-
     document.addEventListener('touchstart', interrupt, { passive: true });
     document.addEventListener('wheel', interrupt, { passive: true });
     document.addEventListener('keydown', interrupt, { passive: true });
-
     updateIcon('editor');
     updateIcon('preview');
-
     return function () {
       document.removeEventListener('scroll', onScrollCapture, { capture: true });
       document.removeEventListener('touchstart', interrupt);
@@ -109,7 +103,7 @@ export default function ScrollButtons() {
     return (
       <button
         onClick={function () { scroll(panel, top); }}
-        className="w-11 h-11 rounded-full flex items-center justify-center bg-slate-800 text-slate-200 border border-slate-600 shadow-lg hover:bg-blue-600 hover:text-white transition"
+        className="w-11 h-11 rounded-full flex items-center justify-center bg-card text-ink border border-line shadow-sm hover:bg-accent hover:text-white transition"
         title={panel === 'editor' ? 'Scroll editor' : 'Scroll preview'}
       >
         <FontAwesomeIcon icon={top ? faArrowDown : faArrowUp} />

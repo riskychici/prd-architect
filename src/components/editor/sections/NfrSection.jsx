@@ -6,9 +6,9 @@ import AiRefineButton from '../../shared/AiRefineButton';
 function TA(props) {
   return (
     <div>
-      <label htmlFor={props.id} className="block text-slate-300 font-medium mb-1">{props.label}</label>
+      <label htmlFor={props.id} className="block text-ink font-medium mb-1">{props.label}</label>
       <div className="relative">
-        <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-amber-500 focus:outline-none resize-none" />
+        <textarea id={props.id} value={props.value} onChange={function (e) { props.onChange(e.target.value); }} rows="2" placeholder={props.ph} className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
         <AiRefineButton value={props.value} onApply={props.onChange} mode={props.mode || 'paragraph'} label={props.label} className="absolute right-2 top-2" />
       </div>
     </div>
@@ -20,17 +20,19 @@ export default function NfrSection() {
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const f = usePrdStore(function (s) { return s.fields; });
   const set = usePrdStore(function (s) { return s.setField; });
+
   if (mode !== 'enterprise' && !se.nfr) return null;
+
   return (
-    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved} color="amber">
+    <EditorSection title="NFR, Keamanan & Figma Prototype" icon={faShieldHalved}>
       <div className="space-y-3 text-xs">
         <TA id="nfrSpecs" label="Keamanan & Compliance" value={f.nfrSpecs} onChange={function (v) { set('nfrSpecs', v); }} ph="OAuth 2.0, HTTPS, CSRF" mode="technical" />
         <TA id="nfrPerformance" label="Performance" value={f.nfrPerformance} onChange={function (v) { set('nfrPerformance', v); }} ph="FCP < 1.5s, Lighthouse >= 85" mode="technical" />
         <TA id="nfrLocalization" label="Bahasa & Lokalisasi" value={f.nfrLocalization} onChange={function (v) { set('nfrLocalization', v); }} ph="UI Bahasa Indonesia, format Rupiah" mode="phrase" />
         <TA id="nfrBrowser" label="Browser Support" value={f.nfrBrowser} onChange={function (v) { set('nfrBrowser', v); }} ph="Chrome/Edge/Firefox/Safari" mode="technical" />
         <div>
-          <label htmlFor="figmaLink" className="block text-slate-300 font-medium mb-1">Figma Link</label>
-          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-amber-500 focus:outline-none" />
+          <label htmlFor="figmaLink" className="block text-ink font-medium mb-1">Figma Link</label>
+          <input id="figmaLink" type="text" value={f.figmaLink} onChange={function (e) { set('figmaLink', e.target.value); }} placeholder="https://figma.com/file/..." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
         </div>
         <TA id="riskMitigation" label="Analisis Risiko & Mitigasi" value={f.riskMitigation} onChange={function (v) { set('riskMitigation', v); }} ph="Risiko teknis / bisnis..." mode="paragraph" />
       </div>

@@ -3,11 +3,7 @@ import PreviewDocument from './PreviewDocument';
 
 export default function PreviewPanel() {
   return (
-    <section
-      id="previewPanel"
-      className="bg-slate-950 p-6 overflow-y-auto overflow-x-hidden"
-      style={{ height: '100%' }}
-    >
+    <section id="previewPanel" className="bg-base p-6 overflow-y-auto overflow-x-hidden" style={{ height: '100%' }}>
       <PreviewActions />
       <PreviewDocument />
     </section>

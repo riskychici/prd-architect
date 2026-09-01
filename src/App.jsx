@@ -66,27 +66,17 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app-shell flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      <a
-        href="#editorPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-blue-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Editor
-      </a>
-      <a
-        href="#previewPanel"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-emerald-600 focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm"
-      >
-        Lompat ke Preview
-      </a>
+    <div className="app-shell flex flex-col bg-base text-ink overflow-hidden">
+      <a href="#editorPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Editor</a>
+      <a href="#previewPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Preview</a>
       <Header />
       <main className="flex-grow min-h-0 overflow-hidden relative">
         <div id="panelSlider">
           <div><EditorPanel /></div>
           <div>
             <Suspense fallback={
-              <div id="previewPanel" className="bg-slate-950 p-6 flex items-center justify-center h-full">
-                <div className="text-slate-400 text-sm">Memuat preview...</div>
+              <div id="previewPanel" className="bg-base p-6 flex items-center justify-center h-full">
+                <div className="text-mut text-sm">Memuat preview...</div>
               </div>
             }>
               <PreviewPanel />

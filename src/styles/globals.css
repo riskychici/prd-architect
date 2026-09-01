@@ -1,52 +1,71 @@
 @import "tailwindcss";
 
+@theme inline {
+  --color-base: var(--t-base);
+  --color-panel: var(--t-panel);
+  --color-card: var(--t-card);
+  --color-field: var(--t-field);
+  --color-line: var(--t-line);
+  --color-ink: var(--t-ink);
+  --color-mut: var(--t-mut);
+  --color-accent: var(--t-accent);
+  --color-accent2: var(--t-accent2);
+  --color-danger: var(--t-danger);
+  --color-ok: var(--t-ok);
+}
+
 :root {
+  --t-base: #eef0f3;
+  --t-panel: #ffffff;
+  --t-card: #ffffff;
+  --t-field: #f2f3f6;
+  --t-line: #e1e4e9;
+  --t-ink: #17181c;
+  --t-mut: #666b76;
+  --t-accent: #4d96e5;
+  --t-accent2: #3583d6;
+  --t-danger: #dd4b45;
+  --t-ok: #2ba36b;
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.dark {
+  --t-base: #101013;
+  --t-panel: #17171b;
+  --t-card: #1c1c21;
+  --t-field: #232329;
+  --t-line: #2c2c34;
+  --t-ink: #f1f1f3;
+  --t-mut: #9c9ca6;
+  --t-accent: #5b9ee8;
+  --t-accent2: #74abec;
+  --t-danger: #e8564f;
+  --t-ok: #3fbe80;
 }
 
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
-* { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--t-line) transparent; }
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: #64748b; }
+*::-webkit-scrollbar-thumb { background: var(--t-line); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
 
 textarea { overflow-y: hidden; }
-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
 
-/* ============================================================
-   FIX TINGGI ROOT: gunakan dvh dengan fallback vh.
-   100dvh mengikuti viewport aktual browser mobile (address bar
-   expand/collapse), sehingga tidak ada area terpotong di bawah.
-   ============================================================ */
-.app-shell {
-  height: 100vh;
-  height: 100dvh;
-}
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+.dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
-/* Skip link utility */
+.app-shell { height: 100vh; height: 100dvh; }
+
 .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 .sr-only:focus {
-  position: fixed;
-  width: auto;
-  height: auto;
-  padding: 0.5rem 1rem;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
-  white-space: normal;
+  position: fixed; width: auto; height: auto; padding: 0.5rem 1rem; margin: 0;
+  overflow: visible; clip: auto; white-space: normal;
 }
 
 @keyframes slideUp {
@@ -54,100 +73,46 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   to { transform: translateY(0); opacity: 1; }
 }
 
-/* ============================================================
-   PANEL SLIDER LAYOUT
-   min-height: 0 ditambahkan di panelSlider agar kalkulasi tinggi
-   flex tidak overflow. Height 100% di semua level memastikan
-   section fill penuh area yang tersedia.
-   ============================================================ */
 #panelSlider {
-  display: flex;
-  flex-direction: row;
-  height: 100%;
-  min-height: 0;
-  width: 200%;
-  transform: translateX(0);
+  display: flex; flex-direction: row; height: 100%; min-height: 0;
+  width: 200%; transform: translateX(0);
   transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
 }
 #panelSlider.slide-preview { transform: translateX(-50%); }
-#panelSlider > div {
-  width: 50%;
-  height: 100%;
-  flex-shrink: 0;
-  min-height: 0;
-}
+#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
 
-/* ============================================================
-   DESKTOP (min 1024px): split view editor + preview
-   ============================================================ */
 @media (min-width: 1024px) {
-  #panelSlider {
-    width: 100% !important;
-    transform: none !important;
-    transition: none !important;
-  }
-  #panelSlider > div {
-    width: 50%;
-  }
+  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
+  #panelSlider > div { width: 50%; }
 }
 
-/* ============================================================
-   MOBILE & TABLET (max 1023.98px): slide view + tab bar
-   padding-bottom mengompensasi MobileTabBar yang fixed di bawah.
-   ============================================================ */
 @media (max-width: 1023.98px) {
-  html, body {
-    overflow: hidden;
-  }
-  body {
-    height: 100vh;
-    height: 100dvh;
-    min-height: 0 !important;
-  }
+  html, body { overflow: hidden; }
+  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
   #panelSlider {
     height: 100%;
     padding-bottom: calc(56px + env(safe-area-inset-bottom));
     box-sizing: border-box;
   }
   #panelSlider > div > section {
-    max-height: none !important;
-    height: 100% !important;
-    min-height: 0;
-    overflow-y: auto !important;
-    overscroll-behavior: contain;
+    max-height: none !important; height: 100% !important; min-height: 0;
+    overflow-y: auto !important; overscroll-behavior: contain;
   }
 }
 
-/* ============================================================
-   SECTION EDITOR & PREVIEW
-   Pastikan kedua section selalu fill tinggi parent dan bisa
-   scroll internal tanpa memengaruhi layout luar.
-   ============================================================ */
-#editorPanel,
-#previewPanel {
-  height: 100%;
-  min-height: 0;
-  overscroll-behavior: contain;
-}
+#editorPanel, #previewPanel { height: 100%; min-height: 0; overscroll-behavior: contain; }
 
 #prdDocument { min-width: 0; }
 #prdDocument table { table-layout: fixed; width: 100%; }
 #prdDocument th, #prdDocument td { overflow-wrap: break-word; }
 #prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
 
-/* ============================================================
-   TEMA DOKUMEN
-   Warna heading & aksen dokumen mengikuti tema sampul/footer.
-   Nilai fallback sama dengan palet biru/amber lama, lalu
-   ditimpa lewat CSS variables inline dari PreviewDocument.
-   Ukuran heading TIDAK diubah, tetap sesuai class komponen.
-   ============================================================ */
 #prdDocument {
   --doc-primary: #2563eb;
   --doc-primary-text: #1e40af;
-  --doc-accent: #f59e0b;
-  --doc-accent-text: #b45309;
+  --doc-accent: #b45309;
+  --doc-accent-text: #92400e;
 }
 #prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
 #prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
@@ -166,7 +131,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
     display: block; width: 100%; box-sizing: border-box;
   }
   #prdDocument table.tbl-stack tr {
-    border: 1px solid #e2e8f0; border-radius: 10px;
+    border: 1px solid #e2e8f0; border-radius: 8px;
     margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
   }
   #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
@@ -177,9 +142,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   }
 }
 
-/* ============================================================
-   PRINT STYLES
-   ============================================================ */
 @page { size: A4; margin: 14mm 12mm; }
 @page :first { margin: 0; }
 
@@ -188,32 +150,17 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
   #root { height: auto !important; }
-  #root > div {
-    display: block !important; height: auto !important;
-    overflow: visible !important; background: #ffffff !important;
-  }
+  #root > div { display: block !important; height: auto !important; overflow: visible !important; background: #ffffff !important; }
   main { display: block !important; height: auto !important; overflow: visible !important; }
-  #panelSlider {
-    display: block !important; width: 100% !important;
-    height: auto !important; transform: none !important; padding: 0 !important;
-  }
+  #panelSlider { display: block !important; width: 100% !important; height: auto !important; transform: none !important; padding: 0 !important; }
   #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
   #panelSlider > div:first-child { display: none !important; }
-  #previewPanel {
-    height: auto !important; max-height: none !important;
-    overflow: visible !important; background: #ffffff !important; padding: 0 !important;
-  }
+  #previewPanel { height: auto !important; max-height: none !important; overflow: visible !important; background: #ffffff !important; padding: 0 !important; }
   .doc-cover {
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 0 !important;
-    height: 296mm;
-    margin: 0 !important;
-    overflow: hidden;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    break-after: page;
-    page-break-after: always;
+    width: 100% !important; max-width: none !important; min-height: 0 !important;
+    height: 296mm; margin: 0 !important; overflow: hidden;
+    border-radius: 0 !important; box-shadow: none !important;
+    break-after: page; page-break-after: always;
   }
   .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
   .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
@@ -233,12 +180,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); cur
   .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
 }
 
-/* ============================================================
-   TRANSISI SUBTITLE SAMPUL
-   Animasi hanya dijalankan pada momen subtitle naik kelas dari
-   heuristik ke hasil AI, sehingga perubahan teks terlihat seperti
-   fitur yang disengaja, bukan bug.
-   ============================================================ */
 @keyframes coverSubtitleIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

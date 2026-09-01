@@ -6,20 +6,21 @@ import AiRefineButton from '../../shared/AiRefineButton';
 export default function OutOfScope() {
   const f = usePrdStore(function (s) { return s.fields; });
   const set = usePrdStore(function (s) { return s.setField; });
+
   return (
     <EditorSection title="5. Batasan (Out of Scope) & Definition of Done" icon={faBan}>
       <div className="space-y-3 text-xs">
         <div>
-          <label htmlFor="outOfScope" className="block text-rose-300 font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
+          <label htmlFor="outOfScope" className="block text-danger font-medium mb-1">Fitur Ditunda (Out of Scope)</label>
           <div className="relative">
-            <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <textarea id="outOfScope" value={f.outOfScope} onChange={function (e) { set('outOfScope', e.target.value); }} rows="2" placeholder="Fitur yang sengaja ditunda (pisahkan per baris)" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
             <AiRefineButton value={f.outOfScope} onApply={function (v) { set('outOfScope', v); }} mode="list" label="Out of Scope" className="absolute right-2 top-2" />
           </div>
         </div>
         <div>
-          <label htmlFor="defOfDone" className="block text-emerald-300 font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
+          <label htmlFor="defOfDone" className="block text-ok font-medium mb-1">Kriteria Selesai (Definition of Done)</label>
           <div className="relative">
-            <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 pr-10 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+            <textarea id="defOfDone" value={f.defOfDone} onChange={function (e) { set('defOfDone', e.target.value); }} rows="2" placeholder="Kapan proyek ini dianggap rilis sukses?" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
             <AiRefineButton value={f.defOfDone} onApply={function (v) { set('defOfDone', v); }} mode="list" label="Definition of Done" className="absolute right-2 top-2" />
           </div>
         </div>

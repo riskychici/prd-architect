@@ -1,4 +1,5 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+
 export default function IconButton(props) {
   const icon = props.icon;
   const onClick = props.onClick;
@@ -8,12 +9,14 @@ export default function IconButton(props) {
   const children = props.children;
   const title = props.title;
   const ariaLabel = props['aria-label'] || props.ariaLabel || title;
+
   const v = {
-    default: 'bg-slate-700 hover:bg-slate-600 text-slate-200 border-slate-600',
-    danger: 'bg-rose-950/60 hover:bg-rose-900 text-rose-300 border-rose-800',
-    primary: 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500',
-    accent: 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500',
+    default: 'bg-field hover:bg-line text-ink border-line',
+    danger: 'bg-danger/10 hover:bg-danger/20 text-danger border-danger/30',
+    primary: 'bg-accent hover:bg-accent2 text-white border-accent',
+    accent: 'bg-accent hover:bg-accent2 text-white border-accent',
   };
+
   return (
     <button
       onClick={onClick}

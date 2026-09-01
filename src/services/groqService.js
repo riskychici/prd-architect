@@ -1,23 +1,32 @@
 // ============================================================
-// LAYANAN GROQ DENGAN DUAL MODEL FALLBACK
-// Model utama: qwen/qwen3.8-27b
-// Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
+// LAYANAN AI VIA OPENROUTER (MODEL: google/gemma-4-31b-it:free)
+// Menggantikan Groq khusus untuk fitur Qwen (Refine Text, 
+// Tagline Sampul, Generate Schema).
+// Fitur Analisis PRD Besar (Gemini) di usePrdStore.js tidak disentuh.
 // ============================================================
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
-export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
 
-// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
-// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
-// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
+// 1. ENDPOINT OPENROUTER
+const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+
+// 2. MODEL GRATIS DARI GOOGLE
+export const AI_MODEL = 'google/gemma-4-31b-it:free';
+
+// Instruksi agar model tidak membuang token untuk "berpikir"
 const NO_THINK_SUFFIX =
   '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
   'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
 
-const callGroq = async function (apiKey, model, prompt, maxTokens) {
-  const res = await fetch(GROQ_ENDPOINT, {
+// 3. FUNGSI PANGGILAN API DASAR
+const callAi = async function (apiKey, model, prompt, maxTokens) {
+  const res = await fetch(AI_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    headers: { 
+      'Content-Type': 'application/json', 
+      'Authorization': 'Bearer ' + apiKey,
+      // Header wajib OpenRouter agar aplikasi terdaftar di dashboard mereka
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'PRD Architect Pro'
+    },
     body: JSON.stringify({
       model: model,
       messages: [{ role: 'user', content: prompt }],
@@ -25,6 +34,7 @@ const callGroq = async function (apiKey, model, prompt, maxTokens) {
       max_tokens: maxTokens || 300,
     }),
   });
+
   if (!res.ok) {
     const errData = await res.json().catch(function () { return {}; });
     const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
@@ -32,6 +42,7 @@ const callGroq = async function (apiKey, model, prompt, maxTokens) {
     err.status = res.status;
     throw err;
   }
+
   const data = await res.json();
   if (data.choices && data.choices[0] && data.choices[0].message) {
     return data.choices[0].message.content || '';
@@ -39,43 +50,36 @@ const callGroq = async function (apiKey, model, prompt, maxTokens) {
   return '';
 };
 
+// Wrapper fallback (disederhanakan karena hanya pakai 1 model gratis)
 export const callGroqWithFallback = async function (prompt, maxTokens) {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY belum diisi pada .env.local');
+  // Mengambil key OpenRouter dari environment variable
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
+  
   try {
-    return await callGroq(apiKey, GROQ_PRIMARY_MODEL, prompt, maxTokens);
-  } catch (primaryErr) {
-    const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
-    if (!retryable) throw primaryErr;
-    console.warn('[Groq] Model utama gagal, memakai cadangan:', primaryErr.message);
-    return await callGroq(apiKey, GROQ_FALLBACK_MODEL, prompt, maxTokens);
+    return await callAi(apiKey, AI_MODEL, prompt, maxTokens);
+  } catch (err) {
+    console.warn('[OpenRouter] Request gagal:', err.message);
+    throw err;
   }
 };
 
 // ============================================================
-// PEMBERSIH BLOK THINKING (3 LAPIS)
-// 1. Buang blok think yang utuh (ada pembuka dan penutup).
-// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
-//    tidak pernah muncul karena output habis token).
-// 3. Buang sisa penutup tanpa pembuka, jika ada.
+// PEMBERSIH BLOK THINKING (TETAP SAMA)
 // ============================================================
 const cleanThink = function (t) {
   let s = (t || '');
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
   s = s.replace(/<think>[\s\S]*$/gi, '');
   s = s.replace(/[\s\S]*?<\/think>/gi, '');
   return s.trim();
 };
 
-// Panggil AI lalu bersihkan blok thinking.
-// Jika hasil bersih kosong (artinya seluruh token model habis
-// untuk berpikir), ulangi SEKALI dengan penekanan agar model
-// langsung menulis hasil akhir.
 const callGroqClean = async function (prompt, maxTokens) {
   const raw = await callGroqWithFallback(prompt, maxTokens);
   let out = cleanThink(raw).trim();
   if (!out) {
-    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    console.warn('[OpenRouter] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
     const raw2 = await callGroqWithFallback(
       prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
       maxTokens
@@ -86,7 +90,7 @@ const callGroqClean = async function (prompt, maxTokens) {
 };
 
 // ============================================================
-// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
+// GENERATOR TAGLINE SAMPUL (TETAP SAMA)
 // ============================================================
 export const generateCoverTagline = async function (goalText) {
   const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
@@ -109,6 +113,7 @@ export const generateCoverTagline = async function (goalText) {
     'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
     'Teks: """' + goalText + '"""\n' +
     'Tagline:' + NO_THINK_SUFFIX;
+    
   const out = await callGroqClean(prompt, 2048);
   return out
     .split('\n')[0]
@@ -120,10 +125,7 @@ export const generateCoverTagline = async function (goalText) {
 };
 
 // ============================================================
-// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
-// KALIBRASI "KE INTI": hasil harus profesional, jelas, dan padat.
-// Model dilarang memperpanjang draf atau menulis basa-basi,
-// tetapi juga dilarang membuang fakta penting.
+// MODE PERHALUS TEKS / TOMBOL WAND (TETAP SAMA)
 // ============================================================
 const MODE_INSTRUCTIONS = {
   paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
@@ -138,12 +140,6 @@ const MODE_INSTRUCTIONS = {
   flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
 };
 
-// ============================================================
-// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
-// Parameter context berisi nama kolom tujuan (misalnya
-// "Problem Statement"), sehingga AI membingkai ulang tulisan
-// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
-// ============================================================
 export const refineText = async function (text, mode, context) {
   const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
   const example = mode === 'paragraph'
@@ -173,6 +169,7 @@ export const refineText = async function (text, mode, context) {
     '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
     contextRule +
     '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+    
   const out = await callGroqClean(prompt, 4096);
   return out
     .replace(/^hasil\s*:\s*/i, '')
@@ -181,7 +178,7 @@ export const refineText = async function (text, mode, context) {
 };
 
 // ============================================================
-// GENERATOR SCHEMA DARI USER FLOW
+// GENERATOR SCHEMA DARI USER FLOW (TETAP SAMA)
 // ============================================================
 export const generateSchemaFromFlow = async function (flowText) {
   const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
@@ -195,18 +192,20 @@ export const generateSchemaFromFlow = async function (flowText) {
     '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
     '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
     'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+    
   let raw = await callGroqWithFallback(prompt, 4096);
-  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
-  // ulangi sekali dengan instruksi langsung.
+  
   if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
-    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
+    console.warn('[OpenRouter] Schema habis untuk thinking, mengulang sekali...');
     raw = await callGroqWithFallback(
       prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
       4096
     );
   }
+  
   const tables = parseSchemaJson(raw);
   if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  
   return tables.map(function (t, ti) {
     return {
       name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
@@ -224,9 +223,7 @@ export const generateSchemaFromFlow = async function (flowText) {
 };
 
 // ============================================================
-// PARSER JSON SCHEMA YANG TAHAN BANTING
-// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
-// output yang terpotong batas token.
+// PARSER JSON SCHEMA YANG TAHAN BANTING (TETAP SAMA)
 // ============================================================
 const repairInnerQuotes = function (text) {
   let out = '';
@@ -303,16 +300,17 @@ const salvageTruncated = function (text) {
   return null;
 };
 
+const BT = String.fromCharCode(96);
+const FENCE_RE = new RegExp(BT + '{3,}json|' + BT + '{3,}', 'gi');
+
 const parseSchemaJson = function (rawText) {
-  const cleaned = cleanThink(rawText).replace(/```json|```/gi, '').trim();
+  const cleaned = cleanThink(rawText).replace(FENCE_RE, '').trim();
   const start = cleaned.indexOf('[');
   if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
   const end = cleaned.lastIndexOf(']');
   const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
-
   const repaired = removeTrailingCommas(repairInnerQuotes(body));
   const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
-
   let lastErr = null;
   for (let i = 0; i < candidates.length; i++) {
     try {
@@ -320,13 +318,11 @@ const parseSchemaJson = function (rawText) {
       if (Array.isArray(parsed)) return parsed;
     } catch (e) { lastErr = e; }
   }
-
   const salvaged = salvageTruncated(repaired);
   if (salvaged) {
-    console.warn('[Groq] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    console.warn('[OpenRouter] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
     return salvaged;
   }
-
-  console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
+  console.error('[OpenRouter] JSON schema tidak bisa diparse:', lastErr, rawText);
   throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
 };

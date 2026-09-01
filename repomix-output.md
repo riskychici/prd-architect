@@ -34,6 +34,18 @@ The content is organized as follows:
 
 # Directory Structure
 ````
+e2e/
+  fixtures/
+    sample-import.json
+  helpers/
+    mockAi.js
+  ai.spec.js
+  editor.spec.js
+  history.spec.js
+  mobile.spec.js
+  persistence.spec.js
+  preview.spec.js
+  smoke.spec.js
 public/
   logo-riskychici.svg
 src/
@@ -116,11 +128,1034 @@ src/
 index.html
 LICENSE
 package.json
+playwright.config.js
 README.md
+setup-e2e.js
 vite.config.js
 ````
 
 # Files
+
+## File: e2e/fixtures/sample-import.json
+````json
+{
+  "mode": "simple",
+  "state": {
+    "fields": {
+      "projectName": "Prime Property",
+      "problemStatement": "Agen properti kesulitan mengelola listing dan jadwal survei."
+    },
+    "features": [],
+    "palette": [],
+    "roles": [],
+    "schemaTables": [],
+    "acModules": [],
+    "simpleExtras": {},
+    "techOptional": []
+  }
+}
+````
+
+## File: e2e/helpers/mockAi.js
+````javascript
+export async function mockGroq(page, outputText) {
+  await page.route('**/api.groq.com/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: outputText,
+            },
+          },
+        ],
+      }),
+    });
+  });
+}
+
+export async function mockGeminiStream(page, chunks) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    let body = '';
+
+    chunks.forEach((chunk) => {
+      const payload = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: chunk,
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      body += 'data: ' + JSON.stringify(payload) + '\n\n';
+    });
+
+    body += 'data: [DONE]\n\n';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body,
+    });
+  });
+}
+
+export async function mockGeminiError(page, statusCode, errorMessage) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+
+export async function mockGroqError(page, statusCode, errorMessage) {
+  await page.route('**/api.groq.com/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+````
+
+## File: e2e/ai.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+import { mockGroq, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('analisis AI menampilkan hasil mock', async ({ page }) => {
+  await mockGeminiStream(page, [
+    '## 1. Analisis System Analyst\n',
+    'PRD perlu menambahkan acceptance criteria yang lebih detail.',
+  ]);
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  await expect(
+    page.getByText('PRD perlu menambahkan acceptance criteria yang lebih detail.')
+  ).toBeVisible({ timeout: 15000 });
+});
+
+test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
+  await mockGroq(
+    page,
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+
+  const textarea = page.getByLabel('Latar Belakang / Problem Statement');
+  await textarea.fill('masalah pencatatan');
+
+  const tombolRefine = page.getByRole(
+    'button',
+    { name: 'Perhalus teks Problem Statement dengan AI' }
+  );
+  await tombolRefine.click();
+
+  await expect(textarea).toHaveValue(
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+});
+
+test('analisis AI menampilkan pesan error ketika API gagal', async ({ page }) => {
+  await mockGeminiError(page, 429, 'Quota exceeded for free tier');
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  // PERBAIKAN: Gunakan .first() karena pesan error muncul di card AI dan juga di Toast notifikasi
+  await expect(
+    page.getByText(/Kuota harian/i).first()
+  ).toBeVisible({ timeout: 10000 });
+});
+````
+
+## File: e2e/editor.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('nama proyek yang diisi muncul di cover preview', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const coverTitle = page.locator('.doc-cover h1');
+  await expect(coverTitle).toContainText('KASIR KOPI');
+});
+
+test('problem statement yang diisi muncul di preview', async ({ page }) => {
+  const inputProblem = page.getByLabel('Latar Belakang / Problem Statement');
+  await inputProblem.fill('Pemilik warung sulit mencatat penjualan harian.');
+
+  const previewText = page.locator('#prdDocument');
+  await expect(previewText).toContainText(
+    'Pemilik warung sulit mencatat penjualan harian.'
+  );
+});
+
+test('mode enterprise menampilkan section NFR', async ({ page }) => {
+  await page.getByRole('button', { name: /Mode Enterprise/i }).click();
+
+  await expect(
+    page.getByText('NFR, Keamanan & Figma Prototype')
+  ).toBeVisible();
+});
+
+test('toggle persona menampilkan section persona di mode simple', async ({ page }) => {
+  const togglePersona = page.getByLabel('Persona & KPI Sukses');
+  await togglePersona.check();
+
+  // PERBAIKAN: Gunakan locator ID karena getByLabel bentrok dengan aria-label tombol AI Refine
+  await expect(
+    page.locator('#userPersona')
+  ).toBeVisible();
+});
+
+test('reset mengosongkan form', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  // PERBAIKAN: Gunakan exact: true agar tidak memilih tombol "Reset Semua" di section Extras
+  await page.getByRole('button', { name: 'Reset', exact: true }).click();
+
+  await expect(inputNamaProyek).toHaveValue('');
+});
+
+test('muat contoh mengisi data Instagram', async ({ page }) => {
+  await page.getByRole('button', { name: /Muat Contoh/i }).click();
+
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+  await expect(inputNamaProyek).toHaveValue('Instagram');
+});
+````
+
+## File: e2e/history.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('undo dan redo bekerja pada input nama proyek', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const tombolUndo = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
+  const tombolRedo = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
+
+  await expect(tombolUndo).toBeEnabled();
+
+  await tombolUndo.click();
+  await expect(inputNamaProyek).toHaveValue('');
+
+  await expect(tombolRedo).toBeEnabled();
+
+  await tombolRedo.click();
+  await expect(inputNamaProyek).toHaveValue('Kasir Kopi');
+});
+````
+
+## File: e2e/mobile.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.use({
+  viewport: { width: 390, height: 844 },
+});
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('tab bar mobile muncul', async ({ page }) => {
+  await expect(page.getByRole('button', { name: /Editor PRD/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Preview PDF/i })).toBeVisible();
+});
+
+test('bisa pindah ke preview dari tab bar', async ({ page }) => {
+  await page.getByRole('button', { name: /Preview PDF/i }).click();
+
+  await expect(page.locator('#previewPanel')).toBeVisible();
+});
+
+test('bisa kembali ke editor dari tab bar', async ({ page }) => {
+  await page.getByRole('button', { name: /Preview PDF/i }).click();
+  await page.getByRole('button', { name: /Editor PRD/i }).click();
+
+  await expect(page.locator('#editorPanel')).toBeVisible();
+});
+````
+
+## File: e2e/persistence.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  // PERBAIKAN: Gunakan evaluate alih-alih addInitScript.
+  // addInitScript akan berjalan ulang setiap kali page.reload() dipanggil,
+  // sehingga menghapus localStorage tepat sebelum aplikasi membaca datanya.
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.clear();
+  });
+  await page.reload();
+});
+
+test('autosave menyimpan data ke localStorage', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  // Tunggu sampai localStorage benar-benar mengandung "Kasir Kopi"
+  await page.waitForFunction((key) => {
+    const data = localStorage.getItem(key);
+    return data && data.includes('Kasir Kopi');
+  }, 'prdArchitectV4', { timeout: 5000 });
+
+  const saved = await page.evaluate((key) => {
+    return localStorage.getItem(key);
+  }, 'prdArchitectV4');
+
+  expect(saved).toContain('Kasir Kopi');
+});
+
+test('data tetap ada setelah reload', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  // Tunggu sampai localStorage benar-benar mengandung "Kasir Kopi"
+  await page.waitForFunction((key) => {
+    const data = localStorage.getItem(key);
+    return data && data.includes('Kasir Kopi');
+  }, 'prdArchitectV4', { timeout: 5000 });
+
+  await page.reload();
+
+  // Tunggu aplikasi selesai render ulang setelah reload
+  await expect(page.getByRole('heading', { name: /PRD Architect/i })).toBeVisible();
+
+  // Evaluasi ulang locator pada DOM yang baru
+  await expect(page.getByLabel('Nama Proyek / Aplikasi')).toHaveValue('Kasir Kopi');
+});
+````
+
+## File: e2e/preview.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('export JSON menghasilkan file download', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Ekspor JSON' }).click(),
+  ]);
+
+  const filename = download.suggestedFilename();
+
+  expect(filename).toContain('.json');
+});
+
+test('import JSON mengisi form', async ({ page }) => {
+  const fileInput = page.locator('input[accept=".json"]');
+
+  await fileInput.setInputFiles('e2e/fixtures/sample-import.json');
+
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await expect(inputNamaProyek).toHaveValue('Prime Property');
+});
+
+test('mode print menyembunyikan editor dan menampilkan preview', async ({ page }) => {
+  await page.emulateMedia({ media: 'print' });
+
+  await expect(page.locator('#editorPanel')).toBeHidden();
+  await expect(page.locator('#previewPanel')).toBeVisible();
+});
+````
+
+## File: e2e/smoke.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('aplikasi berhasil dimuat', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: /PRD Architect/i })).toBeVisible();
+  await expect(page.getByText('Live Preview Dokumen')).toBeVisible();
+});
+
+test('mode switcher tampil', async ({ page }) => {
+  await expect(page.getByRole('button', { name: /Mode Simple/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Mode Enterprise/i })).toBeVisible();
+});
+
+test('tombol undo redo dan header tampil', async ({ page }) => {
+  await expect(page.getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Redo (Ctrl+Y)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Muat Contoh/i })).toBeVisible();
+  
+  // PERBAIKAN: Gunakan exact: true agar tidak bentrok dengan tombol "Reset Semua"
+  await expect(page.getByRole('button', { name: 'Reset', exact: true })).toBeVisible();
+});
+````
+
+## File: playwright.config.js
+````javascript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 30000,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : undefined,
+
+use: {
+  baseURL: 'http://localhost:5173',
+  launchOptions: {
+    slowMo: 1000,
+  },
+  trace: 'on-first-retry',
+  screenshot: 'only-on-failure',
+  video: 'retain-on-failure',
+},
+
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    env: {
+      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
+      VITE_GROQ_API_KEY: 'dummy-groq-key',
+    },
+  },
+
+  projects: [
+    {
+      name: 'desktop-chrome',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'mobile-chrome',
+      use: {
+        ...devices['Pixel 7'],
+      },
+    },
+  ],
+});
+````
+
+## File: setup-e2e.js
+````javascript
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function writeFile(relativePath, content) {
+  const fullPath = path.join(__dirname, relativePath);
+  ensureDir(path.dirname(fullPath));
+  fs.writeFileSync(fullPath, content, 'utf-8');
+  console.log('Berhasil dibuat: ' + relativePath);
+}
+
+// ============================================================
+// 1. playwright.config.js
+// ============================================================
+const playwrightConfig = `import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 30000,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : undefined,
+
+  use: {
+    baseURL: 'http://localhost:5173',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    env: {
+      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
+      VITE_GROQ_API_KEY: 'dummy-groq-key',
+    },
+  },
+
+  projects: [
+    {
+      name: 'desktop-chrome',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'mobile-chrome',
+      use: {
+        ...devices['Pixel 7'],
+      },
+    },
+  ],
+});
+`;
+
+// ============================================================
+// 2. e2e/helpers/mockAi.js
+// ============================================================
+const mockAiHelper = `export async function mockGroq(page, outputText) {
+  await page.route('**/api.groq.com/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: outputText,
+            },
+          },
+        ],
+      }),
+    });
+  });
+}
+
+export async function mockGeminiStream(page, chunks) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    let body = '';
+
+    chunks.forEach((chunk) => {
+      const payload = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: chunk,
+                },
+              ],
+            },
+          },
+        ],
+      };
+
+      body += 'data: ' + JSON.stringify(payload) + '\\n\\n';
+    });
+
+    body += 'data: [DONE]\\n\\n';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body,
+    });
+  });
+}
+
+export async function mockGeminiError(page, statusCode, errorMessage) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+
+export async function mockGroqError(page, statusCode, errorMessage) {
+  await page.route('**/api.groq.com/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+`;
+
+// ============================================================
+// 3. e2e/fixtures/sample-import.json
+// ============================================================
+const sampleImportJson = `{
+  "mode": "simple",
+  "state": {
+    "fields": {
+      "projectName": "Prime Property",
+      "problemStatement": "Agen properti kesulitan mengelola listing dan jadwal survei."
+    },
+    "features": [],
+    "palette": [],
+    "roles": [],
+    "schemaTables": [],
+    "acModules": [],
+    "simpleExtras": {},
+    "techOptional": []
+  }
+}
+`;
+
+// ============================================================
+// 4. e2e/smoke.spec.js
+// ============================================================
+const smokeSpec = `import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('aplikasi berhasil dimuat', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: /PRD Architect/i })).toBeVisible();
+  await expect(page.getByText('Live Preview Dokumen')).toBeVisible();
+});
+
+test('mode switcher tampil', async ({ page }) => {
+  await expect(page.getByRole('button', { name: /Mode Simple/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Mode Enterprise/i })).toBeVisible();
+});
+
+test('tombol undo redo dan header tampil', async ({ page }) => {
+  await expect(page.getByRole('button', { name: 'Undo (Ctrl+Z)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Redo (Ctrl+Y)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Muat Contoh/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Reset/i })).toBeVisible();
+});
+`;
+
+// ============================================================
+// 5. e2e/editor.spec.js
+// ============================================================
+const editorSpec = `import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('nama proyek yang diisi muncul di cover preview', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const coverTitle = page.locator('.doc-cover h1');
+
+  await expect(coverTitle).toContainText('KASIR KOPI');
+});
+
+test('problem statement yang diisi muncul di preview', async ({ page }) => {
+  const inputProblem = page.getByLabel('Latar Belakang / Problem Statement');
+
+  await inputProblem.fill('Pemilik warung sulit mencatat penjualan harian.');
+
+  const previewText = page.locator('#prdDocument');
+
+  await expect(previewText).toContainText(
+    'Pemilik warung sulit mencatat penjualan harian.'
+  );
+});
+
+test('mode enterprise menampilkan section NFR', async ({ page }) => {
+  await page.getByRole('button', { name: /Mode Enterprise/i }).click();
+
+  await expect(
+    page.getByText('NFR, Keamanan & Figma Prototype')
+  ).toBeVisible();
+});
+
+test('toggle persona menampilkan section persona di mode simple', async ({ page }) => {
+  const togglePersona = page.getByLabel('Persona & KPI Sukses');
+
+  await togglePersona.check();
+
+  await expect(
+    page.getByLabel('Target User Persona')
+  ).toBeVisible();
+});
+
+test('reset mengosongkan form', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  await page.getByRole('button', { name: /Reset/i }).click();
+
+  await expect(inputNamaProyek).toHaveValue('');
+});
+
+test('muat contoh mengisi data Instagram', async ({ page }) => {
+  await page.getByRole('button', { name: /Muat Contoh/i }).click();
+
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await expect(inputNamaProyek).toHaveValue('Instagram');
+});
+`;
+
+// ============================================================
+// 6. e2e/history.spec.js
+// ============================================================
+const historySpec = `import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('undo dan redo bekerja pada input nama proyek', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const tombolUndo = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
+  const tombolRedo = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
+
+  await expect(tombolUndo).toBeEnabled();
+
+  await tombolUndo.click();
+  await expect(inputNamaProyek).toHaveValue('');
+
+  await expect(tombolRedo).toBeEnabled();
+
+  await tombolRedo.click();
+  await expect(inputNamaProyek).toHaveValue('Kasir Kopi');
+});
+`;
+
+// ============================================================
+// 7. e2e/persistence.spec.js
+// ============================================================
+const persistenceSpec = `import { test, expect } from '@playwright/test';
+
+const STORAGE_KEY = 'prdArchitectV4';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('autosave menyimpan data ke localStorage', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  await page.waitForFunction((key) => {
+    const data = localStorage.getItem(key);
+    return data && data.includes('Kasir Kopi');
+  }, STORAGE_KEY);
+
+  const saved = await page.evaluate((key) => {
+    return localStorage.getItem(key);
+  }, STORAGE_KEY);
+
+  expect(saved).toContain('Kasir Kopi');
+});
+
+test('data tetap ada setelah reload', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  await page.waitForFunction((key) => {
+    const data = localStorage.getItem(key);
+    return data && data.includes('Kasir Kopi');
+  }, STORAGE_KEY);
+
+  await page.reload();
+
+  await expect(inputNamaProyek).toHaveValue('Kasir Kopi');
+});
+`;
+
+// ============================================================
+// 8. e2e/preview.spec.js
+// ============================================================
+const previewSpec = `import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('export JSON menghasilkan file download', async ({ page }) => {
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await inputNamaProyek.fill('Kasir Kopi');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Ekspor JSON' }).click(),
+  ]);
+
+  const filename = download.suggestedFilename();
+
+  expect(filename).toContain('.json');
+});
+
+test('import JSON mengisi form', async ({ page }) => {
+  const fileInput = page.locator('input[accept=".json"]');
+
+  await fileInput.setInputFiles('e2e/fixtures/sample-import.json');
+
+  const inputNamaProyek = page.getByLabel('Nama Proyek / Aplikasi');
+
+  await expect(inputNamaProyek).toHaveValue('Prime Property');
+});
+
+test('mode print menyembunyikan editor dan menampilkan preview', async ({ page }) => {
+  await page.emulateMedia({ media: 'print' });
+
+  await expect(page.locator('#editorPanel')).toBeHidden();
+  await expect(page.locator('#previewPanel')).toBeVisible();
+});
+`;
+
+// ============================================================
+// 9. e2e/mobile.spec.js
+// ============================================================
+const mobileSpec = `import { test, expect } from '@playwright/test';
+
+test.use({
+  viewport: { width: 390, height: 844 },
+});
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('tab bar mobile muncul', async ({ page }) => {
+  await expect(page.getByRole('button', { name: /Editor PRD/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Preview PDF/i })).toBeVisible();
+});
+
+test('bisa pindah ke preview dari tab bar', async ({ page }) => {
+  await page.getByRole('button', { name: /Preview PDF/i }).click();
+
+  await expect(page.locator('#previewPanel')).toBeVisible();
+});
+
+test('bisa kembali ke editor dari tab bar', async ({ page }) => {
+  await page.getByRole('button', { name: /Preview PDF/i }).click();
+  await page.getByRole('button', { name: /Editor PRD/i }).click();
+
+  await expect(page.locator('#editorPanel')).toBeVisible();
+});
+`;
+
+// ============================================================
+// 10. e2e/ai.spec.js
+// ============================================================
+const aiSpec = `import { test, expect } from '@playwright/test';
+import { mockGroq, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+
+  await page.goto('/');
+});
+
+test('analisis AI menampilkan hasil mock', async ({ page }) => {
+  await mockGeminiStream(page, [
+    '## 1. Analisis System Analyst\\n',
+    'PRD perlu menambahkan acceptance criteria yang lebih detail.',
+  ]);
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  await expect(
+    page.getByText('PRD perlu menambahkan acceptance criteria yang lebih detail.')
+  ).toBeVisible({ timeout: 15000 });
+});
+
+test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
+  await mockGroq(
+    page,
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+
+  const textarea = page.getByLabel('Latar Belakang / Problem Statement');
+
+  await textarea.fill('masalah pencatatan');
+
+  const tombolRefine = page.getByRole(
+    'button',
+    { name: 'Perhalus teks Problem Statement dengan AI' }
+  );
+
+  await tombolRefine.click();
+
+  await expect(textarea).toHaveValue(
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+});
+
+test('analisis AI menampilkan pesan error ketika API gagal', async ({ page }) => {
+  await mockGeminiError(page, 429, 'Quota exceeded for free tier');
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  await expect(
+    page.getByText(/Kuota harian/i)
+  ).toBeVisible({ timeout: 10000 });
+});
+`;
+
+// ============================================================
+// Tulis semua file
+// ============================================================
+console.log('Memulai pembuatan file E2E testing...\n');
+
+writeFile('playwright.config.js', playwrightConfig);
+writeFile(path.join('e2e', 'helpers', 'mockAi.js'), mockAiHelper);
+writeFile(path.join('e2e', 'fixtures', 'sample-import.json'), sampleImportJson);
+writeFile(path.join('e2e', 'smoke.spec.js'), smokeSpec);
+writeFile(path.join('e2e', 'editor.spec.js'), editorSpec);
+writeFile(path.join('e2e', 'history.spec.js'), historySpec);
+writeFile(path.join('e2e', 'persistence.spec.js'), persistenceSpec);
+writeFile(path.join('e2e', 'preview.spec.js'), previewSpec);
+writeFile(path.join('e2e', 'mobile.spec.js'), mobileSpec);
+writeFile(path.join('e2e', 'ai.spec.js'), aiSpec);
+
+// ============================================================
+// Update package.json: tambahkan script test
+// ============================================================
+const packageJsonPath = path.join(__dirname, 'package.json');
+
+if (fs.existsSync(packageJsonPath)) {
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+
+  packageJson.scripts = packageJson.scripts || {};
+
+  packageJson.scripts['test:e2e'] = 'playwright test';
+  packageJson.scripts['test:e2e:ui'] = 'playwright test --ui';
+  packageJson.scripts['test:e2e:headed'] = 'playwright test --headed';
+  packageJson.scripts['test:e2e:debug'] = 'playwright test --debug';
+  packageJson.scripts['test:e2e:report'] = 'playwright show-report';
+
+  fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
+  console.log('Berhasil diperbarui: package.json (script test ditambahkan)');
+} else {
+  console.log('Peringatan: package.json tidak ditemukan, script test tidak ditambahkan.');
+}
+
+console.log('\nSemua file E2E testing berhasil dibuat.');
+console.log('Langkah selanjutnya, jalankan: npm run test:e2e');
+````
 
 ## File: public/logo-riskychici.svg
 ````xml
@@ -389,107 +1424,6 @@ export default function DocFooter() {
 }
 ````
 
-## File: src/components/shared/AiRefineButton.jsx
-````javascript
-import { useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { refineText } from '../../services/groqService';
-import { usePrdStore } from '../../store/usePrdStore';
-import { useAutoResize } from '../../hooks/useAutoResize';
-import { useToast } from '../../hooks/useToast';
-
-// ============================================================
-// TOMBOL PERHALUS TEKS AI (IN-LINE TEXT ENHANCER)
-// - Nonaktif otomatis jika kolom kosong.
-// - Menampilkan spinner saat AI bekerja.
-// - Mengirim nama kolom (label) sebagai konteks, sehingga AI
-//   membingkai ulang tulisan sesuai tujuan kolom.
-// - Setelah refine selesai, tombol TERKUNCI selama value kolom
-//   belum diubah. Begitu user mengubah value, tombol aktif lagi.
-// - Jika refine gagal karena error jaringan/API, tombol tetap
-//   aktif supaya user bisa langsung mencoba ulang.
-// - FIX UNDO/REDO: hasil AI dicatat ke history SESUDAH diterapkan.
-// - FIX TEXTAREA TERPOTONG: setelah nilai diset secara programatik,
-//   tinggi textarea dihitung ulang supaya tidak terpotong.
-// ============================================================
-export default function AiRefineButton(props) {
-  const value = props.value || '';
-  const onApply = props.onApply;
-  const mode = props.mode || 'paragraph';
-  const label = props.label || 'kolom ini';
-  const className = props.className || '';
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const ra = useAutoResize();
-  const showToast = useToast();
-  const [busy, setBusy] = useState(false);
-
-  // Menyimpan teks hasil refine terakhir. Selama value kolom masih
-  // sama persis dengan teks ini, tombol dianggap "sudah dipakai"
-  // dan tetap nonaktif.
-  const [lastRefined, setLastRefined] = useState(null);
-
-  const trimmed = value.trim();
-  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
-  const disabled = busy || !trimmed || unchangedSinceRefine;
-
-  async function handle() {
-    if (disabled) return;
-    setBusy(true);
-    try {
-      const result = await refineText(trimmed, mode, label);
-      if (result && result.trim()) {
-        if (result.trim() !== trimmed) {
-          onApply(result.trim());
-          commit();
-          // Nilai diset lewat store, bukan ketikan user, sehingga
-          // event input tidak pernah terjadi dan textarea tidak
-          // memanjang sendiri. Paksa hitung ulang tinggi setelah
-          // React selesai merender nilai baru.
-          setTimeout(function () { ra.resizeAll(); }, 0);
-          showToast('Teks berhasil diperhalus oleh AI', 'success');
-        } else {
-          showToast('AI: Teks ini sudah cukup profesional', 'info');
-        }
-        setLastRefined(result.trim());
-      } else {
-        setLastRefined(trimmed);
-        showToast('AI tidak menghasilkan output', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal memperhalus: ' + e.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const title = busy
-    ? 'Sedang memperhalus teks...'
-    : unchangedSinceRefine
-      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
-      : 'Perhalus teks dengan AI (Qwen)';
-
-  return (
-    <button
-      type="button"
-      onClick={handle}
-      disabled={disabled}
-      title={title}
-      aria-label={'Perhalus teks ' + label + ' dengan AI'}
-      className={
-        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 hover:bg-purple-700/40 transition disabled:opacity-30 disabled:cursor-not-allowed ' +
-        className
-      }
-    >
-      <FontAwesomeIcon
-        icon={busy ? faSpinner : faWandMagicSparkles}
-        className={'text-[11px] ' + (busy ? 'animate-spin' : '')}
-      />
-    </button>
-  );
-}
-````
-
 ## File: src/components/shared/Toast.jsx
 ````javascript
 import { useToastStore } from '../../hooks/useToast';
@@ -738,344 +1672,6 @@ export const useToastStore = create(function (set) {
 export const useToast = function () { return useToastStore(function (s) { return s.showToast; }); };
 ````
 
-## File: src/services/groqService.js
-````javascript
-// ============================================================
-// LAYANAN GROQ DENGAN DUAL MODEL FALLBACK
-// Model utama: qwen/qwen3.8-27b
-// Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
-// ============================================================
-const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
-export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
-
-// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
-// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
-// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
-const NO_THINK_SUFFIX =
-  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
-  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
-
-const callGroq = async function (apiKey, model, prompt, maxTokens) {
-  const res = await fetch(GROQ_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: maxTokens || 300,
-    }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(function () { return {}; });
-    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  if (data.choices && data.choices[0] && data.choices[0].message) {
-    return data.choices[0].message.content || '';
-  }
-  return '';
-};
-
-export const callGroqWithFallback = async function (prompt, maxTokens) {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error('VITE_GROQ_API_KEY belum diisi pada .env.local');
-  try {
-    return await callGroq(apiKey, GROQ_PRIMARY_MODEL, prompt, maxTokens);
-  } catch (primaryErr) {
-    const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
-    if (!retryable) throw primaryErr;
-    console.warn('[Groq] Model utama gagal, memakai cadangan:', primaryErr.message);
-    return await callGroq(apiKey, GROQ_FALLBACK_MODEL, prompt, maxTokens);
-  }
-};
-
-// ============================================================
-// PEMBERSIH BLOK THINKING (3 LAPIS)
-// 1. Buang blok think yang utuh (ada pembuka dan penutup).
-// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
-//    tidak pernah muncul karena output habis token).
-// 3. Buang sisa penutup tanpa pembuka, jika ada.
-// ============================================================
-const cleanThink = function (t) {
-  let s = (t || '');
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
-  s = s.replace(/<think>[\s\S]*$/gi, '');
-  s = s.replace(/[\s\S]*?<\/think>/gi, '');
-  return s.trim();
-};
-
-// Panggil AI lalu bersihkan blok thinking.
-// Jika hasil bersih kosong (artinya seluruh token model habis
-// untuk berpikir), ulangi SEKALI dengan penekanan agar model
-// langsung menulis hasil akhir.
-const callGroqClean = async function (prompt, maxTokens) {
-  const raw = await callGroqWithFallback(prompt, maxTokens);
-  let out = cleanThink(raw).trim();
-  if (!out) {
-    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
-    const raw2 = await callGroqWithFallback(
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
-      maxTokens
-    );
-    out = cleanThink(raw2).trim();
-  }
-  return out;
-};
-
-// ============================================================
-// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
-// ============================================================
-export const generateCoverTagline = async function (goalText) {
-  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
-    'Aturan wajib:\n' +
-    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
-    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
-    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
-    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
-    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
-    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
-    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Contoh 1:\n' +
-    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
-    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
-    'Contoh 2:\n' +
-    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
-    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
-    'Contoh 3:\n' +
-    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
-    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
-    'Teks: """' + goalText + '"""\n' +
-    'Tagline:' + NO_THINK_SUFFIX;
-  const out = await callGroqClean(prompt, 2048);
-  return out
-    .split('\n')[0]
-    .replace(/^tagline\s*:\s*/i, '')
-    .replace(/\*\*/g, '')
-    .replace(/["']/g, '')
-    .replace(/[.!?]+$/, '')
-    .trim();
-};
-
-// ============================================================
-// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
-// KALIBRASI ULANG: tugas AI adalah memperhalus BAHASA, bukan
-// memotong isi. Hasil harus profesional, utuh, dan natural,
-// tidak telegrafis dan tidak birokratis.
-// ============================================================
-const MODE_INSTRUCTIONS = {
-  paragraph: 'Tulis ulang sebagai paragraf profesional bergaya dokumentasi Product Manager. ' +
-    'Tugasmu memperhalus BAHASA, bukan merangkum isi: seluruh poin informasi draf wajib tetap muncul. ' +
-    'Susun menjadi 2 sampai 4 kalimat utuh yang mengalir, formal, jelas, dan natural. ' +
-    'Bukan poin-poin telegrafis yang kaku, dan bukan paragraf birokratis yang bertele-tele.',
-  list: 'Tulis ulang setiap baris menjadi poin profesional yang utuh dan jelas (10 sampai 20 kata per poin). ' +
-    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
-  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 12 kata, tanpa titik di akhir.',
-  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
-  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
-  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
-};
-
-// ============================================================
-// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
-// Parameter context berisi nama kolom tujuan (misalnya
-// "Problem Statement"), sehingga AI membingkai ulang tulisan
-// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
-// ============================================================
-export const refineText = async function (text, mode, context) {
-  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
-  const example = mode === 'paragraph'
-    ? 'Contoh gaya yang diinginkan (profesional, jelas, informasi lengkap, tidak bertele-tele):\n' +
-      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
-      'Hasil: "Pengguna masih kesulitan menemukan tombol cetak pada antarmuka, dan aplikasi kerap gagal saat proses unggah berkas berlangsung."\n\n' +
-      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
-      'Hasil: "Pelanggan harus mengantre lama tanpa kepastian jadwal pelayanan, sementara pemilik kesulitan mengoptimalkan kursi kosong, sehingga pengalaman pelanggan dan pendapatan usaha ikut menurun."\n\n'
-    : '';
-  const contextRule = context
-    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
-      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
-      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
-      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
-      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
-    : '';
-  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus terdengar seperti ditulis manusia profesional: rapi, formal, dan natural.\n' +
-    'Tugasmu: perhalus draf kasar berikut menjadi tulisan profesional berstandar dokumentasi Product Manager.\n' +
-    'Aturan khusus:\n' + instruction + '\n' +
-    example +
-    'Aturan umum:\n' +
-    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
-    '2. Jangan membuang informasi: seluruh poin inti draf wajib muncul di hasil.\n' +
-    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
-    '4. Panjang hasil seimbang dengan draf: boleh lebih rapi, tetapi tidak boleh jauh lebih pendek hingga informasi hilang, dan tidak boleh lebih panjang hingga bertele-tele.\n' +
-    '5. Hindari frasa birokratis berlebihan seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses.\n' +
-    '6. Gunakan kalimat utuh yang profesional dan natural, dengan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
-    contextRule +
-    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
-  const out = await callGroqClean(prompt, 4096);
-  return out
-    .replace(/^hasil\s*:\s*/i, '')
-    .replace(/^["']+|["']+$/g, '')
-    .trim();
-};
-
-// ============================================================
-// GENERATOR SCHEMA DARI USER FLOW
-// ============================================================
-export const generateSchemaFromFlow = async function (flowText) {
-  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
-    'Aturan:\n' +
-    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
-    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
-    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
-    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
-    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
-    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
-    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
-    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
-    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
-
-  let raw = await callGroqWithFallback(prompt, 4096);
-  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
-  // ulangi sekali dengan instruksi langsung.
-  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
-    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
-    raw = await callGroqWithFallback(
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
-      4096
-    );
-  }
-
-  const tables = parseSchemaJson(raw);
-  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
-  return tables.map(function (t, ti) {
-    return {
-      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
-      desc: String(t.desc || ''),
-      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
-        return {
-          field: String(fi.field || 'kolom'),
-          type: String(fi.type || 'VARCHAR'),
-          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
-          note: String(fi.note || ''),
-        };
-      }) : [],
-    };
-  });
-};
-
-// ============================================================
-// PARSER JSON SCHEMA YANG TAHAN BANTING
-// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
-// output yang terpotong batas token.
-// ============================================================
-const repairInnerQuotes = function (text) {
-  let out = '';
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (!inString) {
-      if (ch === '"') inString = true;
-      out += ch;
-      continue;
-    }
-    if (ch === '\\') {
-      out += ch + (text[i + 1] || '');
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      let j = i + 1;
-      while (j < text.length && /\s/.test(text[j])) j++;
-      const next = text[j];
-      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
-        inString = false;
-        out += ch;
-      } else {
-        out += '\\"';
-      }
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-};
-
-const removeTrailingCommas = function (text) {
-  return text.replace(/,\s*([}\]])/g, '$1');
-};
-
-const closeOpenStructures = function (text) {
-  const stack = [];
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === '\\') i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
-      inString = true;
-    } else if (ch === '{' || ch === '[') {
-      stack.push(ch);
-    } else if (ch === '}' || ch === ']') {
-      stack.pop();
-    }
-  }
-  let out = text.replace(/,\s*$/, '');
-  for (let i = stack.length - 1; i >= 0; i--) {
-    out += stack[i] === '{' ? '}' : ']';
-  }
-  return out;
-};
-
-const salvageTruncated = function (text) {
-  let search = text;
-  while (search.length) {
-    const lastClose = search.lastIndexOf('}');
-    if (lastClose === -1) return null;
-    const cut = search.slice(0, lastClose + 1);
-    const closed = closeOpenStructures(cut);
-    try {
-      const parsed = JSON.parse(closed);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    } catch (e) {}
-    search = search.slice(0, lastClose);
-  }
-  return null;
-};
-
-const parseSchemaJson = function (rawText) {
-  const cleaned = cleanThink(rawText).replace(/```json|```/gi, '').trim();
-  const start = cleaned.indexOf('[');
-  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
-  const end = cleaned.lastIndexOf(']');
-  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
-
-  const repaired = removeTrailingCommas(repairInnerQuotes(body));
-  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
-
-  let lastErr = null;
-  for (let i = 0; i < candidates.length; i++) {
-    try {
-      const parsed = JSON.parse(candidates[i]);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) { lastErr = e; }
-  }
-
-  const salvaged = salvageTruncated(repaired);
-  if (salvaged) {
-    console.warn('[Groq] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
-    return salvaged;
-  }
-
-  console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
-  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
-};
-````
-
 ## File: src/services/storageService.js
 ````javascript
 import { STORAGE_KEY } from '../utils/constants';
@@ -1143,275 +1739,6 @@ import { create } from 'zustand';
 export const useViewStore = create(function (set) {
   return { view: 'editor', setView: function (v) { set({ view: v }); } };
 });
-````
-
-## File: src/utils/aiPrompts.js
-````javascript
-// Utils untuk membangun prompt AI secara terpisah dari store
-// Memudahkan iterasi prompt tanpa menyentuh business logic
-
-/**
- * Bangun blok konteks dinamis berdasarkan kondisi PRD dan brief user
- */
-function buildContextBlock(prdSnapshot, brief, isPrdEmpty) {
-  if (brief && isPrdEmpty) {
-    return `DESKRIPSI APLIKASI YANG INGIN DIBUAT USER (ACUAN UTAMA):
-"${brief}"
-
-INSTRUKSI KHUSUS: Dokumen PRD saat ini masih KOSONG. Jangan mengeluh soal dokumen kosong. Gunakan deskripsi user di atas sebagai acuan utama, lalu patuhi 5 aturan ini:
-1. INTERPRETASI LITERAL: Pahami inti produk secara harfiah dari kata-kata user. JANGAN memperluas scope menjadi produk lain. Contoh: "aplikasi catatan kuliah" berarti aplikasi untuk membuat, menyimpan, dan mengelola catatan kuliah per mata kuliah atau semester, BUKAN sistem informasi akademik dengan absensi, nilai, KRS, atau pembayaran SPP.
-2. KEMBANGAN YANG RELEVAN: Fitur tambahan boleh disarankan hanya jika relevan langsung dengan inti produk. Untuk catatan kuliah misalnya: pencarian catatan, lampiran foto atau PDF, sinkronisasi antar perangkat, dan berbagi catatan ke teman sekelas.
-3. KONFIRMASI INTERPRETASI: Pada poin "Status Kelengkapan & Kesiapan", tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta user, agar user bisa memverifikasi pemahaman kamu.
-4. KONSISTENSI STACK: Gunakan SATU rekomendasi technology stack yang sama di semua bagian dokumen. Jangan menyebut Next.js di satu bagian lalu React Native di bagian lain.
-5. RANCANG DARI NOL: Bayangkan produknya secara konkret (target user, masalah nyata, fitur inti, alur penggunaan, stack masuk akal untuk skala tersebut), lalu susun analisis dan isi SELURUH field json_draft dari nol, termasuk projectName yang cocok.
-
-CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
-
-Data PRD saat ini (masih kosong):
-${JSON.stringify(prdSnapshot, null, 2)}`;
-  }
-  if (brief) {
-    return `CATATAN TAMBAHAN DARI USER TENTANG APLIKASI:
-"${brief}"
-
-INGAT: Jangan memperluas scope di luar inti produk yang sudah ada di PRD atau catatan user. Jaga konsistensi rekomendasi stack di semua bagian.
-
-CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
-
-Data PRD saat ini:
-${JSON.stringify(prdSnapshot, null, 2)}`;
-  }
-  return `Data PRD saat ini:
-${JSON.stringify(prdSnapshot, null, 2)}
-
-CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.`;
-}
-
-/**
- * Bangun prompt lengkap untuk analisis PRD oleh AI
- * @param {Object} prdSnapshot - Snapshot state PRD dari store
- * @param {string|null} userBrief - Deskripsi aplikasi dari user (bisa null)
- * @returns {string} Prompt lengkap siap dikirim ke Gemini API
- */
-export function buildAiPrompt(prdSnapshot, userBrief) {
-  const brief = (userBrief || '').trim();
-  const isPrdEmpty =
-    !(prdSnapshot.fields.projectName || '').trim() &&
-    !(prdSnapshot.fields.problemStatement || '').trim() &&
-    !(prdSnapshot.fields.productGoal || '').trim() &&
-    (prdSnapshot.features || []).length === 0;
-
-  const contextBlock = buildContextBlock(prdSnapshot, brief, isPrdEmpty);
-
-  return `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
-Tugasmu: audit PRD berikut dan berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, PADAT, dan BERISI.
-
-================================================================================
-ATURAN PANJANG OUTPUT (SANGAT PENTING)
-================================================================================
-- Total output analisis MAKSIMAL 1200 kata (tidak termasuk json_draft)
-- Setiap poin analisis MAKSIMAL 2-3 kalimat saja
-- JANGAN bertele-tele, JANGAN mengulang poin yang sama dengan kata berbeda
-- Fokus ke insight actionable, bukan penjelasan teori
-- Jika field PRD kosong dan tidak ada deskripsi user, cukup sebutkan 1 kali dan berikan saran konkret
-
-================================================================================
-ATURAN GAYA BAHASA
-================================================================================
-1. TULIS SEPERTI MANUSIA. To the point, kontekstual, pakai istilah industri yang natural.
-2. DAFTAR KATA YANG DILARANG (klise AI):
-   - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
-   - "secara manual dan terfragmentasi"
-   - "kredensial yang valid"
-   - "melakukan manipulasi", "melakukan proses"
-   - "platform digital terpusat"
-   - "efisiensi waktu dan akurasi"
-   - "secara tepat", "secara mudah", "secara real-time"
-   - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
-   - "guna", "adapun", "selanjutnya"
-3. PAKAI GAYA INI:
-   - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
-   - Kalimat pendek dan aktif
-   - Konteks bisnis nyata dengan contoh spesifik
-   - Berikan reasoning "kenapa" di balik setiap rekomendasi
-4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
-5. KONSISTENSI: Gunakan SATU rekomendasi technology stack yang sama di seluruh dokumen. Jangan ada kontradiksi antar bagian (misal menyebut Next.js di satu seksi lalu React Native di seksi lain).
-6. FOKUS SCOPE: Analisis dan rekomendasi harus sesuai dengan inti produk yang diminta atau yang sudah tertulis di PRD. JANGAN memperluas scope menjadi produk lain.
-
-================================================================================
-STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
-================================================================================
-## 1. Analisis System Analyst
-### A. Arsitektur & Stack Teknologi
-* **Status Kelengkapan & Kesiapan**: Audit singkat kelengkapan PRD dan gap kritis yang harus diisi sebelum sprint planning. Jika ada deskripsi user, tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta di awal poin ini.
-* **Rekomendasi Frontend & Backend**: Stack yang paling cocok untuk use case ini, plus alasan teknis singkat (SSR vs CSR, monolith vs microservices, REST vs GraphQL).
-
-### B. Basis Data & Infrastruktur
-* **Skema & Integritas Data**: Evaluasi struktur tabel, indexing, dan normalisasi berdasarkan kebutuhan aplikasi.
-* **Caching, Queue & DevOps**: Kebutuhan Redis/cache, message queue jika relevan, dan strategi CI/CD + containerization.
-
-### C. Keamanan & NFR
-* **Security & Compliance**: Standar auth, enkripsi, dan compliance regulasi data (UU PDP) yang wajib dipenuhi.
-* **Performance & SLA**: Target FCP, response time API, uptime SLA, dan strategi monitoring.
-
-## 2. Analisis Product Manager
-### A. Problem Statement & Persona
-* **Kejelasan Masalah & Tujuan**: Evaluasi apakah problem statement sudah spesifik dan goals sudah terukur. Berikan saran perbaikan jika masih generic.
-* **Ketajaman Persona**: Apakah persona sudah menggambarkan pain point nyata dan jobs-to-be-done pengguna target.
-
-### B. Scope & Definition of Done
-* **Batasan Fitur (Out of Scope)**: Identifikasi risiko scope creep dan fitur yang sebaiknya di-cut untuk MVP yang lebih fokus.
-* **Kriteria Rilis (DoD)**: Standar kualitas yang harus dipenuhi sebelum fitur dinyatakan selesai (testing coverage, bug threshold, approval).
-
-### C. Roadmap & Success Metrics
-* **Prioritas MVP**: Urutan eksekusi fitur inti menggunakan framework sederhana (High/Medium/Low) dengan justifikasi singkat.
-* **KPI Terukur**: 3-5 metrik utama pasca-rilis (retention, DAU, conversion, CSAT) dengan target angka realistis.
-
-## 3. Rekomendasi AI
-### A. Stack Ideal & Keamanan Prioritas
-* **Stack Rekomendasi**: Kombinasi teknologi paling rasional untuk proyek ini beserta alasan singkat kenapa lebih baik dari alternatif. WAJIB sama dengan rekomendasi di bagian 1.
-* **Security Quick Wins**: 2-3 langkah keamanan yang wajib langsung dikerjakan di sprint pertama.
-
-### B. Next Actions & Mitigasi Risiko
-* **Langkah Konkret Berikutnya**: 3-5 action items yang harus dilakukan tim (PM/Dev/Design) saat ini juga, urutkan berdasarkan prioritas.
-* **Mitigasi Risiko Utama**: Top 2 risiko terbesar (teknis atau bisnis) beserta strategi mitigasi praktis.
-
-================================================================================
-ATURAN FORMAT JSON DRAFT (SANGAT PENTING: PERINGATAN KERAS ANTI-MALAS!)
-================================================================================
-Setelah analisis, WAJIB output blok \`\`\`json_draft.
-
-PERINGATAN KERAS: JANGAN membuat JSON yang minimalis, JANGAN hanya memberi 1 contoh, dan JANGAN memotong array. Kamu WAJIB mengisi array dengan data yang realistis, detail, dan lengkap sesuai skala aplikasi.
-
-[BATASAN KUANTITAS WAJIB - TIDAK BOLEH KURANG]
-- Array "features" WAJIB berisi 4 hingga 6 fitur inti yang berbeda.
-- Array "palette" WAJIB berisi minimal 3 warna (Primary, Secondary/Accent, Neutral).
-- Array "roles" WAJIB berisi minimal 2 role (misal: User & Admin) dengan hak akses yang spesifik.
-- Array "acModules" WAJIB berisi minimal 2 modul, dan SETIAP modul minimal 2 items Acceptance Criteria yang detail (mencakup trigger dan reaksi sistem).
-- Array "schemaTables" WAJIB berisi minimal 3 tabel, dan SETIAP tabel minimal 4 hingga 6 fields (kolom).
-
-[ATURAN KUALITAS & ANTI-REPETISI]
-1. FITUR HARUS SPESIFIK: Jangan buat fitur generik seperti "Login" atau "Dashboard" saja. Buat fitur yang mencerminkan bisnis intinya (Contoh untuk app catatan: "Sinkronisasi Cloud Otomatis", "Kategorisasi per Mata Kuliah", "Pencarian Full-Text").
-2. DATABASE HARUS RELASIONAL: Setiap tabel WAJIB memiliki Primary Key (id). Jika tabel berhubungan dengan tabel lain, WAJIB ada Foreign Key (misal: user_id, course_id). Jangan buat tabel yang berdiri sendiri tanpa relasi jika konteks aplikasinya membutuhkan.
-3. ACCEPTANCE CRITERIA HARUS TESTABLE: Deskripsi AC tidak boleh abstrak. Harus jelas kondisi pemicunya dan hasil yang diharapkan (Contoh: "User klik tombol Simpan -> Sistem memvalidasi input -> Data tersimpan di DB -> Muncul toast sukses").
-4. JANGAN REPETITIF: Jangan mengisi field dengan kalimat yang diulang-ulang atau template kosong. Setiap field harus punya nilai unik yang relevan dengan konteks PRD.
-
-[CONTOH BURUK VS CONTOH BAIK]
-❌ BURUK (Terlalu malas & dangkal):
-"features": [
-  { "id": "F-01", "name": "Login", "story": "User bisa login", "priority": "High" },
-  { "id": "F-02", "name": "Dashboard", "story": "User lihat dashboard", "priority": "High" }
-]
-"schemaTables": [
-  { "name": "users", "desc": "Tabel user", "fields": [{ "field": "id", "type": "INT", "required": "Ya", "note": "PK" }] }
-]
-
-✅ BAIK (Detail, relasional, dan spesifik):
-"features": [
-  { "id": "F-01", "name": "Autentikasi JWT", "story": "User login menggunakan email dan password, sistem mengembalikan token JWT yang disimpan di httpOnly cookie untuk keamanan sesi.", "priority": "High" },
-  { "id": "F-02", "name": "Manajemen Catatan per Semester", "story": "Mahasiswa dapat mengelompokkan catatan berdasarkan semester dan mata kuliah, serta menambahkan tag untuk pencarian cepat.", "priority": "High" }
-]
-"schemaTables": [
-  {
-    "name": "users",
-    "desc": "Menyimpan data kredensial dan profil mahasiswa",
-    "fields": [
-      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
-      { "field": "email", "type": "VARCHAR", "required": "Ya", "note": "Unique, digunakan untuk login" },
-      { "field": "password_hash", "type": "VARCHAR", "required": "Ya", "note": "Hash bcrypt, jangan simpan plain text" },
-      { "field": "created_at", "type": "TIMESTAMP", "required": "Ya", "note": "Waktu registrasi akun" }
-    ]
-  },
-  {
-    "name": "notes",
-    "desc": "Menyimpan konten catatan kuliah milik user",
-    "fields": [
-      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
-      { "field": "user_id", "type": "UUID", "required": "Ya", "note": "Foreign Key ke users" },
-      { "field": "title", "type": "VARCHAR", "required": "Ya", "note": "Judul catatan" },
-      { "field": "content", "type": "TEXT", "required": "Opsional", "note": "Isi catatan dalam format rich text" }
-    ]
-  }
-]
-
-[CHECKLIST VALIDASI MANDIRI - WAJIB DILAKUKAN SEBELUM MENULIS JSON]
-Sebelum kamu output json_draft, pastikan di dalam pikiranmu:
-1. Apakah array "features" sudah berisi 4 sampai 6 item? (Jika kurang, tambahkan sekarang)
-2. Apakah setiap tabel di "schemaTables" punya minimal 4 kolom DAN punya Foreign Key (_id) jika berhubungan dengan tabel lain?
-3. Apakah Acceptance Criteria sudah detail (ada trigger dan reaksi sistem), bukan cuma kalimat abstrak?
-4. Apakah ada fitur yang terlalu generik seperti sekadar "Login" atau "Dashboard"? (Jika ada, ganti dengan fitur spesifik bisnis)
-Jika ada yang belum memenuhi syarat di atas, PERBAIKI dulu di pikiranmu, baru tulis JSON-nya.
-
-Semua nilai string HARUS:
-- Bahasa Indonesia natural
-- JANGAN pakai format "Sebagai X, saya dapat Y" untuk user story
-- Kontekstual, tidak generik
-- SESUAI dengan inti produk yang diminta user, jangan meluas ke produk lain
-
-ATURAN FORMAT KHUSUS:
-1. PERSONA (field "userPersona"): JANGAN pakai nama orang fiktif atau umur. Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN.
-2. ROLE MATRIX (array "roles"): Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma. JANGAN pakai bullet "-", "*", atau nomor.
-3. TECH STACK: TULIS NAMA TEKNOLOGI SAJA tanpa penjelasan atau alasan, dan konsisten dengan rekomendasi di analisis.
-4. RISK (field "riskMitigation"): JANGAN awali dengan kata "Risiko:" karena sudah ada label otomatis. Langsung tulis isi.
-5. OUT OF SCOPE & DEFINITION OF DONE: Pisahkan SETIAP item dengan ENTER (\\n), tanpa bullet atau koma.
-6. DB SCHEMA (field "dbSchema"): Format "nama_tabel: field1, field2" per baris, dipisah dengan \\n. Tabel harus relevan dengan inti produk.
-
-\`\`\`json_draft
-{
-  "fields": {
-    "projectName": "nama proyek",
-    "problemStatement": "masalah konkret dengan konteks bisnis",
-    "productGoal": "tujuan SMART terukur",
-    "userPersona": "peran + pain point + goal harian (TANPA nama/umur)",
-    "userFlow": "alur step-by-step natural",
-    "techFrontend": "nama teknologi saja",
-    "techBackend": "nama teknologi saja",
-    "techDatabase": "nama teknologi saja",
-    "techInfra": "nama teknologi saja",
-    "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
-    "outOfScope": "Item pertama\\nItem kedua",
-    "defOfDone": "Kriteria pertama\\nKriteria kedua",
-    "successMetrics": "KPI spesifik realistis",
-    "brandTypography": "font + alasan UX singkat",
-    "brandLayout": "prinsip layout praktis",
-    "nfrSpecs": "security stack konkret",
-    "nfrPerformance": "angka performance realistis",
-    "nfrLocalization": "scope lokalisasi",
-    "nfrBrowser": "support matrix",
-    "figmaLink": "link kalau relevan",
-    "riskMitigation": "risiko + mitigasi praktis (TANPA awalan 'Risiko:')"
-  },
-  "features": [
-    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural tanpa template", "priority": "High" }
-  ],
-  "palette": [
-    { "name": "Nama", "hex": "#HEX", "usage": "konteks pemakaian" }
-  ],
-  "roles": [
-    { "name": "Role", "can": "Aksi pertama\\nAksi kedua", "cannot": "Batasan pertama\\nBatasan kedua" }
-  ],
-  "acModules": [
-    {
-      "title": "Modul",
-      "items": [
-        { "title": "Skenario", "desc": "trigger → reaksi sistem" }
-      ]
-    }
-  ],
-  "schemaTables": [
-    {
-      "name": "nama_tabel",
-      "desc": "fungsi tabel di konteks bisnis",
-      "fields": [
-        { "field": "kolom", "type": "TIPE", "required": "Ya", "note": "catatan praktis" }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-${contextBlock}`;
-}
 ````
 
 ## File: src/utils/markdown.js
@@ -2067,93 +2394,89 @@ export default function PreviewPanel() {
 }
 ````
 
-## File: src/components/shared/ComboBox.jsx
+## File: src/components/shared/AiRefineButton.jsx
 ````javascript
-import { useState, useRef, useEffect } from 'react';
-import { DATA_TYPES } from '../../utils/constants';
+import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { refineText } from '../../services/groqService';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useToast } from '../../hooks/useToast';
 
-export default function ComboBox(props) {
-  const value = props.value;
-  const onChange = props.onChange;
-  const placeholder = props.placeholder || 'Tipe data';
-  const label = props.label || 'Tipe data';
-  const inputId = 'combo-' + (label || '').replace(/\s+/g, '-').toLowerCase() + '-' + Math.random().toString(36).slice(2, 7);
+// ============================================================
+// TOMBOL PERHALUS TEKS AI (IN-LINE TEXT ENHANCER)
+// - Nonaktif otomatis jika kolom kosong.
+// - Menampilkan spinner saat AI bekerja.
+// - Mengirim nama kolom (label) sebagai konteks.
+// - Setelah refine selesai, tombol TERKUNCI selama value kolom
+//   belum diubah. Begitu user mengubah value, tombol aktif lagi.
+// - Jika refine gagal karena error jaringan/API, tombol tetap
+//   aktif supaya user bisa langsung mencoba ulang.
+// - FIX UNDO/REDO: hasil AI dicatat ke history SESUDAH diterapkan.
+// ============================================================
+export default function AiRefineButton(props) {
+  const value = props.value || '';
+  const onApply = props.onApply;
+  const mode = props.mode || 'paragraph';
+  const label = props.label || 'kolom ini';
+  const className = props.className || '';
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [lastRefined, setLastRefined] = useState(null);
 
-  const [open, setOpen] = useState(false);
-  const [ai, setAi] = useState(-1);
-  const ref = useRef(null);
+  const trimmed = value.trim();
+  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
+  const disabled = busy || !trimmed || unchangedSinceRefine;
 
-  useEffect(function () {
-    const h = function (e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', h);
-    return function () { document.removeEventListener('mousedown', h); };
-  }, []);
+  async function handle() {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const result = await refineText(trimmed, mode, label);
+      if (result && result.trim()) {
+        if (result.trim() !== trimmed) {
+          onApply(result.trim());
+          commit();
+          showToast('Teks berhasil diperhalus oleh AI', 'success');
+        } else {
+          showToast('AI: Teks ini sudah cukup profesional', 'info');
+        }
+        setLastRefined(result.trim());
+      } else {
+        setLastRefined(trimmed);
+        showToast('AI tidak menghasilkan output', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal memperhalus: ' + e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  const q = (value || '').trim().toLowerCase();
-  const flat = [];
-  DATA_TYPES.forEach(function (cat) {
-    cat.items.filter(function (it) { return !q || it.toLowerCase().includes(q); }).forEach(function (it) {
-      flat.push({ cat: cat.category, value: it });
-    });
-  });
-
-  const grouped = {};
-  flat.forEach(function (it) {
-    if (!grouped[it.cat]) grouped[it.cat] = [];
-    grouped[it.cat].push(it.value);
-  });
-
-  const onKey = function (e) {
-    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpen(true); return; }
-    if (e.key === 'Escape') { setOpen(false); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setAi(function (i) { return (i + 1) % Math.max(1, flat.length); }); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setAi(function (i) { return (i - 1 + flat.length) % Math.max(1, flat.length); }); }
-    else if (e.key === 'Enter' && ai >= 0) { e.preventDefault(); onChange && onChange(flat[ai].value); setOpen(false); }
-  };
+  const title = busy
+    ? 'Sedang memperhalus teks...'
+    : unchangedSinceRefine
+      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
+      : 'Perhalus teks dengan AI (Qwen)';
 
   return (
-    <div ref={ref} className="relative">
-      <label htmlFor={inputId} className="sr-only">{label}</label>
-      <input
-        id={inputId}
-        value={value}
-        onChange={function (e) { onChange && onChange(e.target.value); setOpen(true); setAi(-1); }}
-        onFocus={function () { setOpen(true); }}
-        onKeyDown={onKey}
-        placeholder={placeholder}
-        role="combobox"
-        aria-expanded={open}
-        aria-autocomplete="list"
-        className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 pr-6 text-slate-100 font-mono text-xs focus:border-amber-500 focus:outline-none"
+    <button
+      type="button"
+      onClick={handle}
+      disabled={disabled}
+      title={title}
+      aria-label={'Perhalus teks ' + label + ' dengan AI'}
+      className={
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 hover:bg-purple-700/40 transition disabled:opacity-30 disabled:cursor-not-allowed ' +
+        className
+      }
+    >
+      <FontAwesomeIcon
+        icon={busy ? faSpinner : faWandMagicSparkles}
+        className={'text-[11px] ' + (busy ? 'animate-spin' : '')}
       />
-      <FontAwesomeIcon icon={faChevronDown} className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-500 pointer-events-none" aria-hidden="true" />
-      {open && (
-        <div className="absolute z-40 left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg max-h-56 overflow-y-auto shadow-xl" role="listbox">
-          {Object.keys(grouped).length === 0 ? (
-            <div className="px-2.5 py-2 text-[11px] text-slate-500 italic">Tidak ada tipe data yang cocok</div>
-          ) : Object.entries(grouped).map(function (entry) {
-            const cat = entry[0];
-            const items = entry[1];
-            return (
-              <div key={cat}>
-                <div className="px-2.5 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">{cat}</div>
-                {items.map(function (it) {
-                  const gi = flat.findIndex(function (x) { return x.value === it; });
-                  return (
-                    <button key={it} type="button" role="option" aria-selected={gi === ai} onClick={function () { onChange && onChange(it); setOpen(false); }}
-                      className={'block w-full text-left px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-blue-600/30 font-mono ' + (gi === ai ? 'bg-blue-600/40' : '')}>{it}</button>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    </button>
   );
 }
 ````
@@ -2284,6 +2607,611 @@ export const useAutoSave = function () {
     return function () { save.cancel(); };
   }, [mode, fields, features, palette, roles, schemaTables, acModules, simpleExtras, techOptional, aiFeedback, aiDraft, setSaveIndicator]);
 };
+````
+
+## File: src/services/groqService.js
+````javascript
+// ============================================================
+// LAYANAN GROQ DENGAN DUAL MODEL FALLBACK
+// Model utama: qwen/qwen3.8-27b
+// Model cadangan: qwen/qwen3.6-27b (dipakai saat utama kena limit)
+// ============================================================
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+// export const GROQ_PRIMARY_MODEL = 'qwen/qwen3.8-27b';
+export const GROQ_FALLBACK_MODEL = 'qwen/qwen3.6-27b';
+
+// Qwen3 punya mode "thinking" yang menulis proses berpikir di dalam
+// jawaban. Aplikasi ini tidak butuh proses itu, jadi kita matikan
+// lewat perintah /no_think (fitur resmi Qwen3) plus instruksi tegas.
+const NO_THINK_SUFFIX =
+  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
+  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
+
+const callGroq = async function (apiKey, model, prompt, maxTokens) {
+  const res = await fetch(GROQ_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify({
+      model: model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: maxTokens || 300,
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(function () { return {}; });
+    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content || '';
+  }
+  return '';
+};
+
+export const callGroqWithFallback = async function (prompt, maxTokens) {
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error('VITE_GROQ_API_KEY belum diisi pada .env.local');
+  try {
+    return await callGroq(apiKey, GROQ_PRIMARY_MODEL, prompt, maxTokens);
+  } catch (primaryErr) {
+    const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
+    if (!retryable) throw primaryErr;
+    console.warn('[Groq] Model utama gagal, memakai cadangan:', primaryErr.message);
+    return await callGroq(apiKey, GROQ_FALLBACK_MODEL, prompt, maxTokens);
+  }
+};
+
+// ============================================================
+// PEMBERSIH BLOK THINKING (3 LAPIS)
+// 1. Buang blok think yang utuh (ada pembuka dan penutup).
+// 2. Buang blok think yang TERPOTONG (ada pembuka tapi penutup
+//    tidak pernah muncul karena output habis token).
+// 3. Buang sisa penutup tanpa pembuka, jika ada.
+// ============================================================
+const cleanThink = function (t) {
+  let s = (t || '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*$/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  return s.trim();
+};
+
+// Panggil AI lalu bersihkan blok thinking.
+// Jika hasil bersih kosong (artinya seluruh token model habis
+// untuk berpikir), ulangi SEKALI dengan penekanan agar model
+// langsung menulis hasil akhir.
+const callGroqClean = async function (prompt, maxTokens) {
+  const raw = await callGroqWithFallback(prompt, maxTokens);
+  let out = cleanThink(raw).trim();
+  if (!out) {
+    console.warn('[Groq] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
+      maxTokens
+    );
+    out = cleanThink(raw2).trim();
+  }
+  return out;
+};
+
+// ============================================================
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
+// ============================================================
+export const generateCoverTagline = async function (goalText) {
+  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + goalText + '"""\n' +
+    'Tagline:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 2048);
+  return out
+    .split('\n')[0]
+    .replace(/^tagline\s*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/["']/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+};
+
+// ============================================================
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
+// KALIBRASI "KE INTI": hasil harus profesional, jelas, dan padat.
+// Model dilarang memperpanjang draf atau menulis basa-basi,
+// tetapi juga dilarang membuang fakta penting.
+// ============================================================
+const MODE_INSTRUCTIONS = {
+  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
+    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
+    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
+    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
+  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
+    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
+  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
+  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
+  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
+  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
+};
+
+// ============================================================
+// PERHALUS TEKS DENGAN KESADARAN KONTEKS KOLOM
+// Parameter context berisi nama kolom tujuan (misalnya
+// "Problem Statement"), sehingga AI membingkai ulang tulisan
+// agar sesuai fokus kolom, bukan sekadar memperhalus bahasa.
+// ============================================================
+export const refineText = async function (text, mode, context) {
+  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
+  const example = mode === 'paragraph'
+    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
+      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
+      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
+      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
+      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
+    : '';
+  const contextRule = context
+    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
+      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
+      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
+      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
+      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
+    : '';
+  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
+    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
+    'Aturan khusus:\n' + instruction + '\n' +
+    example +
+    'Aturan umum:\n' +
+    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
+    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
+    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
+    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
+    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
+    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
+    contextRule +
+    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+  const out = await callGroqClean(prompt, 4096);
+  return out
+    .replace(/^hasil\s*:\s*/i, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+};
+
+// ============================================================
+// GENERATOR SCHEMA DARI USER FLOW
+// ============================================================
+export const generateSchemaFromFlow = async function (flowText) {
+  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
+    'Aturan:\n' +
+    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
+    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
+    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
+    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
+    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
+    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
+    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
+    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
+    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+  let raw = await callGroqWithFallback(prompt, 4096);
+  // Jika output habis untuk thinking (tidak ada JSON sama sekali),
+  // ulangi sekali dengan instruksi langsung.
+  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
+    console.warn('[Groq] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callGroqWithFallback(
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
+      4096
+    );
+  }
+  const tables = parseSchemaJson(raw);
+  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  return tables.map(function (t, ti) {
+    return {
+      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
+      desc: String(t.desc || ''),
+      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
+        return {
+          field: String(fi.field || 'kolom'),
+          type: String(fi.type || 'VARCHAR'),
+          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
+          note: String(fi.note || ''),
+        };
+      }) : [],
+    };
+  });
+};
+
+// ============================================================
+// PARSER JSON SCHEMA YANG TAHAN BANTING
+// Memperbaiki kutip internal, koma trailing, dan menyelamatkan
+// output yang terpotong batas token.
+// ============================================================
+const repairInnerQuotes = function (text) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch + (text[i + 1] || '');
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
+        inString = false;
+        out += ch;
+      } else {
+        out += '\\"';
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+};
+
+const removeTrailingCommas = function (text) {
+  return text.replace(/,\s*([}\]])/g, '$1');
+};
+
+const closeOpenStructures = function (text) {
+  const stack = [];
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+    }
+  }
+  let out = text.replace(/,\s*$/, '');
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']';
+  }
+  return out;
+};
+
+const salvageTruncated = function (text) {
+  let search = text;
+  while (search.length) {
+    const lastClose = search.lastIndexOf('}');
+    if (lastClose === -1) return null;
+    const cut = search.slice(0, lastClose + 1);
+    const closed = closeOpenStructures(cut);
+    try {
+      const parsed = JSON.parse(closed);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) {}
+    search = search.slice(0, lastClose);
+  }
+  return null;
+};
+
+const parseSchemaJson = function (rawText) {
+  const cleaned = cleanThink(rawText).replace(/```json|```/gi, '').trim();
+  const start = cleaned.indexOf('[');
+  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
+  const end = cleaned.lastIndexOf(']');
+  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
+
+  const repaired = removeTrailingCommas(repairInnerQuotes(body));
+  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
+
+  let lastErr = null;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) { lastErr = e; }
+  }
+
+  const salvaged = salvageTruncated(repaired);
+  if (salvaged) {
+    console.warn('[Groq] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    return salvaged;
+  }
+
+  console.error('[Groq] JSON schema tidak bisa diparse:', lastErr, rawText);
+  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
+};
+````
+
+## File: src/utils/aiPrompts.js
+````javascript
+// Utils untuk membangun prompt AI secara terpisah dari store
+// Memudahkan iterasi prompt tanpa menyentuh business logic
+
+/**
+ * Bangun blok konteks dinamis berdasarkan kondisi PRD dan brief user
+ */
+function buildContextBlock(prdSnapshot, brief, isPrdEmpty) {
+  if (brief && isPrdEmpty) {
+    return `DESKRIPSI APLIKASI YANG INGIN DIBUAT USER (ACUAN UTAMA):
+"${brief}"
+
+INSTRUKSI KHUSUS: Dokumen PRD saat ini masih KOSONG. Jangan mengeluh soal dokumen kosong. Gunakan deskripsi user di atas sebagai acuan utama, lalu patuhi 5 aturan ini:
+1. INTERPRETASI LITERAL: Pahami inti produk secara harfiah dari kata-kata user. JANGAN memperluas scope menjadi produk lain. Contoh: "aplikasi catatan kuliah" berarti aplikasi untuk membuat, menyimpan, dan mengelola catatan kuliah per mata kuliah atau semester, BUKAN sistem informasi akademik dengan absensi, nilai, KRS, atau pembayaran SPP.
+2. KEMBANGAN YANG RELEVAN: Fitur tambahan boleh disarankan hanya jika relevan langsung dengan inti produk. Untuk catatan kuliah misalnya: pencarian catatan, lampiran foto atau PDF, sinkronisasi antar perangkat, dan berbagi catatan ke teman sekelas.
+3. KONFIRMASI INTERPRETASI: Pada poin "Status Kelengkapan & Kesiapan", tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta user, agar user bisa memverifikasi pemahaman kamu.
+4. KONSISTENSI STACK: Gunakan SATU rekomendasi technology stack yang sama di semua bagian dokumen. Jangan menyebut Next.js di satu bagian lalu React Native di bagian lain.
+5. RANCANG DARI NOL: Bayangkan produknya secara konkret (target user, masalah nyata, fitur inti, alur penggunaan, stack masuk akal untuk skala tersebut), lalu susun analisis dan isi SELURUH field json_draft dari nol, termasuk projectName yang cocok.
+
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
+
+Data PRD saat ini (masih kosong):
+${JSON.stringify(prdSnapshot, null, 2)}`;
+  }
+  if (brief) {
+    return `CATATAN TAMBAHAN DARI USER TENTANG APLIKASI:
+"${brief}"
+
+INGAT: Jangan memperluas scope di luar inti produk yang sudah ada di PRD atau catatan user. Jaga konsistensi rekomendasi stack di semua bagian.
+
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.
+
+Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}`;
+  }
+  return `Data PRD saat ini:
+${JSON.stringify(prdSnapshot, null, 2)}
+
+CATATAN KHUSUS UNTUK AI: Kamu WAJIB menghasilkan output yang KOMPREHENSIF dan LENGKAP. Jangan menyingkat penjelasan, jangan memotong daftar fitur, dan jangan membuat tabel schema yang hanya berisi 1 kolom.`;
+}
+
+/**
+ * Bangun prompt lengkap untuk analisis PRD oleh AI
+ * @param {Object} prdSnapshot - Snapshot state PRD dari store
+ * @param {string|null} userBrief - Deskripsi aplikasi dari user (bisa null)
+ * @returns {string} Prompt lengkap siap dikirim ke Gemini API
+ */
+export function buildAiPrompt(prdSnapshot, userBrief) {
+  const brief = (userBrief || '').trim();
+  const isPrdEmpty =
+    !(prdSnapshot.fields.projectName || '').trim() &&
+    !(prdSnapshot.fields.problemStatement || '').trim() &&
+    !(prdSnapshot.fields.productGoal || '').trim() &&
+    (prdSnapshot.features || []).length === 0;
+
+  const contextBlock = buildContextBlock(prdSnapshot, brief, isPrdEmpty);
+
+  return `Kamu adalah Principal Product Manager & System Analyst senior dengan pengalaman 10+ tahun di startup teknologi Indonesia (Gojek, Tokopedia, Traveloka level).
+Tugasmu: audit PRD berikut dan berikan rekomendasi strategis yang actionable. Tulis dengan gaya manusia sungguhan, PADAT, dan BERISI.
+
+================================================================================
+ATURAN PANJANG OUTPUT (SANGAT PENTING)
+================================================================================
+- Total output analisis MAKSIMAL 1200 kata (tidak termasuk json_draft)
+- Setiap poin analisis MAKSIMAL 2-3 kalimat saja
+- JANGAN bertele-tele, JANGAN mengulang poin yang sama dengan kata berbeda
+- Fokus ke insight actionable, bukan penjelasan teori
+- Jika field PRD kosong dan tidak ada deskripsi user, cukup sebutkan 1 kali dan berikan saran konkret
+
+================================================================================
+ATURAN GAYA BAHASA
+================================================================================
+1. TULIS SEPERTI MANUSIA. To the point, kontekstual, pakai istilah industri yang natural.
+2. DAFTAR KATA YANG DILARANG (klise AI):
+   - "guna meningkatkan", "guna mempercepat", "guna meminimalisir"
+   - "secara manual dan terfragmentasi"
+   - "kredensial yang valid"
+   - "melakukan manipulasi", "melakukan proses"
+   - "platform digital terpusat"
+   - "efisiensi waktu dan akurasi"
+   - "secara tepat", "secara mudah", "secara real-time"
+   - "sehingga dapat", "diharapkan dapat", "bertujuan untuk"
+   - "guna", "adapun", "selanjutnya"
+3. PAKAI GAYA INI:
+   - Singkatan umum: auth, dashboard, API, endpoint, flow, deploy, user, admin
+   - Kalimat pendek dan aktif
+   - Konteks bisnis nyata dengan contoh spesifik
+   - Berikan reasoning "kenapa" di balik setiap rekomendasi
+4. DILARANG pakai LaTeX ($...$, \\text{}, \\ge). Pakai simbol Unicode: ≥, ≤, ≈, ×
+5. KONSISTENSI: Gunakan SATU rekomendasi technology stack yang sama di seluruh dokumen. Jangan ada kontradiksi antar bagian (misal menyebut Next.js di satu seksi lalu React Native di seksi lain).
+6. FOKUS SCOPE: Analisis dan rekomendasi harus sesuai dengan inti produk yang diminta atau yang sudah tertulis di PRD. JANGAN memperluas scope menjadi produk lain.
+
+================================================================================
+STRUKTUR ANALISIS (IKUTI PERSIS, JANGAN TAMBAH SEKSI LAIN)
+================================================================================
+## 1. Analisis System Analyst
+### A. Arsitektur & Stack Teknologi
+* **Status Kelengkapan & Kesiapan**: Audit singkat kelengkapan PRD dan gap kritis yang harus diisi sebelum sprint planning. Jika ada deskripsi user, tuliskan 1 kalimat interpretasi kamu tentang produk yang diminta di awal poin ini.
+* **Rekomendasi Frontend & Backend**: Stack yang paling cocok untuk use case ini, plus alasan teknis singkat (SSR vs CSR, monolith vs microservices, REST vs GraphQL).
+
+### B. Basis Data & Infrastruktur
+* **Skema & Integritas Data**: Evaluasi struktur tabel, indexing, dan normalisasi berdasarkan kebutuhan aplikasi.
+* **Caching, Queue & DevOps**: Kebutuhan Redis/cache, message queue jika relevan, dan strategi CI/CD + containerization.
+
+### C. Keamanan & NFR
+* **Security & Compliance**: Standar auth, enkripsi, dan compliance regulasi data (UU PDP) yang wajib dipenuhi.
+* **Performance & SLA**: Target FCP, response time API, uptime SLA, dan strategi monitoring.
+
+## 2. Analisis Product Manager
+### A. Problem Statement & Persona
+* **Kejelasan Masalah & Tujuan**: Evaluasi apakah problem statement sudah spesifik dan goals sudah terukur. Berikan saran perbaikan jika masih generic.
+* **Ketajaman Persona**: Apakah persona sudah menggambarkan pain point nyata dan jobs-to-be-done pengguna target.
+
+### B. Scope & Definition of Done
+* **Batasan Fitur (Out of Scope)**: Identifikasi risiko scope creep dan fitur yang sebaiknya di-cut untuk MVP yang lebih fokus.
+* **Kriteria Rilis (DoD)**: Standar kualitas yang harus dipenuhi sebelum fitur dinyatakan selesai (testing coverage, bug threshold, approval).
+
+### C. Roadmap & Success Metrics
+* **Prioritas MVP**: Urutan eksekusi fitur inti menggunakan framework sederhana (High/Medium/Low) dengan justifikasi singkat.
+* **KPI Terukur**: 3-5 metrik utama pasca-rilis (retention, DAU, conversion, CSAT) dengan target angka realistis.
+
+## 3. Rekomendasi AI
+### A. Stack Ideal & Keamanan Prioritas
+* **Stack Rekomendasi**: Kombinasi teknologi paling rasional untuk proyek ini beserta alasan singkat kenapa lebih baik dari alternatif. WAJIB sama dengan rekomendasi di bagian 1.
+* **Security Quick Wins**: 2-3 langkah keamanan yang wajib langsung dikerjakan di sprint pertama.
+
+### B. Next Actions & Mitigasi Risiko
+* **Langkah Konkret Berikutnya**: 3-5 action items yang harus dilakukan tim (PM/Dev/Design) saat ini juga, urutkan berdasarkan prioritas.
+* **Mitigasi Risiko Utama**: Top 2 risiko terbesar (teknis atau bisnis) beserta strategi mitigasi praktis.
+
+================================================================================
+ATURAN FORMAT JSON DRAFT (SANGAT PENTING: PERINGATAN KERAS ANTI-MALAS!)
+================================================================================
+Setelah analisis, WAJIB output blok \`\`\`json_draft.
+
+PERINGATAN KERAS: JANGAN membuat JSON yang minimalis, JANGAN hanya memberi 1 contoh, dan JANGAN memotong array. Kamu WAJIB mengisi array dengan data yang realistis, detail, dan lengkap sesuai skala aplikasi.
+
+[BATASAN KUANTITAS WAJIB - TIDAK BOLEH KURANG]
+- Array "features" WAJIB berisi 4 hingga 6 fitur inti yang berbeda.
+- Array "palette" WAJIB berisi minimal 3 warna (Primary, Secondary/Accent, Neutral).
+- Array "roles" WAJIB berisi minimal 2 role (misal: User & Admin) dengan hak akses yang spesifik.
+- Array "acModules" WAJIB berisi minimal 2 modul, dan SETIAP modul minimal 2 items Acceptance Criteria yang detail (mencakup trigger dan reaksi sistem).
+- Array "schemaTables" WAJIB berisi minimal 3 tabel, dan SETIAP tabel minimal 4 hingga 6 fields (kolom).
+
+[ATURAN KUALITAS & ANTI-REPETISI]
+1. FITUR HARUS SPESIFIK: Jangan buat fitur generik seperti "Login" atau "Dashboard" saja. Buat fitur yang mencerminkan bisnis intinya (Contoh untuk app catatan: "Sinkronisasi Cloud Otomatis", "Kategorisasi per Mata Kuliah", "Pencarian Full-Text").
+2. DATABASE HARUS RELASIONAL: Setiap tabel WAJIB memiliki Primary Key (id). Jika tabel berhubungan dengan tabel lain, WAJIB ada Foreign Key (misal: user_id, course_id). Jangan buat tabel yang berdiri sendiri tanpa relasi jika konteks aplikasinya membutuhkan.
+3. ACCEPTANCE CRITERIA HARUS TESTABLE: Deskripsi AC tidak boleh abstrak. Harus jelas kondisi pemicunya dan hasil yang diharapkan (Contoh: "User klik tombol Simpan -> Sistem memvalidasi input -> Data tersimpan di DB -> Muncul toast sukses").
+4. JANGAN REPETITIF: Jangan mengisi field dengan kalimat yang diulang-ulang atau template kosong. Setiap field harus punya nilai unik yang relevan dengan konteks PRD.
+
+[CONTOH BURUK VS CONTOH BAIK]
+❌ BURUK (Terlalu malas & dangkal):
+"features": [
+  { "id": "F-01", "name": "Login", "story": "User bisa login", "priority": "High" },
+  { "id": "F-02", "name": "Dashboard", "story": "User lihat dashboard", "priority": "High" }
+]
+"schemaTables": [
+  { "name": "users", "desc": "Tabel user", "fields": [{ "field": "id", "type": "INT", "required": "Ya", "note": "PK" }] }
+]
+
+✅ BAIK (Detail, relasional, dan spesifik):
+"features": [
+  { "id": "F-01", "name": "Autentikasi JWT", "story": "User login menggunakan email dan password, sistem mengembalikan token JWT yang disimpan di httpOnly cookie untuk keamanan sesi.", "priority": "High" },
+  { "id": "F-02", "name": "Manajemen Catatan per Semester", "story": "Mahasiswa dapat mengelompokkan catatan berdasarkan semester dan mata kuliah, serta menambahkan tag untuk pencarian cepat.", "priority": "High" }
+]
+"schemaTables": [
+  {
+    "name": "users",
+    "desc": "Menyimpan data kredensial dan profil mahasiswa",
+    "fields": [
+      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
+      { "field": "email", "type": "VARCHAR", "required": "Ya", "note": "Unique, digunakan untuk login" },
+      { "field": "password_hash", "type": "VARCHAR", "required": "Ya", "note": "Hash bcrypt, jangan simpan plain text" },
+      { "field": "created_at", "type": "TIMESTAMP", "required": "Ya", "note": "Waktu registrasi akun" }
+    ]
+  },
+  {
+    "name": "notes",
+    "desc": "Menyimpan konten catatan kuliah milik user",
+    "fields": [
+      { "field": "id", "type": "UUID", "required": "Ya", "note": "Primary Key" },
+      { "field": "user_id", "type": "UUID", "required": "Ya", "note": "Foreign Key ke users" },
+      { "field": "title", "type": "VARCHAR", "required": "Ya", "note": "Judul catatan" },
+      { "field": "content", "type": "TEXT", "required": "Opsional", "note": "Isi catatan dalam format rich text" }
+    ]
+  }
+]
+
+[CHECKLIST VALIDASI MANDIRI - WAJIB DILAKUKAN SEBELUM MENULIS JSON]
+Sebelum kamu output json_draft, pastikan di dalam pikiranmu:
+1. Apakah array "features" sudah berisi 4 sampai 6 item? (Jika kurang, tambahkan sekarang)
+2. Apakah setiap tabel di "schemaTables" punya minimal 4 kolom DAN punya Foreign Key (_id) jika berhubungan dengan tabel lain?
+3. Apakah Acceptance Criteria sudah detail (ada trigger dan reaksi sistem), bukan cuma kalimat abstrak?
+4. Apakah ada fitur yang terlalu generik seperti sekadar "Login" atau "Dashboard"? (Jika ada, ganti dengan fitur spesifik bisnis)
+Jika ada yang belum memenuhi syarat di atas, PERBAIKI dulu di pikiranmu, baru tulis JSON-nya.
+
+Semua nilai string HARUS:
+- Bahasa Indonesia natural
+- JANGAN pakai format "Sebagai X, saya dapat Y" untuk user story
+- Kontekstual, tidak generik
+- SESUAI dengan inti produk yang diminta user, jangan meluas ke produk lain
+
+ATURAN FORMAT KHUSUS:
+1. PERSONA (field "userPersona"): JANGAN pakai nama orang fiktif atau umur. Fokus ke PERAN, PAIN POINT, dan GOAL HARIAN.
+2. ROLE MATRIX (array "roles"): Pisahkan SETIAP poin dengan ENTER (newline \\n), BUKAN koma. JANGAN pakai bullet "-", "*", atau nomor.
+3. TECH STACK: TULIS NAMA TEKNOLOGI SAJA tanpa penjelasan atau alasan, dan konsisten dengan rekomendasi di analisis.
+4. RISK (field "riskMitigation"): JANGAN awali dengan kata "Risiko:" karena sudah ada label otomatis. Langsung tulis isi.
+5. OUT OF SCOPE & DEFINITION OF DONE: Pisahkan SETIAP item dengan ENTER (\\n), tanpa bullet atau koma.
+6. DB SCHEMA (field "dbSchema"): Format "nama_tabel: field1, field2" per baris, dipisah dengan \\n. Tabel harus relevan dengan inti produk.
+
+\`\`\`json_draft
+{
+  "fields": {
+    "projectName": "nama proyek",
+    "problemStatement": "masalah konkret dengan konteks bisnis",
+    "productGoal": "tujuan SMART terukur",
+    "userPersona": "peran + pain point + goal harian (TANPA nama/umur)",
+    "userFlow": "alur step-by-step natural",
+    "techFrontend": "nama teknologi saja",
+    "techBackend": "nama teknologi saja",
+    "techDatabase": "nama teknologi saja",
+    "techInfra": "nama teknologi saja",
+    "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
+    "outOfScope": "Item pertama\\nItem kedua",
+    "defOfDone": "Kriteria pertama\\nKriteria kedua",
+    "successMetrics": "KPI spesifik realistis",
+    "brandTypography": "font + alasan UX singkat",
+    "brandLayout": "prinsip layout praktis",
+    "nfrSpecs": "security stack konkret",
+    "nfrPerformance": "angka performance realistis",
+    "nfrLocalization": "scope lokalisasi",
+    "nfrBrowser": "support matrix",
+    "figmaLink": "link kalau relevan",
+    "riskMitigation": "risiko + mitigasi praktis (TANPA awalan 'Risiko:')"
+  },
+  "features": [
+    { "id": "F-01", "name": "Nama Fitur", "story": "user story natural tanpa template", "priority": "High" }
+  ],
+  "palette": [
+    { "name": "Nama", "hex": "#HEX", "usage": "konteks pemakaian" }
+  ],
+  "roles": [
+    { "name": "Role", "can": "Aksi pertama\\nAksi kedua", "cannot": "Batasan pertama\\nBatasan kedua" }
+  ],
+  "acModules": [
+    {
+      "title": "Modul",
+      "items": [
+        { "title": "Skenario", "desc": "trigger → reaksi sistem" }
+      ]
+    }
+  ],
+  "schemaTables": [
+    {
+      "name": "nama_tabel",
+      "desc": "fungsi tabel di konteks bisnis",
+      "fields": [
+        { "field": "kolom", "type": "TIPE", "required": "Ya", "note": "catatan praktis" }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+${contextBlock}`;
+}
 ````
 
 ## File: vite.config.js
@@ -2500,169 +3428,6 @@ export default function BrandingSection() {
             })}
           </div>
         </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/CoverFooterSection.jsx
-````javascript
-import { useState } from 'react';
-import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
-import { generateCoverTagline } from '../../../services/groqService';
-import { useToast } from '../../../hooks/useToast';
-import EditorSection from '../EditorSection';
-import ToggleSwitch from '../../shared/ToggleSwitch';
-
-// Field warna manual untuk sampul.
-// Simbol # dijadikan span statis yang tidak bisa diklik atau
-// diubah (pointer-events-none + select-none), sama seperti pola
-// di section Branding. Input teks hanya menerima 6 digit hex,
-// sedangkan nilai yang tersimpan tetap berawalan # agar logika
-// tema (resolveCoverTheme & isValidHex) tetap aman.
-function ColorField(props) {
-  const digits = (props.value || '').replace(/^#/, '');
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
-  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
-  return (
-    <div>
-      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={safe}
-          onChange={function (e) { props.onChange(e.target.value); }}
-          aria-label={'Pilih ' + props.label}
-          className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0"
-        />
-        <div className="relative w-full min-w-0">
-          <span
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none select-none"
-            aria-hidden="true"
-          >#</span>
-          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
-          <input
-            id={inputId}
-            type="text"
-            value={digits}
-            onChange={function (e) {
-              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
-              props.onChange(c ? '#' + c : '');
-            }}
-            placeholder="C9A961"
-            maxLength="6"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pl-6 text-slate-100 font-mono focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function CoverFooterSection() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [aiBusy, setAiBusy] = useState(false);
-  const auto = f.coverThemeAuto !== false;
-
-  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
-  // ke field manual supaya tampilan tidak melompat.
-  const handleToggleAuto = function (v) {
-    if (!v) {
-      const t = resolveCoverTheme(f, palette);
-      set('coverPrimary', t.primary);
-      set('coverAccent', t.accent);
-      set('coverBg', t.bg);
-    }
-    set('coverThemeAuto', v);
-  };
-
-  const goalText = (f.productGoal || '').trim();
-
-  // AI hanya membaca Goals untuk mengisi field Subtitle Sampul.
-  // Setelah terisi, user bebas mengeditnya. Tidak ada sync otomatis.
-  // FIX UNDO/REDO: commit dipanggil setelah subtitle diterapkan.
-  async function handleUseAi() {
-    if (aiBusy || !goalText) return;
-    setAiBusy(true);
-    try {
-      const t = await generateCoverTagline(goalText);
-      if (t) {
-        set('coverSubtitle', t);
-        commit();
-        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
-      } else {
-        showToast('AI tidak menghasilkan saran', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal membuat saran: ' + e.message, 'error');
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  return (
-    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
-      <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
-        {auto ? (
-          <p className="text-[11px] text-slate-500">
-            {palette.length
-              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis. Warna yang kurang serasi disaring sendiri, jadi kamu tidak perlu pusing mengaturnya.'
-              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
-          </div>
-        )}
-
-        {/* SUBTITLE SAMPUL: satu-satunya sumber kebenaran untuk sampul */}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <label htmlFor="coverSubtitle" className="text-slate-300 font-medium">Subtitle Sampul (di bawah judul)</label>
-            <button
-              type="button"
-              onClick={handleUseAi}
-              disabled={aiBusy || !goalText}
-              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
-              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-            >
-              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
-              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
-            </button>
-          </div>
-          <input
-            id="coverSubtitle"
-            type="text"
-            value={f.coverSubtitle}
-            onChange={function (e) { set('coverSubtitle', e.target.value); }}
-            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none"
-          />
-          <p className="text-[10px] text-slate-500 mt-1">
-            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen. Kalau belum yakin menulisnya, tekan tombol Pakai saran AI untuk merangkum kolom Tujuan Utama Produk, lalu edit hasilnya sesuka hati.
-          </p>
-        </div>
-
-        <div>
-          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
-          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
-          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
-        </div>
-        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
       </div>
     </EditorSection>
   );
@@ -3540,6 +4305,98 @@ export default function CoverPage() {
 }
 ````
 
+## File: src/components/shared/ComboBox.jsx
+````javascript
+import { useState, useRef, useEffect } from 'react';
+import { DATA_TYPES } from '../../utils/constants';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+
+export default function ComboBox(props) {
+  const value = props.value;
+  const onChange = props.onChange;
+  const placeholder = props.placeholder || 'Tipe data';
+  const label = props.label || 'Tipe data';
+  // FIX: id dibuat sekali saat mount agar stabil antar render.
+  const [inputId] = useState(function () {
+    return 'combo-' + (label || '').replace(/\s+/g, '-').toLowerCase() + '-' + Math.random().toString(36).slice(2, 7);
+  });
+  const [open, setOpen] = useState(false);
+  const [ai, setAi] = useState(-1);
+  const ref = useRef(null);
+
+  useEffect(function () {
+    const h = function (e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return function () { document.removeEventListener('mousedown', h); };
+  }, []);
+
+  const q = (value || '').trim().toLowerCase();
+  const flat = [];
+  DATA_TYPES.forEach(function (cat) {
+    cat.items.filter(function (it) { return !q || it.toLowerCase().includes(q); }).forEach(function (it) {
+      flat.push({ cat: cat.category, value: it });
+    });
+  });
+  const grouped = {};
+  flat.forEach(function (it) {
+    if (!grouped[it.cat]) grouped[it.cat] = [];
+    grouped[it.cat].push(it.value);
+  });
+
+  const onKey = function (e) {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpen(true); return; }
+    if (e.key === 'Escape') { setOpen(false); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setAi(function (i) { return (i + 1) % Math.max(1, flat.length); }); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setAi(function (i) { return (i - 1 + flat.length) % Math.max(1, flat.length); }); }
+    else if (e.key === 'Enter' && ai >= 0) { e.preventDefault(); onChange && onChange(flat[ai].value); setOpen(false); }
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <label htmlFor={inputId} className="sr-only">{label}</label>
+      <input
+        id={inputId}
+        value={value}
+        onChange={function (e) { onChange && onChange(e.target.value); setOpen(true); setAi(-1); }}
+        onFocus={function () { setOpen(true); }}
+        onKeyDown={onKey}
+        placeholder={placeholder}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 pr-6 text-slate-100 font-mono text-xs focus:border-amber-500 focus:outline-none"
+      />
+      <FontAwesomeIcon icon={faChevronDown} className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-500 pointer-events-none" aria-hidden="true" />
+      {open && (
+        <div className="absolute z-40 left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg max-h-56 overflow-y-auto shadow-xl" role="listbox">
+          {Object.keys(grouped).length === 0 ? (
+            <div className="px-2.5 py-2 text-[11px] text-slate-500 italic">Tidak ada tipe data yang cocok</div>
+          ) : Object.entries(grouped).map(function (entry) {
+            const cat = entry[0];
+            const items = entry[1];
+            return (
+              <div key={cat}>
+                <div className="px-2.5 py-1 text-[9px] uppercase tracking-wider text-slate-500 bg-slate-900 sticky top-0">{cat}</div>
+                {items.map(function (it) {
+                  const gi = flat.findIndex(function (x) { return x.value === it; });
+                  return (
+                    <button key={it} type="button" role="option" aria-selected={gi === ai} onClick={function () { onChange && onChange(it); setOpen(false); }}
+                      className={'block w-full text-left px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-blue-600/30 font-mono ' + (gi === ai ? 'bg-blue-600/40' : '')}>{it}</button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
 ## File: src/components/shared/IconButton.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -3747,7 +4604,12 @@ export default function App() {
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@fortawesome/free-brands-svg-icons": "^7.3.1",
@@ -3763,12 +4625,177 @@ export default function App() {
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.10.1",
     "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.5.4",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.2"
   }
+}
+````
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { useState } from 'react';
+import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import { generateCoverTagline } from '../../../services/groqService';
+import { useToast } from '../../../hooks/useToast';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+// Field warna manual untuk sampul.
+// Simbol # dijadikan span statis yang tidak bisa diklik atau
+// diubah (pointer-events-none + select-none), sama seperti pola
+// di section Branding. Input teks hanya menerima 6 digit hex,
+// sedangkan nilai yang tersimpan tetap berawalan # agar logika
+// tema (resolveCoverTheme & isValidHex) tetap aman.
+function ColorField(props) {
+  const digits = (props.value || '').replace(/^#/, '');
+  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
+  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+  return (
+    <div>
+      <span className="block text-slate-300 font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          onChange={function (e) { props.onChange(e.target.value); }}
+          aria-label={'Pilih ' + props.label}
+          className="w-9 h-9 bg-slate-800 border border-slate-700 rounded cursor-pointer p-1 shrink-0"
+        />
+        <div className="relative w-full min-w-0">
+          <span
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-[11px] pointer-events-none select-none"
+            aria-hidden="true"
+          >#</span>
+          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={digits}
+            onChange={function (e) {
+              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+              props.onChange(c ? '#' + c : '');
+            }}
+            placeholder="C9A961"
+            maxLength="6"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 pl-6 text-slate-100 font-mono focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [aiBusy, setAiBusy] = useState(false);
+  const auto = f.coverThemeAuto !== false;
+
+  // Saat mode otomatis dimatikan, salin warna tema yang sedang tampil
+  // ke field manual supaya tampilan tidak melompat.
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  const goalText = (f.productGoal || '').trim();
+
+  // AI hanya membaca Goals untuk mengisi field Subtitle Sampul.
+  // Setelah terisi, user bebas mengeditnya. Tidak ada sync otomatis.
+  // FIX UNDO/REDO: commit dipanggil setelah subtitle diterapkan.
+  async function handleUseAi() {
+    if (aiBusy || !goalText) return;
+    setAiBusy(true);
+    try {
+      const t = await generateCoverTagline(goalText);
+      if (t) {
+        set('coverSubtitle', t);
+        commit();
+        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
+      } else {
+        showToast('AI tidak menghasilkan saran', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal membuat saran: ' + e.message, 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-slate-500">
+            {palette.length
+              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis. Warna yang kurang serasi disaring sendiri, jadi kamu tidak perlu pusing mengaturnya.'
+              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+
+        {/* SUBTITLE SAMPUL: satu-satunya sumber kebenaran untuk sampul */}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="coverSubtitle" className="text-slate-300 font-medium">Subtitle Sampul (di bawah judul)</label>
+            <button
+              type="button"
+              onClick={handleUseAi}
+              disabled={aiBusy || !goalText}
+              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-purple-700/50 bg-purple-950/40 text-purple-300 hover:text-white hover:border-purple-500 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
+              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
+            </button>
+          </div>
+          <input
+            id="coverSubtitle"
+            type="text"
+            value={f.coverSubtitle}
+            onChange={function (e) { set('coverSubtitle', e.target.value); }}
+            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none"
+          />
+          <p className="text-[10px] text-slate-500 mt-1">
+            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen. Kalau belum yakin menulisnya, tekan tombol Pakai saran AI untuk merangkum kolom Tujuan Utama Produk, lalu edit hasilnya sesuka hati.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="coverKicker" className="block text-slate-300 font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-slate-300 font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
+  );
 }
 ````
 
@@ -4930,6 +5957,13 @@ dist-ssr
 repomix-output.md
 .repomixignore
 .vercel
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
 ````
 
 ## File: src/components/header/Header.jsx
@@ -4953,13 +5987,6 @@ export default function Header() {
   const commitHistory = usePrdStore(function (s) { return s.commitHistory; });
   const showToast = useToast();
 
-  // Commit ditunda satu tick agar perubahan state sempat digambar
-  // ke layar lebih dulu. Sebelumnya commit berjalan sinkron dan
-  // menahan paint, sehingga klik terasa macet.
-  const deferredCommit = function () {
-    setTimeout(function () { commitHistory(); }, 0);
-  };
-
   return (
     <header className="bg-slate-800 border-b border-slate-700 py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
       <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
@@ -4976,8 +6003,8 @@ export default function Header() {
           <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Undo</span></IconButton>
           <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto"><span className="hidden md:inline">Redo</span></IconButton>
         </div>
-        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); showToast('Data contoh Instagram dimuat'); deferredCommit(); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">Muat Contoh</IconButton>
-        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); showToast('Form direset', 'info'); deferredCommit(); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">Reset</IconButton>
+        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">Muat Contoh</IconButton>
+        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); commitHistory(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">Reset</IconButton>
       </div>
     </header>
   );
@@ -5049,7 +6076,6 @@ export default function EditorPanel() {
 ## File: src/store/usePrdStore.js
 ````javascript
 import { create } from 'zustand';
-import { cloneDeep } from 'lodash';
 import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY } from '../utils/constants';
 import { buildAiPrompt } from '../utils/aiPrompts';
 
@@ -5124,14 +6150,10 @@ function extractAiDraft(fullText) {
 
 // ============================================================
 // DUAL MODEL GEMINI UNTUK ANALISIS PRD
-// Model utama: gemini-3.5-flash-lite
-// Model cadangan: gemini-3.1-flash-lite (dipakai otomatis saat
-// utama kena batas kuota, error server, atau gangguan jaringan)
 // ============================================================
 const GEMINI_PRIMARY_MODEL = 'gemini-3.5-flash-lite';
 const GEMINI_FALLBACK_MODEL = 'gemini-3.1-flash-lite';
 
-// Menerjemahkan error teknis menjadi pesan ramah user
 const describeGeminiError = function (err) {
   if (err && err.status === 429) {
     const m = err.message || '';
@@ -5149,9 +6171,6 @@ const describeGeminiError = function (err) {
   return (err && err.message) || 'Gagal memproses request ke Gemini API';
 };
 
-// Menjalankan streaming untuk satu model tertentu.
-// Teks parsial dikirim ke store tiap 80ms agar typewriter
-// di AiAnalysisCard tetap hidup, lalu teks lengkap dikembalikan.
 const streamGeminiAnalysis = async function (apiKey, model, prompt, onDisplay) {
   const response = await fetch(
     'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?key=' + apiKey + '&alt=sse',
@@ -5162,9 +6181,6 @@ const streamGeminiAnalysis = async function (apiKey, model, prompt, onDisplay) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.4,
-          // DINAUNKAN DARI 4096 KE 8192: memberi "napas" lebih panjang
-          // agar model fallback (3.1 flash lite) tidak memotong output
-          // JSON di tengah jalan saat membuat dokumen yang komprehensif.
           maxOutputTokens: 8192,
           topP: 0.95,
         }
@@ -5260,6 +6276,13 @@ export const usePrdStore = create(function (set, get) {
     updateAcItem: function (mi, ii, p) { set(function (s) { const a = s.acModules.slice(); const it = a[mi].items.slice(); it[ii] = Object.assign({}, it[ii], p); a[mi] = Object.assign({}, a[mi], { items: it }); return { acModules: a }; }); },
     removeAcItem: function (mi, ii) { set(function (s) { const a = s.acModules.slice(); a[mi] = Object.assign({}, a[mi], { items: a[mi].items.filter(function (_, x) { return x !== ii; }) }); return { acModules: a }; }); },
 
+    // ============================================================
+    // FIX PERFORMA: getSnapshot menyimpan REFERENSI langsung,
+    // BUKAN cloneDeep. Semua mutasi store memakai pola immutable
+    // (concat, slice, Object.assign), jadi objek lama tidak pernah
+    // berubah dan history tetap aman tanpa deep copy. Ini menghapus
+    // pekerjaan sinkron terberat yang membuat klik terasa macet.
+    // ============================================================
     getSnapshot: (function () {
       let cache = null;
       let last = null;
@@ -5273,40 +6296,25 @@ export const usePrdStore = create(function (set, get) {
         }
         last = { fields: st.fields, features: st.features, palette: st.palette, roles: st.roles, schemaTables: st.schemaTables, acModules: st.acModules, simpleExtras: st.simpleExtras, techOptional: st.techOptional, mode: st.mode };
         cache = {
-          fields: cloneDeep(st.fields), features: cloneDeep(st.features), palette: cloneDeep(st.palette),
-          roles: cloneDeep(st.roles), schemaTables: cloneDeep(st.schemaTables), acModules: cloneDeep(st.acModules),
-          simpleExtras: cloneDeep(st.simpleExtras), techOptional: cloneDeep(st.techOptional), mode: st.mode,
+          fields: st.fields, features: st.features, palette: st.palette,
+          roles: st.roles, schemaTables: st.schemaTables, acModules: st.acModules,
+          simpleExtras: st.simpleExtras, techOptional: st.techOptional, mode: st.mode,
         };
         return cache;
       };
     })(),
 
-    commitHistory: (function () {
-      let lastRefs = null;
-      return function () {
-        const st = get();
-        const same = lastRefs &&
-          lastRefs.fields === st.fields &&
-          lastRefs.features === st.features &&
-          lastRefs.palette === st.palette &&
-          lastRefs.roles === st.roles &&
-          lastRefs.schemaTables === st.schemaTables &&
-          lastRefs.acModules === st.acModules &&
-          lastRefs.techOptional === st.techOptional;
-        if (same) return;
-        lastRefs = {
-          fields: st.fields, features: st.features, palette: st.palette, roles: st.roles,
-          schemaTables: st.schemaTables, acModules: st.acModules, techOptional: st.techOptional,
-        };
-        set(function (s) {
-          const snap = get().getSnapshot();
-          const h = s.history.slice(0, s.historyIndex + 1);
-          h.push(snap);
-          if (h.length > MAX_HISTORY) h.shift();
-          return { history: h, historyIndex: h.length - 1 };
-        });
-      };
-    })(),
+    commitHistory: function () {
+      set(function (s) {
+        const snap = get().getSnapshot();
+        const last = s.history[s.historyIndex];
+        if (last && JSON.stringify(stripNonUndo(last)) === JSON.stringify(stripNonUndo(snap))) return {};
+        const h = s.history.slice(0, s.historyIndex + 1);
+        h.push(snap);
+        if (h.length > MAX_HISTORY) h.shift();
+        return { history: h, historyIndex: h.length - 1 };
+      });
+    },
 
     undo: function () {
       set(function (s) {
@@ -5368,7 +6376,6 @@ export const usePrdStore = create(function (set, get) {
         }
         const prompt = buildAiPrompt(prdSnapshot, userBrief);
 
-        // Tampilan parsial untuk typewriter di AiAnalysisCard
         const pushDisplay = function (fullText) {
           const cleanDisplay = cleanLatex(
             fullText.replace(/```json_draft[\s\S]*$/, '')
@@ -5378,20 +6385,14 @@ export const usePrdStore = create(function (set, get) {
 
         let fullTextAccumulator = '';
         try {
-          // Percobaan 1: model utama
           fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_PRIMARY_MODEL, prompt, pushDisplay);
         } catch (primaryErr) {
-          // Fallback hanya untuk kuota (429), error server (5xx),
-          // atau gangguan jaringan. Error konfigurasi (400/401/403)
-          // langsung diteruskan karena cadangan pun akan gagal.
           const retryable = !primaryErr.status || primaryErr.status === 429 || primaryErr.status >= 500;
           if (!retryable) throw primaryErr;
 
           console.warn('[Gemini] Model utama gagal, memakai cadangan:', primaryErr.message);
-          // Bersihkan teks parsial agar cadangan mulai dari nol
           set({ aiFeedback: '' });
           try {
-            // Percobaan 2: model cadangan
             fullTextAccumulator = await streamGeminiAnalysis(apiKey, GEMINI_FALLBACK_MODEL, prompt, pushDisplay);
           } catch (fallbackErr) {
             throw new Error(describeGeminiError(fallbackErr));
@@ -5525,7 +6526,6 @@ export const usePrdStore = create(function (set, get) {
 
     loadSampleData: function () {
       set(function (s) {
-        // Opsi A: pertahankan setting sampul & footer yang sudah ada
         const keepCover = {};
         const coverKeys = ['coverThemeAuto', 'coverPrimary', 'coverAccent', 'coverBg', 'coverKicker', 'coverFooterNote', 'coverShowFooter', 'coverSubtitle'];
         coverKeys.forEach(function (k) {

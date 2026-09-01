@@ -17,8 +17,6 @@ import SchemaSection from './sections/SchemaSection';
 import NfrSection from './sections/NfrSection';
 import OutOfScope from './sections/OutOfScope';
 
-// Bridge: langganan store yang berat dipisah ke komponen
-// yang me-render null, supaya EditorPanel tidak re-render tiap ketikan.
 function AutoSaveBridge() {
   useAutoSave();
   return null;
@@ -36,7 +34,7 @@ export default function EditorPanel() {
   }, [ra.resize]);
 
   return (
-    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-slate-800 bg-slate-900" style={{ height: '100%' }}>
+    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base" style={{ height: '100%' }}>
       <AutoSaveBridge />
       <ModeBanner />
       <ExtrasPicker />
