@@ -1,4 +1,4 @@
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { debounce } from 'lodash';
 import { usePrdStore } from './store/usePrdStore';
 import { storageService } from './services/storageService';
@@ -7,10 +7,12 @@ import EditorPanel from './components/editor/EditorPanel';
 import MobileTabBar from './components/mobile/MobileTabBar';
 import ScrollButtons from './components/mobile/ScrollButtons';
 import ToastContainer from './components/shared/Toast';
+import DocsPage from './components/docs/DocsPage';
 
 const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
 
 export default function App() {
+  const [page, setPage] = useState('app');
   const restoreState = usePrdStore(function (s) { return s.restoreState; });
   const setMode = usePrdStore(function (s) { return s.setMode; });
   const initDoneRef = useRef(false);
@@ -65,11 +67,15 @@ export default function App() {
     return function () { document.removeEventListener('keydown', handler); };
   }, []);
 
+  if (page === 'docs') {
+    return <DocsPage onBack={function () { setPage('app'); }} />;
+  }
+
   return (
     <div className="app-shell flex flex-col bg-base text-ink overflow-hidden">
       <a href="#editorPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Editor</a>
       <a href="#previewPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Preview</a>
-      <Header />
+      <Header onOpenDocs={function () { setPage('docs'); }} />
       <main className="flex-grow min-h-0 overflow-hidden relative">
         <div id="panelSlider">
           <div><EditorPanel /></div>

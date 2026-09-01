@@ -1,9 +1,9 @@
-# PRD Architect Pro
+# PRD Architect
 
 > **Satu Alat untuk Semua Kebutuhan Spesifikasi Produk**  
 > Platform perancang *Product Requirement Document* (PRD) interaktif berbasis React untuk membantu Product Manager, System Analyst, dan Software Architect menyusun dokumen spesifikasi teknis dan bisnis secara terstruktur dan efisien.
 
-[![Version](https://img.shields.io/badge/version-3.1-blue.svg?style=flat-square)](https://github.com/)
+[![Version](https://img.shields.io/badge/version-3.5-blue.svg?style=flat-square)](https://github.com/)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.0-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
@@ -21,7 +21,7 @@
 
 ## Ringkasan Fitur
 
-PRD Architect Pro dirancang untuk memangkas waktu pengerjaan dokumentasi produk tanpa mengorbankan kualitas spesifikasi teknis. Aplikasi ini menjembatani ideasi bisnis dengan kebutuhan implementasi teknis lewat dua alur kerja terpisah:
+PRD Architect dirancang untuk memangkas waktu pengerjaan dokumentasi produk tanpa mengorbankan kualitas spesifikasi teknis. Aplikasi ini menjembatani ideasi bisnis dengan kebutuhan implementasi teknis lewat dua alur kerja terpisah:
 
 * **Mode Simple MVP:** Berfokus pada komponen esensial (*Problem Statement*, *Core Features*, *High-level Flow*) untuk percepatan fase *prototyping* atau proyek skala kecil.
 * **Mode Enterprise:** Menyediakan modul dokumentasi mendalam termasuk *Persona Matrix*, *Design System Standard*, *Role & Permission Matrix*, *Schema Data*, *Acceptance Criteria*, hingga *Non-Functional Requirements (NFR)* dan *Risk Analysis*.
