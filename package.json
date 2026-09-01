@@ -4,8 +4,8 @@
   "version": "3.5.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
+    "dev": "node generate-icon-shims.js && vite --host",
+    "build": "node generate-icon-shims.js && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -21,6 +21,7 @@
     "copy-to-clipboard": "^4.0.2",
     "file-saver": "^2.0.5",
     "lodash": "^4.18.1",
+    "lucide-react": "^0.460.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",

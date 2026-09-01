@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowLeft, faBookOpen, faMoon, faSun, faRobot, faWandMagicSparkles,
   faFileExport, faLayerGroup, faCircleQuestion, faKeyboard, faLightbulb,
-  faEye, faPalette, faFloppyDisk, faTag, faHeart, faEnvelope, faDownload,
+  faEye, faPalette, faSave, faTag, faHeart, faEnvelope, faDownload,
 } from '@fortawesome/free-solid-svg-icons';
 import { useThemeStore } from '../../store/useThemeStore';
 
@@ -82,7 +82,7 @@ function PagePengenalan() {
           </ul>
         </Card>
         <Card>
-          <H3 icon={faFloppyDisk}>Privasi data</H3>
+          <H3 icon={faSave}>Privasi data</H3>
           <P>
             Seluruh isi dokumen tersimpan hanya di browser kamu (di perangkatmu sendiri), tidak
             dikirim ke server aplikasi. Teks dokumen hanya dikirim ke layanan AI saat kamu menekan
@@ -148,7 +148,7 @@ function PageFiturAi() {
         <Card><H3 icon={faRobot}>Analisis PRD</H3><P>Berada di kartu paling atas editor. Jika PRD masih kosong, tulis dulu deskripsi singkat aplikasi yang ingin dibuat. Hasil mengalir seperti mengetik. Tombol Terapkan ke Form mengisi form secara otomatis dari draf AI.</P></Card>
         <Card><H3 icon={faWandMagicSparkles}>Perhalus Teks (tombol tongkat)</H3><P>Ada di samping kolom teks. Mengirim teks plus nama kolom sebagai konteks, sehingga hasil sesuai tujuan kolom. Setelah berhasil, tombol terkunci sampai teks kamu ubah lagi.</P></Card>
         <Card><H3 icon={faPalette}>Saran Sampul</H3><P>Di section Sampul & Footer Dokumen. Merangkum Tujuan Utama Produk menjadi satu kalimat subtitle sampul. Hasilnya tetap bisa kamu edit manual.</P></Card>
-        <Card><H3 icon={faFloppyDisk}>Generate Schema dari User Flow</H3><P>Di section Schema Data (Enterprise). Membaca user flow lalu menyusun tabel database lengkap dengan tipe data dan relasi. Semua hasil tetap bisa diedit manual.</P></Card>
+        <Card><H3 icon={faSave}>Generate Schema dari User Flow</H3><P>Di section Schema Data (Enterprise). Membaca user flow lalu menyusun tabel database lengkap dengan tipe data dan relasi. Semua hasil tetap bisa diedit manual.</P></Card>
       </div>
     </div>
   );
@@ -169,9 +169,9 @@ function PageSampul() {
 function PageData() {
   return (
     <div>
-      <PageHeader icon={faFloppyDisk} title="Simpan, Riwayat & Data" desc="Simpan otomatis, riwayat, dan backup" />
+      <PageHeader icon={faSave} title="Simpan, Riwayat & Data" desc="Simpan otomatis, riwayat, dan backup" />
       <div className="space-y-4">
-        <Card><H3 icon={faFloppyDisk}>Simpan otomatis</H3><P>Dokumen tersimpan otomatis sekitar 0,8 detik setelah kamu berhenti mengetik. Header menampilkan "Tersimpan" beserta jamnya. Data tersimpan di penyimpanan browser di perangkatmu.</P></Card>
+        <Card><H3 icon={faSave}>Simpan otomatis</H3><P>Dokumen tersimpan otomatis sekitar 0,8 detik setelah kamu berhenti mengetik. Header menampilkan "Tersimpan" beserta jamnya. Data tersimpan di penyimpanan browser di perangkatmu.</P></Card>
         <Card><H3 icon={faKeyboard}>Undo/Redo</H3><P>Sampai 50 langkah riwayat. Gunakan tombol di header atau pintasan keyboard. Riwayat menyimpan perubahan isi form, bukan perubahan mode.</P></Card>
         <Card><H3 icon={faFileExport}>Backup & berbagi</H3><P>Tombol JSON mengunduh file backup berisi seluruh dokumen. Tombol Impor memulihkannya kembali. Ini cara terbaik untuk backup dan berbagi dokumen dengan rekan tim.</P></Card>
         <Card><H3 icon={faCircleQuestion}>Reset</H3><P>Tombol Reset mengosongkan seluruh form. Jika salah tekan, langsung tekan Undo untuk mengembalikan isi dokumen.</P></Card>
@@ -186,7 +186,7 @@ function PageEkspor() {
       <PageHeader icon={faFileExport} title="Ekspor & Cetak" desc="Membawa dokumen keluar dari aplikasi" />
       <div className="space-y-4">
         <Card><H3 icon={faFileExport}>Ekspor PDF / Cetak</H3><P>Membuka dialog cetak browser dengan layout A4. Sampul selalu menjadi halaman pertama. Pilih tujuan "Save as PDF" untuk menyimpan file PDF.</P></Card>
-        <Card><H3 icon={faFloppyDisk}>JSON</H3><P>File backup khusus aplikasi ini, berisi seluruh dokumen, bisa diimpor kembali kapan saja lewat tombol Impor.</P></Card>
+        <Card><H3 icon={faSave}>JSON</H3><P>File backup khusus aplikasi ini, berisi seluruh dokumen, bisa diimpor kembali kapan saja lewat tombol Impor.</P></Card>
         <Card><H3 icon={faBookOpen}>Salin Markdown</H3><P>Menyalin dokumen sebagai teks berformat Markdown, siap ditempel ke Notion, GitHub, atau Jira.</P></Card>
       </div>
     </div>
@@ -308,7 +308,7 @@ const PAGES = [
   { id: 'mode', title: 'Mode', icon: faLayerGroup, Comp: PageMode },
   { id: 'fitur-ai', title: 'Fitur AI', icon: faRobot, Comp: PageFiturAi },
   { id: 'sampul', title: 'Sampul', icon: faPalette, Comp: PageSampul },
-  { id: 'data', title: 'Data', icon: faFloppyDisk, Comp: PageData },
+  { id: 'data', title: 'Data', icon: faSave, Comp: PageData },
   { id: 'ekspor', title: 'Ekspor', icon: faFileExport, Comp: PageEkspor },
   { id: 'pintasan', title: 'Pintasan', icon: faKeyboard, Comp: PagePintasan },
   { id: 'versi', title: 'Versi', icon: faTag, Comp: PageVersi },
