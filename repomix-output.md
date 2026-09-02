@@ -48,10 +48,13 @@ e2e/
   smoke.spec.js
 public/
   logo-riskychici.svg
+  qris-riskychici.png
 src/
   api/
     analyze-prd.js
   components/
+    docs/
+      DocsPage.jsx
     editor/
       sections/
         AcSection.jsx
@@ -106,6 +109,10 @@ src/
     useAutoTagline.js
     useSwipe.js
     useToast.js
+  icons/
+    brands-shim.js
+    fontawesome-shim.jsx
+    solid-shim.js
   services/
     aiService.js
     exportService.js
@@ -136,318 +143,6 @@ vite.config.js
 
 # Files
 
-## File: src/services/aiService.js
-````javascript
-// ============================================================
-// LAYANAN AI VIA OPENROUTER (MODEL: google/gemma-4-31b-it:free)
-// Mengurus fitur: Refine Text (tombol wand), Tagline Sampul,
-// dan Generate Schema dari User Flow.
-// Fitur Analisis PRD Besar (Gemini) tetap terpisah di usePrdStore.js.
-// ============================================================
-const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-export const AI_MODEL = 'google/gemma-4-31b-it:free';
-
-// Instruksi agar model tidak membuang token untuk "berpikir"
-const NO_THINK_SUFFIX =
-  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
-  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
-
-export const requireAiKey = function () {
-  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
-  return apiKey;
-};
-
-export const callAi = async function (apiKey, prompt, maxTokens) {
-  const res = await fetch(AI_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'PRD Architect Pro',
-    },
-    body: JSON.stringify({
-      model: AI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: maxTokens || 300,
-    }),
-  });
-  if (!res.ok) {
-    const errData = await res.json().catch(function () { return {}; });
-    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  if (data.choices && data.choices[0] && data.choices[0].message) {
-    return data.choices[0].message.content || '';
-  }
-  return '';
-};
-
-// ============================================================
-// PEMBERSIH BLOK THINKING (3 LAPIS)
-// ============================================================
-const cleanThink = function (t) {
-  let s = (t || '');
-  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
-  s = s.replace(/<think>[\s\S]*$/gi, '');
-  s = s.replace(/[\s\S]*?<\/think>/gi, '');
-  return s.trim();
-};
-
-const callAiClean = async function (prompt, maxTokens) {
-  const raw = await callAi(requireAiKey(), prompt, maxTokens);
-  let out = cleanThink(raw).trim();
-  if (!out) {
-    console.warn('[AI] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
-    const raw2 = await callAi(
-      requireAiKey(),
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
-      maxTokens
-    );
-    out = cleanThink(raw2).trim();
-  }
-  return out;
-};
-
-// ============================================================
-// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
-// ============================================================
-export const generateCoverTagline = async function (goalText) {
-  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
-    'Aturan wajib:\n' +
-    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
-    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
-    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
-    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
-    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
-    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
-    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Contoh 1:\n' +
-    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
-    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
-    'Contoh 2:\n' +
-    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
-    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
-    'Contoh 3:\n' +
-    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
-    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
-    'Teks: """' + goalText + '"""\n' +
-    'Tagline:' + NO_THINK_SUFFIX;
-  const out = await callAiClean(prompt, 2048);
-  return out
-    .split('\n')[0]
-    .replace(/^tagline\s*:\s*/i, '')
-    .replace(/\*\*/g, '')
-    .replace(/["']/g, '')
-    .replace(/[.!?]+$/, '')
-    .trim();
-};
-
-// ============================================================
-// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
-// ============================================================
-const MODE_INSTRUCTIONS = {
-  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
-    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
-    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
-    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
-  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
-    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
-  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
-  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
-  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
-  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
-};
-
-export const refineText = async function (text, mode, context) {
-  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
-  const example = mode === 'paragraph'
-    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
-      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
-      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
-      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
-      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
-    : '';
-  const contextRule = context
-    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
-      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
-      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
-      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
-      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
-    : '';
-  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
-    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
-    'Aturan khusus:\n' + instruction + '\n' +
-    example +
-    'Aturan umum:\n' +
-    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
-    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
-    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
-    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
-    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
-    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
-    contextRule +
-    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
-  const out = await callAiClean(prompt, 4096);
-  return out
-    .replace(/^hasil\s*:\s*/i, '')
-    .replace(/^["']+|["']+$/g, '')
-    .trim();
-};
-
-// ============================================================
-// GENERATOR SCHEMA DARI USER FLOW
-// ============================================================
-export const generateSchemaFromFlow = async function (flowText) {
-  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
-    'Aturan:\n' +
-    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
-    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
-    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
-    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
-    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
-    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
-    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
-    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
-    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
-  let raw = await callAi(requireAiKey(), prompt, 4096);
-  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
-    console.warn('[AI] Schema habis untuk thinking, mengulang sekali...');
-    raw = await callAi(
-      requireAiKey(),
-      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
-      4096
-    );
-  }
-  const tables = parseSchemaJson(raw);
-  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
-  return tables.map(function (t, ti) {
-    return {
-      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
-      desc: String(t.desc || ''),
-      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
-        return {
-          field: String(fi.field || 'kolom'),
-          type: String(fi.type || 'VARCHAR'),
-          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
-          note: String(fi.note || ''),
-        };
-      }) : [],
-    };
-  });
-};
-
-// ============================================================
-// PARSER JSON SCHEMA YANG TAHAN BANTING
-// ============================================================
-const repairInnerQuotes = function (text) {
-  let out = '';
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (!inString) {
-      if (ch === '"') inString = true;
-      out += ch;
-      continue;
-    }
-    if (ch === '\\') {
-      out += ch + (text[i + 1] || '');
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      let j = i + 1;
-      while (j < text.length && /\s/.test(text[j])) j++;
-      const next = text[j];
-      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
-        inString = false;
-        out += ch;
-      } else {
-        out += '\\"';
-      }
-      continue;
-    }
-    out += ch;
-  }
-  return out;
-};
-
-const removeTrailingCommas = function (text) {
-  return text.replace(/,\s*([}\]])/g, '$1');
-};
-
-const closeOpenStructures = function (text) {
-  const stack = [];
-  let inString = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (ch === '\\') i++;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
-      inString = true;
-    } else if (ch === '{' || ch === '[') {
-      stack.push(ch);
-    } else if (ch === '}' || ch === ']') {
-      stack.pop();
-    }
-  }
-  let out = text.replace(/,\s*$/, '');
-  for (let i = stack.length - 1; i >= 0; i--) {
-    out += stack[i] === '{' ? '}' : ']';
-  }
-  return out;
-};
-
-const salvageTruncated = function (text) {
-  let search = text;
-  while (search.length) {
-    const lastClose = search.lastIndexOf('}');
-    if (lastClose === -1) return null;
-    const cut = search.slice(0, lastClose + 1);
-    const closed = closeOpenStructures(cut);
-    try {
-      const parsed = JSON.parse(closed);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    } catch (e) {}
-    search = search.slice(0, lastClose);
-  }
-  return null;
-};
-
-const BT = String.fromCharCode(96);
-const FENCE_RE = new RegExp(BT + '{3,}json|' + BT + '{3,}', 'gi');
-
-const parseSchemaJson = function (rawText) {
-  const cleaned = cleanThink(rawText).replace(FENCE_RE, '').trim();
-  const start = cleaned.indexOf('[');
-  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
-  const end = cleaned.lastIndexOf(']');
-  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
-  const repaired = removeTrailingCommas(repairInnerQuotes(body));
-  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
-  let lastErr = null;
-  for (let i = 0; i < candidates.length; i++) {
-    try {
-      const parsed = JSON.parse(candidates[i]);
-      if (Array.isArray(parsed)) return parsed;
-    } catch (e) { lastErr = e; }
-  }
-  const salvaged = salvageTruncated(repaired);
-  if (salvaged) {
-    console.warn('[AI] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
-    return salvaged;
-  }
-  console.error('[AI] JSON schema tidak bisa diparse:', lastErr, rawText);
-  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
-};
-````
-
 ## File: e2e/fixtures/sample-import.json
 ````json
 {
@@ -466,144 +161,6 @@ const parseSchemaJson = function (rawText) {
     "techOptional": []
   }
 }
-````
-
-## File: e2e/helpers/mockAi.js
-````javascript
-export async function mockOpenRouter(page, outputText) {
-  await page.route('**/openrouter.ai/**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: outputText,
-            },
-          },
-        ],
-      }),
-    });
-  });
-}
-export async function mockOpenRouterError(page, statusCode, errorMessage) {
-  await page.route('**/openrouter.ai/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-export async function mockGeminiStream(page, chunks) {
-  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    let body = '';
-    chunks.forEach((chunk) => {
-      const payload = {
-        candidates: [
-          {
-            content: {
-              parts: [
-                {
-                  text: chunk,
-                },
-              ],
-            },
-          },
-        ],
-      };
-      body += 'data: ' + JSON.stringify(payload) + '\n\n';
-    });
-    body += 'data: [DONE]\n\n';
-    await route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body,
-    });
-  });
-}
-export async function mockGeminiError(page, statusCode, errorMessage) {
-  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
-    await route.fulfill({
-      status: statusCode,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          message: errorMessage,
-        },
-      }),
-    });
-  });
-}
-````
-
-## File: e2e/ai.spec.js
-````javascript
-import { test, expect } from '@playwright/test';
-import { mockOpenRouter, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-
-  await page.goto('/');
-});
-
-test('analisis AI menampilkan hasil mock', async ({ page }) => {
-  await mockGeminiStream(page, [
-    '## 1. Analisis System Analyst\n',
-    'PRD perlu menambahkan acceptance criteria yang lebih detail.',
-  ]);
-
-  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
-  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
-
-  await page.getByRole('button', { name: /Analisis PRD/i }).click();
-
-  await expect(
-    page.getByText('PRD perlu menambahkan acceptance criteria yang lebih detail.')
-  ).toBeVisible({ timeout: 15000 });
-});
-
-test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
-  await mockOpenRouter(
-    page,
-    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
-  );
-
-  const textarea = page.getByLabel('Latar Belakang / Problem Statement');
-  await textarea.fill('masalah pencatatan');
-
-  const tombolRefine = page.getByRole(
-    'button',
-    { name: 'Perhalus teks Problem Statement dengan AI' }
-  );
-  await tombolRefine.click();
-
-  await expect(textarea).toHaveValue(
-    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
-  );
-});
-
-test('analisis AI menampilkan pesan error ketika API gagal', async ({ page }) => {
-  await mockGeminiError(page, 429, 'Quota exceeded for free tier');
-
-  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
-  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
-
-  await page.getByRole('button', { name: /Analisis PRD/i }).click();
-
-  // PERBAIKAN: Gunakan .first() karena pesan error muncul di card AI dan juga di Toast notifikasi
-  await expect(
-    page.getByText(/Kuota harian/i).first()
-  ).toBeVisible({ timeout: 10000 });
-});
 ````
 
 ## File: e2e/editor.spec.js
@@ -984,83 +541,6 @@ export default function DocFooter() {
 }
 ````
 
-## File: src/hooks/useAutoTagline.js
-````javascript
-import { useEffect, useRef } from 'react';
-import { debounce } from 'lodash';
-import { usePrdStore } from '../store/usePrdStore';
-import { taglineHash, summarizeForCover } from '../utils/helpers';
-import { callAi, requireAiKey } from '../services/aiService';
-
-// ============================================================
-// AUTO TAGLINE: PERINGKAS SAMPUL CERDAS VIA OPENROUTER (GEMMA 4)
-// Fallback terakhir: heuristik lokal (summarizeForCover)
-// ============================================================
-const MIN_CHARS = 140;
-const MAX_TAGLINE_CHARS = 90;
-const DEBOUNCE_MS = 2500;
-
-const buildPrompt = function (text) {
-  return 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
-    'Aturan wajib:\n' +
-    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
-    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
-    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
-    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
-    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
-    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
-    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
-    'Teks: """' + text + '"""\n' +
-    'Tagline:';
-};
-
-const cleanTagline = function (raw, originalLength) {
-  let t = (raw || '');
-  t = t.replace(/[\s\S]*<\/think>\s*/g, '');
-  t = t.split('\n')[0];
-  t = t.replace(/^tagline\s*:\s*/i, '');
-  t = t.replace(/\*\*/g, '').replace(/["']/g, '').replace(/[.!?]+$/, '').trim();
-  if (!t || t.length > originalLength) return '';
-  if (t.length > MAX_TAGLINE_CHARS) {
-    t = summarizeForCover(t, MAX_TAGLINE_CHARS);
-  }
-  return t;
-};
-
-export const useAutoTagline = function () {
-  const productGoal = usePrdStore(function (s) { return s.fields.productGoal; });
-  const busyRef = useRef(false);
-  useEffect(function () {
-    const run = debounce(async function () {
-      const state = usePrdStore.getState();
-      const text = (state.fields.productGoal || '').trim();
-      if (text.length < MIN_CHARS) return;
-      const hash = taglineHash(text);
-      if (state.fields.coverTaglineHash === hash) return;
-      if (busyRef.current) return;
-      let apiKey = '';
-      try { apiKey = requireAiKey(); } catch (e) { return; }
-      busyRef.current = true;
-      let tagline = '';
-      try {
-        const raw = await callAi(apiKey, buildPrompt(text), 60);
-        tagline = cleanTagline(raw, text.length);
-        if (tagline) state.setField('coverTagline', tagline);
-        state.setField('coverTaglineHash', hash);
-      } catch (e) {
-        console.error('[AutoTagline] Gagal:', e.message);
-        state.setField('coverTaglineHash', hash);
-      } finally {
-        busyRef.current = false;
-      }
-    }, DEBOUNCE_MS);
-    run();
-    return function () { run.cancel(); };
-  }, [productGoal]);
-  return null;
-};
-````
-
 ## File: src/hooks/useSwipe.js
 ````javascript
 import { useEffect, useRef } from 'react';
@@ -1117,6 +597,565 @@ export const useToastStore = create(function (set) {
 });
 
 export const useToast = function () { return useToastStore(function (s) { return s.showToast; }); };
+````
+
+## File: src/icons/brands-shim.js
+````javascript
+// AUTO-GENERATED by generate-icon-shims.js
+// DO NOT EDIT MANUALLY - changes will be overwritten
+
+export var faHtml5 = { n: 'Html5', l: ['Code2', 'Code'] };
+````
+
+## File: src/icons/fontawesome-shim.jsx
+````javascript
+import * as Lucide from 'lucide-react';
+
+// Tabel alias: nama Font Awesome -> kandidat nama Lucide.
+const ALIAS = {
+  Envelope: ['Mail', 'Inbox'],
+  EnvelopeOpen: ['MailOpen', 'Mail'],
+  EnvelopeOpenText: ['MailOpen', 'Mail', 'Inbox'],
+  FileContract: ['FileText', 'FileSignature', 'FilePenLine', 'File'],
+  FileExport: ['FileDown', 'FileOutput', 'Download'],
+  FileImport: ['FileUp', 'FileInput', 'Upload'],
+  FileLines: ['FileText', 'File'],
+  FileAlt: ['FileText'],
+  FloppyDisk: ['Save', 'HardDrive'],
+  Save: ['Save'],
+  PenToSquare: ['SquarePen', 'PenSquare', 'PenLine', 'Pen'],
+  Edit: ['SquarePen', 'PenSquare', 'PenLine', 'Pen'],
+  Pen: ['Pen', 'PenLine'],
+  Pencil: ['Pencil', 'PenLine'],
+  EyeDropper: ['Pipette', 'Droplet'],
+  TableList: ['Table2', 'Table', 'List'],
+  ListCheck: ['ListChecks', 'ListCheck', 'List'],
+  ClipboardCheck: ['ClipboardCheck', 'ClipboardList', 'Clipboard'],
+  UserShield: ['ShieldCheck', 'UserCheck', 'Shield'],
+  ShieldHalved: ['ShieldHalf', 'Shield', 'ShieldCheck'],
+  CircleInfo: ['Info', 'CircleHelp', 'HelpCircle'],
+  InfoCircle: ['Info', 'CircleHelp'],
+  CircleQuestion: ['CircleHelp', 'HelpCircle'],
+  QuestionCircle: ['CircleHelp', 'HelpCircle'],
+  CircleCheck: ['CircleCheck', 'CheckCircle', 'CheckCircle2'],
+  CheckCircle: ['CircleCheck', 'CheckCircle'],
+  CircleExclamation: ['CircleAlert', 'AlertCircle', 'TriangleAlert'],
+  ExclamationCircle: ['CircleAlert', 'AlertCircle'],
+  CircleXmark: ['CircleX', 'XCircle'],
+  TimesCircle: ['CircleX', 'XCircle'],
+  Xmark: ['X'],
+  Times: ['X'],
+  WandMagicSparkles: ['WandSparkles', 'Wand', 'Sparkles'],
+  Magic: ['Wand', 'Sparkles'],
+  Spinner: ['LoaderCircle', 'Loader2', 'Loader'],
+  Robot: ['Bot'],
+  Bullseye: ['Target', 'Crosshair'],
+  LayerGroup: ['Layers', 'Layers2', 'Layers3'],
+  CodeBranch: ['GitBranch', 'GitFork', 'Code'],
+  ChartLine: ['ChartLine', 'LineChart', 'TrendingUp'],
+  LineChart: ['ChartLine', 'LineChart', 'TrendingUp'],
+  ChartColumn: ['ChartColumn', 'BarChart3', 'BarChart'],
+  BarChart: ['ChartColumn', 'BarChart3', 'BarChart'],
+  Flask: ['FlaskConical', 'FlaskRound', 'TestTube'],
+  Vial: ['TestTube', 'FlaskConical'],
+  Bolt: ['Zap'],
+  Plug: ['Plug', 'PlugZap', 'Cable'],
+  HardDrive: ['HardDrive', 'Database'],
+  Print: ['Printer'],
+  RotateLeft: ['RotateCcw', 'Undo2', 'Undo'],
+  RotateRight: ['RotateCw', 'Redo2', 'Redo'],
+  Gear: ['Settings', 'Cog'],
+  Cog: ['Settings', 'Cog'],
+  MagnifyingGlass: ['Search'],
+  House: ['House', 'Home'],
+  Home: ['House', 'Home'],
+  Ellipsis: ['Ellipsis', 'MoreHorizontal'],
+  EllipsisVertical: ['EllipsisVertical', 'MoreVertical'],
+  Qrcode: ['QrCode'],
+  Tags: ['Tags', 'Tag'],
+  Users: ['Users', 'UsersRound'],
+  User: ['User', 'UserRound'],
+  Building: ['Building2', 'Building'],
+  PuzzlePiece: ['Puzzle'],
+  Trash: ['Trash2', 'Trash'],
+  TrashAlt: ['Trash2'],
+  Eye: ['Eye'],
+  EyeSlash: ['EyeOff'],
+  Html5: ['Code', 'CodeXml', 'Globe'],
+  Github: ['Github'],
+  Moon: ['Moon', 'MoonStar'],
+  Sun: ['Sun', 'SunMedium'],
+  Lightbulb: ['Lightbulb'],
+  BookOpen: ['BookOpen', 'BookOpenText'],
+  Keyboard: ['Keyboard'],
+  Heart: ['Heart'],
+  Download: ['Download'],
+  Upload: ['Upload'],
+  Ban: ['Ban'],
+  Database: ['Database'],
+  Server: ['Server'],
+  Cloud: ['Cloud'],
+  Globe: ['Globe', 'Earth'],
+  Infinity: ['Infinity'],
+  Copy: ['Copy'],
+  Check: ['Check'],
+  Minus: ['Minus'],
+  Plus: ['Plus'],
+  ArrowDown: ['ArrowDown'],
+  ArrowUp: ['ArrowUp'],
+  ArrowLeft: ['ArrowLeft'],
+  ArrowRight: ['ArrowRight'],
+  ChevronDown: ['ChevronDown'],
+  ChevronUp: ['ChevronUp'],
+  ChevronLeft: ['ChevronLeft'],
+  ChevronRight: ['ChevronRight'],
+  Lock: ['Lock'],
+  Tag: ['Tag'],
+  Palette: ['Palette'],
+};
+
+const WARNED = {};
+
+function candidatesFor(base) {
+  const list = [];
+  const add = function (c) { if (c && list.indexOf(c) === -1) list.push(c); };
+  (ALIAS[base] || []).forEach(add);
+  add(base);
+  return list;
+}
+
+function resolveIcon(icon) {
+  let bases = [];
+  if (typeof icon === 'string') bases = [icon];
+  else if (icon && Array.isArray(icon.l)) bases = icon.l;
+  else if (icon && typeof icon.n === 'string') bases = [icon.n];
+  else if (icon && typeof icon.iconName === 'string') bases = [icon.iconName];
+  else if (icon && typeof icon.name === 'string') bases = [icon.name];
+
+  for (let i = 0; i < bases.length; i++) {
+    const cands = candidatesFor(bases[i]);
+    for (let j = 0; j < cands.length; j++) {
+      if (Lucide[cands[j]]) return Lucide[cands[j]];
+    }
+  }
+
+  const key = bases[0] || 'unknown';
+  if (!WARNED[key]) {
+    WARNED[key] = true;
+    console.warn('[Icon Shim] TIDAK DITEMUKAN: ' + key + ' (dicoba: ' + bases.join(', ') + ')');
+  }
+  return Lucide.Circle || Lucide.CircleDot || Lucide.Box;
+}
+
+// Ukuran default Lucide: 14px dengan strokeWidth 1.5 agar icon tipis,
+// elegan, dan tidak "chunky". Ukuran asli font-awesome (1em) dipertahankan
+// lewat currentColor dan inline-block agar mengikuti ukuran teks parent.
+const DEFAULT_SIZE = 14;
+const DEFAULT_STROKE = 1.5;
+
+export function FontAwesomeIcon(props) {
+  const icon = props.icon;
+  const className = props.className || '';
+  const ariaHidden = props['aria-hidden'];
+  const Comp = resolveIcon(icon);
+
+  // Izinkan override size via props.size jika perlu (untuk kasus khusus).
+  // Jika tidak, pakai DEFAULT_SIZE. strokeWidth mengikuti DEFAULT_STROKE
+  // tapi bisa di-override lewat props.strokeWidth.
+  const size = props.size || DEFAULT_SIZE;
+  const strokeWidth = props.strokeWidth || DEFAULT_STROKE;
+
+  return (
+    <Comp
+      size={size}
+      strokeWidth={strokeWidth}
+      className={'inline-block align-middle ' + className}
+      aria-hidden={ariaHidden}
+    />
+  );
+}
+
+export default { FontAwesomeIcon: FontAwesomeIcon };
+````
+
+## File: src/icons/solid-shim.js
+````javascript
+// AUTO-GENERATED by generate-icon-shims.js
+// DO NOT EDIT MANUALLY - changes will be overwritten
+
+export var faArrowDown = { n: 'ArrowDown', l: ['ArrowDown'] };
+export var faArrowLeft = { n: 'ArrowLeft', l: ['ArrowLeft'] };
+export var faArrowUp = { n: 'ArrowUp', l: ['ArrowUp'] };
+export var faBan = { n: 'Ban', l: ['Ban'] };
+export var faBolt = { n: 'Bolt', l: ['Zap'] };
+export var faBookOpen = { n: 'BookOpen', l: ['BookOpen'] };
+export var faBuilding = { n: 'Building', l: ['Building2'] };
+export var faBullseye = { n: 'Bullseye', l: ['Target'] };
+export var faChartColumn = { n: 'ChartColumn', l: ['BarChart3', 'BarChart'] };
+export var faChartLine = { n: 'ChartLine', l: ['LineChart', 'TrendingUp'] };
+export var faCheck = { n: 'Check', l: ['Check'] };
+export var faChevronDown = { n: 'ChevronDown', l: ['ChevronDown'] };
+export var faCircleCheck = { n: 'CircleCheck', l: ['CheckCircle2', 'CircleCheck'] };
+export var faCircleExclamation = { n: 'CircleExclamation', l: ['AlertCircle', 'CircleAlert'] };
+export var faCircleInfo = { n: 'CircleInfo', l: ['Info'] };
+export var faCircleQuestion = { n: 'CircleQuestion', l: ['HelpCircle', 'CircleHelp'] };
+export var faCircleXmark = { n: 'CircleXmark', l: ['XCircle', 'CircleX'] };
+export var faClipboardCheck = { n: 'ClipboardCheck', l: ['ClipboardCheck'] };
+export var faCloud = { n: 'Cloud', l: ['Cloud'] };
+export var faCodeBranch = { n: 'CodeBranch', l: ['GitBranch'] };
+export var faCopy = { n: 'Copy', l: ['Copy'] };
+export var faDatabase = { n: 'Database', l: ['Database'] };
+export var faDownload = { n: 'Download', l: ['Download'] };
+export var faEnvelope = { n: 'Envelope', l: ['Envelope'] };
+export var faEnvelopeOpenText = { n: 'EnvelopeOpenText', l: ['Mail'] };
+export var faEye = { n: 'Eye', l: ['Eye'] };
+export var faEyeDropper = { n: 'EyeDropper', l: ['Pipette'] };
+export var faFileExport = { n: 'FileExport', l: ['Download'] };
+export var faFileImport = { n: 'FileImport', l: ['Upload'] };
+export var faFlask = { n: 'Flask', l: ['FlaskConical'] };
+export var faGlobe = { n: 'Globe', l: ['Globe'] };
+export var faHardDrive = { n: 'HardDrive', l: ['HardDrive'] };
+export var faHeart = { n: 'Heart', l: ['Heart'] };
+export var faInfinity = { n: 'Infinity', l: ['Infinity'] };
+export var faKeyboard = { n: 'Keyboard', l: ['Keyboard'] };
+export var faLayerGroup = { n: 'LayerGroup', l: ['Layers'] };
+export var faLightbulb = { n: 'Lightbulb', l: ['Lightbulb'] };
+export var faListCheck = { n: 'ListCheck', l: ['ListChecks'] };
+export var faMinus = { n: 'Minus', l: ['Minus'] };
+export var faMoon = { n: 'Moon', l: ['Moon'] };
+export var faPalette = { n: 'Palette', l: ['Palette'] };
+export var faPenToSquare = { n: 'PenToSquare', l: ['PenLine', 'SquarePen'] };
+export var faPlug = { n: 'Plug', l: ['Plug'] };
+export var faPlus = { n: 'Plus', l: ['Plus'] };
+export var faPrint = { n: 'Print', l: ['Print'] };
+export var faPuzzlePiece = { n: 'PuzzlePiece', l: ['Puzzle'] };
+export var faRobot = { n: 'Robot', l: ['Bot'] };
+export var faRotateLeft = { n: 'RotateLeft', l: ['RotateCcw'] };
+export var faRotateRight = { n: 'RotateRight', l: ['RotateCw'] };
+export var faSave = { n: 'Save', l: ['Save'] };
+export var faServer = { n: 'Server', l: ['Server'] };
+export var faShieldHalved = { n: 'ShieldHalved', l: ['Shield'] };
+export var faSpinner = { n: 'Spinner', l: ['Loader2', 'LoaderCircle'] };
+export var faSun = { n: 'Sun', l: ['Sun'] };
+export var faTableList = { n: 'TableList', l: ['Table2', 'Table'] };
+export var faTag = { n: 'Tag', l: ['Tag'] };
+export var faTrash = { n: 'Trash', l: ['Trash2'] };
+export var faUserShield = { n: 'UserShield', l: ['ShieldCheck'] };
+export var faUsers = { n: 'Users', l: ['Users'] };
+export var faWandMagicSparkles = { n: 'WandMagicSparkles', l: ['Wand2', 'Sparkles'] };
+export var faXmark = { n: 'Xmark', l: ['X'] };
+````
+
+## File: src/services/aiService.js
+````javascript
+// ============================================================
+// LAYANAN AI VIA OPENROUTER (MODEL: google/gemma-4-31b-it:free)
+// Mengurus fitur: Refine Text (tombol wand), Tagline Sampul,
+// dan Generate Schema dari User Flow.
+// Fitur Analisis PRD Besar (Gemini) tetap terpisah di usePrdStore.js.
+// ============================================================
+const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+export const AI_MODEL = 'google/gemma-4-31b-it:free';
+
+// Instruksi agar model tidak membuang token untuk "berpikir"
+const NO_THINK_SUFFIX =
+  '\n\nPENTING: Jangan menulis proses berpikir, jangan pakai tag think, ' +
+  'dan jangan memberi penjelasan apa pun. Langsung tulis hasil akhirnya saja.\n/no_think';
+
+export const requireAiKey = function () {
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('VITE_OPENROUTER_API_KEY belum diisi pada .env.local');
+  return apiKey;
+};
+
+export const callAi = async function (apiKey, prompt, maxTokens) {
+  const res = await fetch(AI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+      'HTTP-Referer': window.location.origin,
+      'X-Title': 'PRD Architect Pro',
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: maxTokens || 300,
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(function () { return {}; });
+    const msg = errData.error && errData.error.message ? errData.error.message : 'HTTP ' + res.status;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  if (data.choices && data.choices[0] && data.choices[0].message) {
+    return data.choices[0].message.content || '';
+  }
+  return '';
+};
+
+// ============================================================
+// PEMBERSIH BLOK THINKING (3 LAPIS)
+// ============================================================
+const cleanThink = function (t) {
+  let s = (t || '');
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  s = s.replace(/<think>[\s\S]*$/gi, '');
+  s = s.replace(/[\s\S]*?<\/think>/gi, '');
+  return s.trim();
+};
+
+const callAiClean = async function (prompt, maxTokens) {
+  const raw = await callAi(requireAiKey(), prompt, maxTokens);
+  let out = cleanThink(raw).trim();
+  if (!out) {
+    console.warn('[AI] Output habis untuk thinking, mengulang sekali dengan instruksi langsung...');
+    const raw2 = await callAi(
+      requireAiKey(),
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir sama sekali. Langsung tulis hasil akhirnya saja sekarang.',
+      maxTokens
+    );
+    out = cleanThink(raw2).trim();
+  }
+  return out;
+};
+
+// ============================================================
+// GENERATOR TAGLINE SAMPUL (dipakai tombol "Pakai saran AI")
+// ============================================================
+export const generateCoverTagline = async function (goalText) {
+  const prompt = 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Contoh 1:\n' +
+    'Teks: "Membangun platform kasir digital untuk warung kopi agar pencatatan penjualan harian lebih rapi dan stok bahan baku selalu terpantau sehingga pemilik tidak perlu mengecek manual"\n' +
+    'Tagline: "Platform kasir digital dengan pencatatan penjualan dan stok yang otomatis"\n\n' +
+    'Contoh 2:\n' +
+    'Teks: "Mempermudah pelanggan barbershop melakukan booking jadwal cukur secara online sehingga mengurangi antrian fisik dan meningkatkan jumlah booking hingga 40 persen dalam enam bulan"\n' +
+    'Tagline: "Pemesanan cukur daring yang memangkas waktu antrian hingga 40%"\n\n' +
+    'Contoh 3:\n' +
+    'Teks: "Menyediakan satu dashboard terpusat untuk memantau omzet, jumlah pesanan, dan produk terlaris secara real-time serta menyusun laporan penjualan mingguan secara otomatis"\n' +
+    'Tagline: "Dashboard terpusat untuk pemantauan omzet dan penjualan secara real-time"\n\n' +
+    'Teks: """' + goalText + '"""\n' +
+    'Tagline:' + NO_THINK_SUFFIX;
+  const out = await callAiClean(prompt, 2048);
+  return out
+    .split('\n')[0]
+    .replace(/^tagline\s*:\s*/i, '')
+    .replace(/\*\*/g, '')
+    .replace(/["']/g, '')
+    .replace(/[.!?]+$/, '')
+    .trim();
+};
+
+// ============================================================
+// MODE PERHALUS TEKS (untuk tombol wand di kolom editor)
+// ============================================================
+const MODE_INSTRUCTIONS = {
+  paragraph: 'Tulis ulang menjadi 1 sampai 3 kalimat padat bergaya dokumentasi Product Manager. ' +
+    'Langsung ke inti: sebutkan subjek, masalah atau tujuan, dan dampak atau metrik kunci bila ada. ' +
+    'Buang basa-basi dan frasa birokratis, tetapi JANGAN buang fakta, angka, atau poin penting dari draf. ' +
+    'Gunakan kalimat aktif yang jelas dan profesional, bukan poin-poin telegrafis.',
+  list: 'Tulis ulang setiap baris menjadi poin profesional yang jelas, maksimal 15 kata per poin. ' +
+    'Pertahankan jumlah poin, urutan baris, dan seluruh informasi dari draf. Satu poin per baris, tanpa bullet, tanpa nomor.',
+  phrase: 'Tulis ulang sebagai frasa singkat profesional maksimal 10 kata, tanpa titik di akhir.',
+  name: 'Rapikan penulisan menjadi Title Case yang konsisten. Jangan menambah atau menghapus kata.',
+  technical: 'Tulis ulang sebagai spesifikasi teknis yang rapi dan profesional. Jangan mengubah nama teknologi, angka, standar, atau protokol. Boleh terdiri dari beberapa frasa yang dipisah koma.',
+  flow: 'Rapikan alur menjadi langkah berurutan dengan nama langkah yang profesional dan jelas. Pisahkan langkah dengan " -> ". Jangan menambah langkah baru.',
+};
+
+export const refineText = async function (text, mode, context) {
+  const instruction = MODE_INSTRUCTIONS[mode] || MODE_INSTRUCTIONS.paragraph;
+  const example = mode === 'paragraph'
+    ? 'Contoh gaya yang diinginkan (profesional, jelas, langsung ke inti, tidak bertele-tele):\n' +
+      'Draf: "user suka bingung nyari tombol print trs app suka ngecrash pas upload"\n' +
+      'Hasil: "Pengguna kesulitan menemukan tombol cetak, dan aplikasi sering gagal saat mengunggah berkas."\n\n' +
+      'Draf: "pelanggan harus antri lama tanpa kepastian jadwal, pemilik susah atur kursi kosong"\n' +
+      'Hasil: "Pelanggan mengantre lama tanpa kepastian jadwal, sementara pemilik kesulitan mengisi kursi kosong."\n\n'
+    : '';
+  const contextRule = context
+    ? '7. KOLOM TUJUAN: "' + context + '". Hasil WAJIB berada dalam fokus kolom tersebut. ' +
+      'Jika perlu, ubah sudut pandang kalimat agar cocok dengan tujuan kolom ' +
+      '(misalnya dari deskripsi fitur menjadi rumusan masalah dan pain point pengguna ' +
+      'untuk kolom Problem Statement atau Latar Belakang, atau menjadi target terukur ' +
+      'untuk kolom Goals atau Tujuan), tanpa menambah atau mengurangi inti informasi dari draf.\n'
+    : '';
+  const prompt = 'Kamu adalah penulis dokumentasi produk senior. Hasil harus profesional, jelas, dan langsung ke inti.\n' +
+    'Tugasmu: perhalus BAHASA draf kasar berikut menjadi tulisan berstandar dokumentasi Product Manager, tanpa memperpanjang isinya.\n' +
+    'Aturan khusus:\n' + instruction + '\n' +
+    example +
+    'Aturan umum:\n' +
+    '1. Jangan menambah fakta, angka, fitur, atau teknologi yang tidak ada di draf.\n' +
+    '2. Jangan membuang fakta penting: angka, entitas, dan poin inti draf wajib muncul.\n' +
+    '3. Jangan memberi penjelasan atau awalan. Output HANYA teks hasil.\n' +
+    '4. JANGAN memperpanjang draf: hasil maksimal sepanjang draf, idealnya lebih ringkas. Dilarang bertele-tele.\n' +
+    '5. Hindari frasa birokratis dan klise seperti: secara paralel, kondisi ini mencerminkan, guna, diharapkan dapat, bertujuan untuk, melakukan proses, dalam rangka, secara signifikan.\n' +
+    '6. Gunakan kalimat aktif yang jelas dan istilah industri yang wajar (unggah, unduh, dasbor, antrean, autentikasi).\n' +
+    contextRule +
+    '\nDraf kasar: """' + text + '"""\nHasil:' + NO_THINK_SUFFIX;
+  const out = await callAiClean(prompt, 4096);
+  return out
+    .replace(/^hasil\s*:\s*/i, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+};
+
+// ============================================================
+// GENERATOR SCHEMA DARI USER FLOW
+// ============================================================
+export const generateSchemaFromFlow = async function (flowText) {
+  const prompt = 'Kamu System Analyst senior. Dari alur pengguna (user flow) aplikasi berikut, identifikasi entitas data utama lalu rancang skema database relasional yang masuk akal untuk MVP.\n' +
+    'Aturan:\n' +
+    '1. Output HANYA JSON array valid, tanpa markdown fence, tanpa penjelasan.\n' +
+    '2. Bentuk setiap elemen: {"name":"nama_tabel","desc":"fungsi tabel dalam konteks bisnis","fields":[{"field":"nama_kolom","type":"TIPE","required":"Ya","note":"catatan singkat"}]}\n' +
+    '3. Gunakan tipe SQL umum: BIGINT, VARCHAR, TEXT, DECIMAL, BOOLEAN, TIMESTAMP, ENUM.\n' +
+    '4. Setiap tabel wajib punya kolom id sebagai primary key dan foreign key berakhiran _id untuk relasi.\n' +
+    '5. Maksimal 6 tabel dan maksimal 6 kolom per tabel agar output tidak terpotong.\n' +
+    '6. JANGAN pakai tanda kutip ganda di dalam nilai string. Jika perlu kutip, gunakan tanda kutip tunggal.\n' +
+    '7. JANGAN gunakan koma di akhir sebelum penutup kurung (trailing comma).\n' +
+    '8. Pastikan JSON lengkap sampai kurung penutup terakhir.\n\n' +
+    'User flow: """' + flowText + '"""\nJSON:' + NO_THINK_SUFFIX;
+  let raw = await callAi(requireAiKey(), prompt, 4096);
+  if (cleanThink(raw).indexOf('[') === -1 && /<think/i.test(raw)) {
+    console.warn('[AI] Schema habis untuk thinking, mengulang sekali...');
+    raw = await callAi(
+      requireAiKey(),
+      prompt + '\n\nPERINTAH ULANG: Jangan menulis proses berpikir. Langsung tulis JSON array sekarang.',
+      4096
+    );
+  }
+  const tables = parseSchemaJson(raw);
+  if (!tables.length) throw new Error('AI tidak menghasilkan tabel');
+  return tables.map(function (t, ti) {
+    return {
+      name: String(t.name || 'tabel_' + (ti + 1)).toLowerCase().replace(/\s+/g, '_'),
+      desc: String(t.desc || ''),
+      fields: Array.isArray(t.fields) ? t.fields.map(function (fi) {
+        return {
+          field: String(fi.field || 'kolom'),
+          type: String(fi.type || 'VARCHAR'),
+          required: fi.required === 'Opsional' ? 'Opsional' : 'Ya',
+          note: String(fi.note || ''),
+        };
+      }) : [],
+    };
+  });
+};
+
+// ============================================================
+// PARSER JSON SCHEMA YANG TAHAN BANTING
+// ============================================================
+const repairInnerQuotes = function (text) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch + (text[i + 1] || '');
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      const next = text[j];
+      if (next === ',' || next === '}' || next === ']' || next === ':' || next === undefined) {
+        inString = false;
+        out += ch;
+      } else {
+        out += '\\"';
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+};
+
+const removeTrailingCommas = function (text) {
+  return text.replace(/,\s*([}\]])/g, '$1');
+};
+
+const closeOpenStructures = function (text) {
+  const stack = [];
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+    }
+  }
+  let out = text.replace(/,\s*$/, '');
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']';
+  }
+  return out;
+};
+
+const salvageTruncated = function (text) {
+  let search = text;
+  while (search.length) {
+    const lastClose = search.lastIndexOf('}');
+    if (lastClose === -1) return null;
+    const cut = search.slice(0, lastClose + 1);
+    const closed = closeOpenStructures(cut);
+    try {
+      const parsed = JSON.parse(closed);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch (e) {}
+    search = search.slice(0, lastClose);
+  }
+  return null;
+};
+
+const BT = String.fromCharCode(96);
+const FENCE_RE = new RegExp(BT + '{3,}json|' + BT + '{3,}', 'gi');
+
+const parseSchemaJson = function (rawText) {
+  const cleaned = cleanThink(rawText).replace(FENCE_RE, '').trim();
+  const start = cleaned.indexOf('[');
+  if (start === -1) throw new Error('AI tidak mengembalikan daftar tabel');
+  const end = cleaned.lastIndexOf(']');
+  const body = end > start ? cleaned.slice(start, end + 1) : cleaned.slice(start);
+  const repaired = removeTrailingCommas(repairInnerQuotes(body));
+  const candidates = [body, removeTrailingCommas(body), repairInnerQuotes(body), repaired];
+  let lastErr = null;
+  for (let i = 0; i < candidates.length; i++) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) { lastErr = e; }
+  }
+  const salvaged = salvageTruncated(repaired);
+  if (salvaged) {
+    console.warn('[AI] JSON schema terpotong, dipakai sebagian:', salvaged.length, 'tabel');
+    return salvaged;
+  }
+  console.error('[AI] JSON schema tidak bisa diparse:', lastErr, rawText);
+  throw new Error('Format JSON dari AI tidak dapat dibaca. Silakan coba sekali lagi.');
+};
 ````
 
 ## File: src/services/storageService.js
@@ -1347,206 +1386,558 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ````
 
-## File: playwright.config.js
+## File: e2e/helpers/mockAi.js
 ````javascript
-import { defineConfig, devices } from '@playwright/test';
+export async function mockOpenRouter(page, outputText) {
+  await page.route('**/openrouter.ai/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: outputText,
+            },
+          },
+        ],
+      }),
+    });
+  });
+}
+export async function mockOpenRouterError(page, statusCode, errorMessage) {
+  await page.route('**/openrouter.ai/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+export async function mockGeminiStream(page, chunks) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    let body = '';
+    chunks.forEach((chunk) => {
+      const payload = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: chunk,
+                },
+              ],
+            },
+          },
+        ],
+      };
+      body += 'data: ' + JSON.stringify(payload) + '\n\n';
+    });
+    body += 'data: [DONE]\n\n';
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body,
+    });
+  });
+}
+export async function mockGeminiError(page, statusCode, errorMessage) {
+  await page.route('**/generativelanguage.googleapis.com/**', async (route) => {
+    await route.fulfill({
+      status: statusCode,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          message: errorMessage,
+        },
+      }),
+    });
+  });
+}
+````
 
-export default defineConfig({
-  testDir: './e2e',
-  timeout: 30000,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+## File: e2e/ai.spec.js
+````javascript
+import { test, expect } from '@playwright/test';
+import { mockOpenRouter, mockGeminiStream, mockGeminiError } from './helpers/mockAi.js';
 
-use: {
-  baseURL: 'http://localhost:5173',
-  launchOptions: {
-    slowMo: 1000,
-  },
-  trace: 'on-first-retry',
-  screenshot: 'only-on-failure',
-  video: 'retain-on-failure',
-},
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
 
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    env: {
-      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
-      VITE_OPENROUTER_API_KEY: 'dummy-groq-key',
-    },
-  },
+  await page.goto('/');
+});
 
-  projects: [
-    {
-      name: 'desktop-chrome',
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    {
-      name: 'mobile-chrome',
-      use: {
-        ...devices['Pixel 7'],
-      },
-    },
-  ],
+test('analisis AI menampilkan hasil mock', async ({ page }) => {
+  await mockGeminiStream(page, [
+    '## 1. Analisis System Analyst\n',
+    'PRD perlu menambahkan acceptance criteria yang lebih detail.',
+  ]);
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  await expect(
+    page.getByText('PRD perlu menambahkan acceptance criteria yang lebih detail.')
+  ).toBeVisible({ timeout: 15000 });
+});
+
+test('tombol AI refine mengubah teks problem statement', async ({ page }) => {
+  await mockOpenRouter(
+    page,
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+
+  const textarea = page.getByLabel('Latar Belakang / Problem Statement');
+  await textarea.fill('masalah pencatatan');
+
+  const tombolRefine = page.getByRole(
+    'button',
+    { name: 'Perhalus teks Problem Statement dengan AI' }
+  );
+  await tombolRefine.click();
+
+  await expect(textarea).toHaveValue(
+    'Pemilik warung kesulitan mencatat penjualan harian secara manual.'
+  );
+});
+
+test('analisis AI menampilkan pesan error ketika API gagal', async ({ page }) => {
+  await mockGeminiError(page, 429, 'Quota exceeded for free tier');
+
+  const briefTextarea = page.getByPlaceholder(/Contoh: Aplikasi kasir/i);
+  await briefTextarea.fill('Aplikasi kasir untuk warung kopi');
+
+  await page.getByRole('button', { name: /Analisis PRD/i }).click();
+
+  // PERBAIKAN: Gunakan .first() karena pesan error muncul di card AI dan juga di Toast notifikasi
+  await expect(
+    page.getByText(/Kuota harian/i).first()
+  ).toBeVisible({ timeout: 10000 });
 });
 ````
 
-## File: README.md
-````markdown
-# PRD Architect Pro
+## File: src/components/docs/DocsPage.jsx
+````javascript
+import { useEffect, useRef, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faArrowLeft, faBookOpen, faMoon, faSun, faRobot, faWandMagicSparkles,
+  faFileExport, faLayerGroup, faCircleQuestion, faKeyboard, faLightbulb,
+  faEye, faPalette, faSave, faTag, faHeart, faEnvelope, faDownload,
+} from '@fortawesome/free-solid-svg-icons';
+import { useThemeStore } from '../../store/useThemeStore';
 
-> **Satu Alat untuk Semua Kebutuhan Spesifikasi Produk**  
-> Platform perancang *Product Requirement Document* (PRD) interaktif berbasis React untuk membantu Product Manager, System Analyst, dan Software Architect menyusun dokumen spesifikasi teknis dan bisnis secara terstruktur dan efisien.
+const APP_VERSION = '3.5';
 
-[![Version](https://img.shields.io/badge/version-3.1-blue.svg?style=flat-square)](https://github.com/)
-[![React](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
-[![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.0-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](./LICENSE)
+function Card(props) {
+  return <div className={'bg-card border border-line rounded-xl p-4 md:p-5 space-y-3 ' + (props.className || '')}>{props.children}</div>;
+}
+function H3(props) {
+  return <h3 className="text-sm font-bold text-ink flex items-center gap-2"><FontAwesomeIcon icon={props.icon} className="text-accent text-xs" />{props.children}</h3>;
+}
+function P(props) {
+  return <p className="text-xs md:text-sm text-mut leading-relaxed">{props.children}</p>;
+}
+function Kbd(props) {
+  return <kbd className="px-1.5 py-0.5 rounded border border-line bg-field text-[11px] font-mono text-ink">{props.children}</kbd>;
+}
+function Tip(props) {
+  return (
+    <div className="p-3 rounded-lg border border-accent/30 bg-accent/10 text-xs text-ink leading-relaxed">
+      <strong className="text-accent">Tips: </strong>{props.children}
+    </div>
+  );
+}
+function Step(props) {
+  return (
+    <div className="flex gap-3">
+      <span className="w-6 h-6 rounded-full bg-accent text-white text-[11px] font-bold flex items-center justify-center shrink-0">{props.n}</span>
+      <div className="min-w-0">
+        <p className="text-xs md:text-sm font-semibold text-ink">{props.title}</p>
+        <p className="text-xs text-mut leading-relaxed mt-0.5">{props.children}</p>
+      </div>
+    </div>
+  );
+}
+function Faq(props) {
+  return (
+    <div className="bg-card border border-line rounded-xl p-4 space-y-1.5">
+      <p className="text-xs md:text-sm font-semibold text-ink flex gap-2 items-start"><FontAwesomeIcon icon={faCircleQuestion} className="text-accent mt-0.5" />{props.q}</p>
+      <p className="text-xs text-mut leading-relaxed pl-6">{props.children}</p>
+    </div>
+  );
+}
+function PageHeader(props) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <span className="w-10 h-10 rounded-xl bg-accent/15 text-accent border border-accent/30 flex items-center justify-center shrink-0">
+        <FontAwesomeIcon icon={props.icon} />
+      </span>
+      <div>
+        <h2 className="text-base md:text-lg font-bold text-ink">{props.title}</h2>
+        <p className="text-[11px] md:text-xs text-mut">{props.desc}</p>
+      </div>
+    </div>
+  );
+}
 
----
+function PagePengenalan() {
+  return (
+    <div>
+      <PageHeader icon={faBookOpen} title="Pengenalan" desc="Apa itu PRD Architect dan kenapa berguna" />
+      <div className="space-y-4">
+        <P>
+          PRD Architect adalah aplikasi web untuk menyusun dokumen spesifikasi produk
+          (Product Requirement Document, disingkat PRD) secara terstruktur. Kamu mengisi formulir
+          di panel Editor, dan panel Preview menyusun dokumen rapi secara langsung, siap diekspor
+          ke PDF ukuran A4.
+        </P>
+        <Card>
+          <H3 icon={faLightbulb}>Yang kamu dapatkan</H3>
+          <ul className="list-disc pl-5 text-xs md:text-sm text-mut space-y-1.5 leading-relaxed">
+            <li>Dua mode kerja: Simple untuk proyek kecil, dan Enterprise untuk dokumentasi lengkap.</li>
+            <li>Simpan otomatis ke perangkatmu, plus riwayat Undo/Redo sampai 50 langkah.</li>
+            <li>Empat bantuan AI: Analisis PRD, Perhalus Teks, Saran Sampul, dan Generate Schema.</li>
+            <li>Ekspor file backup, salin Markdown, dan cetak/PDF dengan layout A4 korporat.</li>
+          </ul>
+        </Card>
+        <Card>
+          <H3 icon={faSave}>Privasi data</H3>
+          <P>
+            Seluruh isi dokumen tersimpan hanya di browser kamu (di perangkatmu sendiri), tidak
+            dikirim ke server aplikasi. Teks dokumen hanya dikirim ke layanan AI saat kamu menekan
+            tombol AI. Gunakan ekspor file backup untuk memindahkan dokumen ke perangkat lain.
+          </P>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
-## Preview Aplikasi
+function PageMulaiCepat() {
+  return (
+    <div>
+      <PageHeader icon={faLightbulb} title="Mulai Cepat" desc="Enam langkah dari kosong sampai dokumen jadi" />
+      <div className="space-y-4">
+        <Card className="space-y-4">
+          <Step n="1" title="Lihat contoh dulu (opsional)">Klik Muat Contoh di header untuk mengisi form dengan studi kasus Instagram. Cara tercepat memahami semua fitur.</Step>
+          <Step n="2" title="Isi identitas proyek">Section 1: nama proyek, penulis, versi dokumen, status, dan target rilis.</Step>
+          <Step n="3" title="Tulis masalah dan tujuan">Section 2: latar belakang masalah dan tujuan produk. Tekan tombol tongkat (wand) untuk merapikan teks kasarmu.</Step>
+          <Step n="4" title="Daftarkan fitur utama">Section 3: tambah fitur, isi deskripsi, dan atur prioritas High, Medium, atau Low.</Step>
+          <Step n="5" title="Lengkapi tech stack">Section 4: isi frontend (tampilan), backend (server), dan database. Stack tambahan bisa ditambah lewat tombol Tambah Stack Lanjutan.</Step>
+          <Step n="6" title="Ekspor dokumen">Cek preview di kanan (desktop) atau tab Preview (mobile), lalu gunakan tombol Ekspor PDF, JSON, atau Salin Markdown.</Step>
+        </Card>
+        <Tip>Klik tombol Dokumentasi di header kapan saja untuk membuka halaman ini.</Tip>
+      </div>
+    </div>
+  );
+}
 
-| Single Editor View | Live PRD Preview |
-| :---: | :---: |
-| *[ Sisipkan Screenshot Panel Editor di Sini ]* | *[ Sisipkan Screenshot Preview Dokumen di Sini ]* |
+function PageAntarmuka() {
+  return (
+    <div>
+      <PageHeader icon={faEye} title="Antarmuka" desc="Mengenal bagian-bagian layar" />
+      <div className="space-y-4">
+        <Card><H3 icon={faBookOpen}>Header</H3><P>Berisi pemindah mode Simple/Enterprise, tombol Undo/Redo, tombol tema terang/gelap, tombol Dokumentasi, Muat Contoh, dan Reset. Ada juga indikator "Tersimpan" yang menunjukkan waktu simpan otomatis terakhir.</P></Card>
+        <Card><H3 icon={faWandMagicSparkles}>Panel Editor</H3><P>Formulir tersusun urut sesuai struktur dokumen. Ikon tongkat di samping kolom adalah tombol Perhalus Teks berbasis AI. Section yang belum diaktifkan tidak akan muncul di mode Simple.</P></Card>
+        <Card><H3 icon={faEye}>Panel Preview</H3><P>Di layar lebar berada di sebelah kanan. Menampilkan sampul gelap dan dokumen putih ukuran A4. Warna judul dan aksen dokumen otomatis mengikuti palette branding.</P></Card>
+        <Card><H3 icon={faRobot}>Tampilan mobile</H3><P>Gunakan tab bar di bawah untuk pindah antara Editor dan Preview, atau geser (swipe) kiri/kanan. Tombol melayang di pojok membantu scroll ke atas/bawah.</P></Card>
+      </div>
+    </div>
+  );
+}
 
----
+function PageMode() {
+  return (
+    <div>
+      <PageHeader icon={faLayerGroup} title="Mode Simple & Enterprise" desc="Pilih kedalaman dokumen yang kamu butuhkan" />
+      <div className="space-y-4">
+        <Card><H3 icon={faLightbulb}>Mode Simple</H3><P>Berisi section inti: informasi proyek, masalah dan tujuan, fitur utama, user flow, tech stack, serta batasan dan Definition of Done. Cocok untuk proyek kecil dan versi awal produk.</P></Card>
+        <Card><H3 icon={faLayerGroup}>Mode Enterprise</H3><P>Menambah modul lengkap: Persona & KPI, Branding & Design System, Role & Permission Matrix, Acceptance Criteria per modul, Schema Data, serta kebutuhan non-teknis plus analisis risiko.</P></Card>
+        <Card><H3 icon={faCircleQuestion}>Section Opsional</H3><P>Di mode Simple, kartu "Section Opsional (Tambahan)" memungkinkan kamu mengaktifkan modul Enterprise satu per satu tanpa harus pindah mode penuh.</P></Card>
+      </div>
+    </div>
+  );
+}
 
-## Ringkasan Fitur
+function PageFiturAi() {
+  return (
+    <div>
+      <PageHeader icon={faRobot} title="Fitur AI" desc="Empat bantuan AI dan cara pakainya" />
+      <div className="space-y-4">
+        <Card><H3 icon={faRobot}>Analisis PRD</H3><P>Berada di kartu paling atas editor. Jika PRD masih kosong, tulis dulu deskripsi singkat aplikasi yang ingin dibuat. Hasil mengalir seperti mengetik. Tombol Terapkan ke Form mengisi form secara otomatis dari draf AI.</P></Card>
+        <Card><H3 icon={faWandMagicSparkles}>Perhalus Teks (tombol tongkat)</H3><P>Ada di samping kolom teks. Mengirim teks plus nama kolom sebagai konteks, sehingga hasil sesuai tujuan kolom. Setelah berhasil, tombol terkunci sampai teks kamu ubah lagi.</P></Card>
+        <Card><H3 icon={faPalette}>Saran Sampul</H3><P>Di section Sampul & Footer Dokumen. Merangkum Tujuan Utama Produk menjadi satu kalimat subtitle sampul. Hasilnya tetap bisa kamu edit manual.</P></Card>
+        <Card><H3 icon={faSave}>Generate Schema dari User Flow</H3><P>Di section Schema Data (Enterprise). Membaca user flow lalu menyusun tabel database lengkap dengan tipe data dan relasi. Semua hasil tetap bisa diedit manual.</P></Card>
+      </div>
+    </div>
+  );
+}
 
-PRD Architect Pro dirancang untuk memangkas waktu pengerjaan dokumentasi produk tanpa mengorbankan kualitas spesifikasi teknis. Aplikasi ini menjembatani ideasi bisnis dengan kebutuhan implementasi teknis lewat dua alur kerja terpisah:
+function PageSampul() {
+  return (
+    <div>
+      <PageHeader icon={faPalette} title="Sampul & Branding" desc="Mengatur warna dan teks sampul" />
+      <div className="space-y-4">
+        <Card><H3 icon={faPalette}>Mode warna otomatis</H3><P>Warna sampul diracik dari palette di section Branding & Design System. Warna yang kurang serasi disaring otomatis. Jika tidak ada warna layak, dipakai warna emas sebagai cadangan yang aman.</P></Card>
+        <Card><H3 icon={faWandMagicSparkles}>Mode manual</H3><P>Matikan saklar otomatis, lalu atur sendiri Warna Utama, Warna Aksen, dan Latar Sampul. Field lain: Kicker (teks kecil di atas judul), Catatan Footer, dan saklar tampil footer.</P></Card>
+      </div>
+    </div>
+  );
+}
 
-* **Mode Simple MVP:** Berfokus pada komponen esensial (*Problem Statement*, *Core Features*, *High-level Flow*) untuk percepatan fase *prototyping* atau proyek skala kecil.
-* **Mode Enterprise:** Menyediakan modul dokumentasi mendalam termasuk *Persona Matrix*, *Design System Standard*, *Role & Permission Matrix*, *Schema Data*, *Acceptance Criteria*, hingga *Non-Functional Requirements (NFR)* dan *Risk Analysis*.
+function PageData() {
+  return (
+    <div>
+      <PageHeader icon={faSave} title="Simpan, Riwayat & Data" desc="Simpan otomatis, riwayat, dan backup" />
+      <div className="space-y-4">
+        <Card><H3 icon={faSave}>Simpan otomatis</H3><P>Dokumen tersimpan otomatis sekitar 0,8 detik setelah kamu berhenti mengetik. Header menampilkan "Tersimpan" beserta jamnya. Data tersimpan di penyimpanan browser di perangkatmu.</P></Card>
+        <Card><H3 icon={faKeyboard}>Undo/Redo</H3><P>Sampai 50 langkah riwayat. Gunakan tombol di header atau pintasan keyboard. Riwayat menyimpan perubahan isi form, bukan perubahan mode.</P></Card>
+        <Card><H3 icon={faFileExport}>Backup & berbagi</H3><P>Tombol JSON mengunduh file backup berisi seluruh dokumen. Tombol Impor memulihkannya kembali. Ini cara terbaik untuk backup dan berbagi dokumen dengan rekan tim.</P></Card>
+        <Card><H3 icon={faCircleQuestion}>Reset</H3><P>Tombol Reset mengosongkan seluruh form. Jika salah tekan, langsung tekan Undo untuk mengembalikan isi dokumen.</P></Card>
+      </div>
+    </div>
+  );
+}
 
----
+function PageEkspor() {
+  return (
+    <div>
+      <PageHeader icon={faFileExport} title="Ekspor & Cetak" desc="Membawa dokumen keluar dari aplikasi" />
+      <div className="space-y-4">
+        <Card><H3 icon={faFileExport}>Ekspor PDF / Cetak</H3><P>Membuka dialog cetak browser dengan layout A4. Sampul selalu menjadi halaman pertama. Pilih tujuan "Save as PDF" untuk menyimpan file PDF.</P></Card>
+        <Card><H3 icon={faSave}>JSON</H3><P>File backup khusus aplikasi ini, berisi seluruh dokumen, bisa diimpor kembali kapan saja lewat tombol Impor.</P></Card>
+        <Card><H3 icon={faBookOpen}>Salin Markdown</H3><P>Menyalin dokumen sebagai teks berformat Markdown, siap ditempel ke Notion, GitHub, atau Jira.</P></Card>
+      </div>
+    </div>
+  );
+}
 
-## Fitur Unggulan
+function PagePintasan() {
+  return (
+    <div>
+      <PageHeader icon={faKeyboard} title="Pintasan" desc="Kombinasi tombol dan gestur" />
+      <div className="space-y-4">
+        <Card className="space-y-2">
+          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Undo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Z</Kbd></span></div>
+          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Redo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Y</Kbd> atau <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd></span></div>
+          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Pindah Editor/Preview (mobile)</span><span className="text-ink font-semibold">Swipe kiri / kanan</span></div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
-### Fleksibilitas & Kustomisasi
-* **Dynamic Section Toggling:** Aktifkan modul Enterprise secara parsial di Mode Simple tanpa perlu mengubah struktur dokumen secara keseluruhan.
-* **Live Side-by-Side Preview:** Render dokumen secara *real-time* saat pengisian data.
+function PageVersi() {
+  return (
+    <div>
+      <PageHeader icon={faTag} title="Versi Aplikasi" desc="Informasi rilis PRD Architect" />
+      <div className="space-y-4">
+        <Card><H3 icon={faTag}>Versi saat ini: {APP_VERSION}</H3><P>PRD Architect versi {APP_VERSION} adalah rilis terbaru. Nomor versi tidak lagi ditampilkan di header agar tampilan lebih bersih; informasi versi dipusatkan di halaman ini dan di footer dokumentasi.</P></Card>
+        <Card>
+          <H3 icon={faLightbulb}>Yang baru di {APP_VERSION}</H3>
+          <ul className="list-disc pl-5 text-xs md:text-sm text-mut space-y-1.5 leading-relaxed">
+            <li>Nama aplikasi disederhanakan menjadi PRD Architect.</li>
+            <li>Halaman dokumentasi dengan navigasi per kategori.</li>
+            <li>Halaman Support Developer dengan QRIS dan tombol download.</li>
+            <li>Logo konsisten di favicon, header aplikasi, dan header dokumentasi.</li>
+            <li>Perbaikan scroll dan kestabilan layout pada halaman dokumentasi.</li>
+          </ul>
+        </Card>
+        <Card>
+          <H3 icon={faHeart}>Dikembangkan oleh</H3>
+          <div className="flex items-center gap-3">
+            <span className="bg-accent p-1 rounded-lg shrink-0">
+              <img src="/logo-riskychici.svg" alt="Logo Risky Chici" className="w-6 h-6" />
+            </span>
+            <div>
+              <p className="text-sm font-bold text-ink">Risky Chici</p>
+              <p className="text-[11px] text-mut">Pembuat & Pengembang PRD Architect</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
-### Editor & Manajemen Data
-* **Data Schema & Architecture Mapping:** Tentukan entitas data, relasi, tipe data, dan dependensi sistem secara eksplisit.
-* **State Persistence & History:** Dilengkapi fitur *Auto-save* ke `localStorage` serta *Undo/Redo stack* hingga 50 riwayat perubahan.
-* **Integrated Sample Data:** Lakukan eksplorasi fitur secara cepat menggunakan preset data bawaan (*Prime Property Case Study*).
+function PageFaq() {
+  return (
+    <div>
+      <PageHeader icon={faCircleQuestion} title="FAQ" desc="Jawaban untuk pertanyaan yang sering muncul" />
+      <div className="space-y-4">
+        <Faq q="Apakah data saya aman?">Ya. Data hanya tersimpan di browser kamu dan tidak dikirim ke server aplikasi. Teks hanya dikirim ke layanan AI saat kamu menekan tombol AI.</Faq>
+        <Faq q="Kenapa Analisis PRD gagal?">Biasanya karena koneksi internet tidak stabil atau jatah harian AI sudah terpakai semua. Tunggu beberapa saat lalu coba lagi.</Faq>
+        <Faq q="Kenapa tombol tongkat tidak bekerja?">Fitur tersebut memakai layanan AI. Pastikan koneksi internetmu stabil dan kunci API sudah terisi, lalu tunggu beberapa saat sebelum mencoba lagi.</Faq>
+        <Faq q="Apakah hasil cetak sama dengan preview?">Isinya sama. Cetakan memakai layout A4 dan warna yang aman untuk print, dan sampul selalu menjadi halaman pertama.</Faq>
+        <Faq q="Bagaimana memindahkan dokumen ke perangkat lain?">Tekan tombol JSON di perangkat lama, lalu tekan Impor di perangkat baru dan pilih file tersebut.</Faq>
+      </div>
+    </div>
+  );
+}
 
-### Interoperabilitas Multi-Format
-* **Export & Import JSON:** Simpan berkas mentah untuk kebutuhan *backup* atau kolaborasi antar anggota tim.
-* **Markdown Generator:** Salin format Markdown siap pakai untuk diintegrasikan ke Notion, GitHub, atau Jira.
-* **A4 Print Engine:** Layout teroptimasi khusus untuk cetak langsung atau *Export to PDF* dengan tampilan korporat yang rapi.
+function PageSupport() {
+  const [qrisError, setQrisError] = useState(false);
+  return (
+    <div>
+      <PageHeader icon={faHeart} title="Support Developer" desc="Dukung pengembangan PRD Architect" />
+      <div className="space-y-4">
+        <Card>
+          <P>Jika aplikasi ini membantu pekerjaanmu, kamu bisa mendukung pengembangan dengan scan QRIS di bawah. Berapapun nominalnya sangat berarti.</P>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {qrisError ? (
+              <div className="w-56 h-56 rounded-xl border border-line bg-field flex items-center justify-center text-center p-4">
+                <p className="text-[11px] text-mut">Gambar QRIS belum terpasang. Letakkan file QRIS kamu di public/qris-riskychici.png</p>
+              </div>
+            ) : (
+              <img
+                src="/qris-riskychici.png"
+                alt="QRIS Support Developer"
+                onError={function () { setQrisError(true); }}
+                className="w-56 h-auto rounded-xl border border-line bg-white p-2"
+              />
+            )}
+            <p className="text-[11px] text-mut text-center">Scan pakai aplikasi e-wallet atau mobile banking favoritmu.</p>
+            <a
+              href="/qris-riskychici.png"
+              download="qris-riskychici.png"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent2 text-white text-xs font-semibold transition border border-accent shadow-sm"
+            >
+              <FontAwesomeIcon icon={faDownload} className="text-[11px]" />
+              Download QRIS
+            </a>
+          </div>
+        </Card>
+        <Card>
+          <H3 icon={faEnvelope}>Kontak & Masukan</H3>
+          <P>Punya ide fitur atau menemukan kejanggalan? Sampaikan masukanmu lewat halaman kontak atau repositori proyek. Masukan kecil sekalipun sangat membantu.</P>
+        </Card>
+        <Card>
+          <H3 icon={faHeart}>Terima kasih</H3>
+          <P>Dukunganmu dipakai untuk biaya hosting, kuota API, dan pengembangan fitur baru. Terima kasih sudah menjadi bagian dari perjalanan PRD Architect.</P>
+        </Card>
+      </div>
+    </div>
+  );
+}
 
----
+const PAGES = [
+  { id: 'pengenalan', title: 'Pengenalan', icon: faBookOpen, Comp: PagePengenalan },
+  { id: 'mulai-cepat', title: 'Mulai Cepat', icon: faLightbulb, Comp: PageMulaiCepat },
+  { id: 'antarmuka', title: 'Antarmuka', icon: faEye, Comp: PageAntarmuka },
+  { id: 'mode', title: 'Mode', icon: faLayerGroup, Comp: PageMode },
+  { id: 'fitur-ai', title: 'Fitur AI', icon: faRobot, Comp: PageFiturAi },
+  { id: 'sampul', title: 'Sampul', icon: faPalette, Comp: PageSampul },
+  { id: 'data', title: 'Data', icon: faSave, Comp: PageData },
+  { id: 'ekspor', title: 'Ekspor', icon: faFileExport, Comp: PageEkspor },
+  { id: 'pintasan', title: 'Pintasan', icon: faKeyboard, Comp: PagePintasan },
+  { id: 'versi', title: 'Versi', icon: faTag, Comp: PageVersi },
+  { id: 'faq', title: 'FAQ', icon: faCircleQuestion, Comp: PageFaq },
+  { id: 'support', title: 'Support Developer', icon: faHeart, Comp: PageSupport },
+];
 
-## Stack Teknologi
+export default function DocsPage(props) {
+  const onBack = props.onBack || function () { if (window.history.length > 1) window.history.back(); };
+  const theme = useThemeStore(function (s) { return s.theme; });
+  const setTheme = useThemeStore(function (s) { return s.setTheme; });
+  const [pageId, setPageId] = useState('pengenalan');
+  const mainRef = useRef(null);
 
-| Komponen | Teknologi | Keterangan |
-| :--- | :--- | :--- |
-| **Frontend Framework** | React 19 | Library utama antarmuka komponen |
-| **Build Tooling** | Vite 8 | Transpiler dan *dev server* berkecepatan tinggi |
-| **Styling Engine** | Tailwind CSS 4 | *Utility-first CSS framework* untuk desain responsif |
-| **State Management** | Zustand 5 | Manajemen state global yang ringan dan terprediksi |
-| **Icons & Media** | Font Awesome 7 | Set ikon grafis untuk navigasi UI |
-| **Utilities** | Lodash, File-Saver | Manipulasi data, manajemen *history*, dan penanganan ekspor berkas |
+  useEffect(function () {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [pageId]);
 
----
+  const active = PAGES.find(function (p) { return p.id === pageId; }) || PAGES[0];
+  const ActiveComp = active.Comp;
 
-## Panduan Memulai (*Quick Start*)
+  return (
+    <div className="h-dvh flex flex-col overflow-hidden bg-base text-ink">
+      <header className="shrink-0 bg-panel border-b border-line">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2 md:gap-3">
+          <button
+            onClick={onBack}
+            title="Kembali ke aplikasi"
+            aria-label="Kembali ke aplikasi"
+            className="w-9 h-9 rounded-lg border border-line bg-field text-ink hover:bg-accent hover:text-white hover:border-accent transition shrink-0 flex items-center justify-center"
+          >
+            <FontAwesomeIcon icon={faArrowLeft} />
+          </button>
+          <div className="bg-accent p-1 rounded-lg shrink-0">
+            <img src="/logo-riskychici.svg" alt="Logo PRD Architect" className="w-6 h-6" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-sm font-bold truncate">PRD Architect</h1>
+            <p className="text-[11px] text-mut truncate">Dokumentasi & Panduan</p>
+          </div>
+          <button
+            onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+            title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
+            className="ml-auto w-9 h-9 rounded-lg border border-line bg-field text-ink hover:bg-accent hover:text-white transition shrink-0 flex items-center justify-center"
+          >
+            <FontAwesomeIcon icon={theme === 'dark' ? faSun : faMoon} />
+          </button>
+        </div>
+        <nav className="md:hidden flex gap-2 overflow-x-auto px-4 py-2 border-t border-line bg-panel">
+          {PAGES.map(function (p) {
+            const isAct = p.id === pageId;
+            return (
+              <button
+                key={p.id}
+                onClick={function () { setPageId(p.id); }}
+                className={'text-[11px] font-semibold px-3 py-1.5 rounded-full border whitespace-nowrap transition ' + (isAct ? 'bg-accent text-white border-accent' : 'bg-field text-mut border-line')}
+              >
+                {p.title}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
 
-### Prasyarat Sistem
-* **Node.js**: v18.0.0 atau versi terbaru
-* **Package Manager**: `npm` v9+ atau `yarn` / `pnpm`
+      <div className="flex-1 min-h-0 flex flex-col md:flex-row max-w-6xl w-full mx-auto">
+        <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-line overflow-y-auto p-3 space-y-1">
+          {PAGES.map(function (p) {
+            const isAct = p.id === pageId;
+            return (
+              <button
+                key={p.id}
+                onClick={function () { setPageId(p.id); }}
+                className={'w-full text-left text-xs font-medium px-3 py-2 rounded-lg border transition flex items-center gap-2 ' + (isAct ? 'bg-accent/15 text-accent border-accent/30' : 'text-mut border-transparent hover:bg-field hover:text-ink')}
+              >
+                <FontAwesomeIcon icon={p.icon} className="w-3.5" />
+                {p.title}
+              </button>
+            );
+          })}
+        </aside>
 
-### Langkah Instalasi
-
-1. **Clone repositori:**
-   ```bash
-   git clone https://github.com/username/prd-architect-pro.git
-   cd prd-architect-pro
-   ```
-
-2. **Pasang dependensi:**
-   ```bash
-   npm install
-   ```
-
-3. **Jalankan server pengembangan:**
-   ```bash
-   npm run dev
-   ```
-   Akses aplikasi pada peramban melalui alamat `http://localhost:5173`.
-
-4. **Kompilasi untuk Production:**
-   ```bash
-   npm run build
-   ```
-   Aset hasil kompilasi akan tersimpan pada direktori `/dist`.
-
----
-
-## Struktur Direktori Proyek
-
-```bash
-prd-architect-pro/
-├── src/
-│   ├── components/
-│   │   ├── editor/          # Panel kontrol dan pengisian formulir
-│   │   │   └── sections/    # Komponen formulir spesifik per modul
-│   │   ├── header/          # Header utama, status indicator, & mode switcher
-│   │   ├── mobile/          # Modul responsif dan gesture navigation
-│   │   ├── preview/         # Visualizer dokumen live-preview
-│   │   │   └── sections/    # Komponen renderer dokumen spesifik
-│   │   └── shared/          # UI Kit reusable (Input, Modal, Button)
-│   ├── hooks/               # Custom hooks (Auto-save, History management)
-│   ├── services/            # Modul parser Markdown, PDF, dan File I/O
-│   ├── store/               # Zustand Central Store & State Mutator
-│   ├── styles/              # Design tokens dan Tailwind directives
-│   ├── utils/               # Form validator, formatter, dan mock constants
-│   ├── App.jsx              # Application Layout Shell
-│   └── main.jsx             # Entry point React DOM
-├── public/                  # Aset statis & manifes
-└── package.json             # Dependensi dan skrip proyek
-```
-
----
-
-## Pintasan Board (Keyboard Shortcuts)
-
-| Kombinasi Tombol | Aksi |
-| :--- | :--- |
-| `Ctrl` + `Z` | Batalkan perubahan terakhir (*Undo*) |
-| `Ctrl` + `Y` | Ulangi perubahan (*Redo*) |
-| `Ctrl` + `Shift` + `Z` | Alternatif *Redo* |
-
----
-
-## Kontribusi
-
-Aplikasi ini bersifat terbuka untuk pengembang dan praktisi manajemen produk. Jika Anda ingin berkontribusi:
-
-1. Lakukan **Fork** pada repositori ini.
-2. Buat *feature branch* baru (`git checkout -b feature/FiturBaru`).
-3. Simpan perubahan Anda (`git commit -m 'feat: menambahkan modul export baru'`).
-4. Unggah ke branch Anda (`git push origin feature/FiturBaru`).
-5. Buat **Pull Request** baru untuk ditinjau.
-
----
-
-## Lisensi
-
-Proyek ini didistribusikan di bawah lisensi **MIT**. Silakan merujuk ke berkas [LICENSE](./LICENSE) untuk informasi selengkapnya.
-
----
-
-<p align="center">
-  Didesain untuk efisiensi tim produk modern. Dipelihara oleh komunitas open-source.
-</p>
+        <main
+          ref={mainRef}
+          className="flex-1 min-h-0 overflow-y-scroll"
+          style={{ scrollbarGutter: 'stable' }}
+        >
+          <div className="max-w-3xl mx-auto px-4 py-6 md:px-8 md:py-10">
+            <ActiveComp />
+            <footer className="mt-10 border-t border-line pt-5 pb-2 text-center space-y-1.5">
+              <div className="flex items-center justify-center gap-2">
+                <span className="bg-accent p-0.5 rounded"><img src="/logo-riskychici.svg" alt="" className="w-4 h-4" /></span>
+                <span className="text-[11px] font-semibold text-ink">PRD Architect · Versi {APP_VERSION}</span>
+              </div>
+              <p className="text-[11px] text-mut">© 2026 Risky Chici. All rights reserved.</p>
+            </footer>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
 ````
 
 ## File: src/components/editor/EditorSection.jsx
@@ -2068,6 +2459,83 @@ export const useAutoSave = function () {
 };
 ````
 
+## File: src/hooks/useAutoTagline.js
+````javascript
+import { useEffect, useRef } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from '../store/usePrdStore';
+import { taglineHash, summarizeForCover } from '../utils/helpers';
+import { callAi, requireAiKey } from '../services/aiService';
+
+// ============================================================
+// AUTO TAGLINE: PERINGKAS SAMPUL CERDAS VIA OPENROUTER (GEMMA 4)
+// Fallback terakhir: heuristik lokal (summarizeForCover)
+// ============================================================
+const MIN_CHARS = 140;
+const MAX_TAGLINE_CHARS = 90;
+const DEBOUNCE_MS = 2500;
+
+const buildPrompt = function (text) {
+  return 'Kamu adalah copywriter dokumen korporat senior. Tulis SATU tagline untuk sampul dokumen PRD yang menangkap INTI produk dari teks "Tujuan Produk" di bawah.\n' +
+    'Aturan wajib:\n' +
+    '1. Gunakan Bahasa Indonesia formal dan profesional, layak untuk sampul dokumen bisnis.\n' +
+    '2. Tata bahasa harus utuh dan benar, bukan gaya telegrafik. Pertahankan kata hubung yang diperlukan seperti untuk, secara, dalam, dengan, yang.\n' +
+    '3. Maksimal 14 kata dan maksimal 90 karakter.\n' +
+    '4. Wajib menyebut nilai utama produk plus satu metrik kunci (angka atau persentase) jika ada.\n' +
+    '5. JANGAN menyalin atau memotong kalimat asli. Tulis ulang menjadi frasa yang ringkas dan elegan.\n' +
+    '6. Tanpa titik di akhir, tanpa tanda kutip, tanpa awalan seperti "Tujuan produk ini".\n' +
+    '7. Output HANYA tagline, tanpa penjelasan apapun.\n\n' +
+    'Teks: """' + text + '"""\n' +
+    'Tagline:';
+};
+
+const cleanTagline = function (raw, originalLength) {
+  let t = (raw || '');
+  t = t.replace(/[\s\S]*<\/think>\s*/g, '');
+  t = t.split('\n')[0];
+  t = t.replace(/^tagline\s*:\s*/i, '');
+  t = t.replace(/\*\*/g, '').replace(/["']/g, '').replace(/[.!?]+$/, '').trim();
+  if (!t || t.length > originalLength) return '';
+  if (t.length > MAX_TAGLINE_CHARS) {
+    t = summarizeForCover(t, MAX_TAGLINE_CHARS);
+  }
+  return t;
+};
+
+export const useAutoTagline = function () {
+  const productGoal = usePrdStore(function (s) { return s.fields.productGoal; });
+  const busyRef = useRef(false);
+  useEffect(function () {
+    const run = debounce(async function () {
+      const state = usePrdStore.getState();
+      const text = (state.fields.productGoal || '').trim();
+      if (text.length < MIN_CHARS) return;
+      const hash = taglineHash(text);
+      if (state.fields.coverTaglineHash === hash) return;
+      if (busyRef.current) return;
+      let apiKey = '';
+      try { apiKey = requireAiKey(); } catch (e) { return; }
+      busyRef.current = true;
+      let tagline = '';
+      try {
+        const raw = await callAi(apiKey, buildPrompt(text), 60);
+        tagline = cleanTagline(raw, text.length);
+        if (tagline) state.setField('coverTagline', tagline);
+        state.setField('coverTaglineHash', hash);
+      } catch (e) {
+        console.error('[AutoTagline] Gagal:', e.message);
+        state.setField('coverTaglineHash', hash);
+      } finally {
+        busyRef.current = false;
+      }
+    }, DEBOUNCE_MS);
+    run();
+    return function () { run.cancel(); };
+  }, [productGoal]);
+  return null;
+};
+````
+
 ## File: src/utils/aiPrompts.js
 ````javascript
 // Utils untuk membangun prompt AI secara terpisah dari store
@@ -2337,43 +2805,206 @@ ${contextBlock}`;
 }
 ````
 
-## File: vite.config.js
+## File: playwright.config.js
 ````javascript
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  build: {
-    target: 'esnext',
-    cssMinify: true,
-    rollupOptions: {
-      output: {
-        manualChunks: function (id) {
-          // Pisahkan dependensi dari node_modules ke chunk yang berbeda
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom')) {
-              return 'vendor';
-            }
-            if (id.includes('@fortawesome')) {
-              return 'icons';
-            }
-            if (id.includes('lodash') || id.includes('zustand')) {
-              return 'utils';
-            }
-            if (id.includes('file-saver') || id.includes('copy-to-clipboard')) {
-              return 'services';
-            }
-            // Fallback untuk node_modules lainnya
-            return 'vendor';
-          }
-        }
-      }
-    },
-    chunkSizeWarningLimit: 1000,
+  testDir: './e2e',
+  timeout: 30000,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : undefined,
+
+use: {
+  baseURL: 'http://localhost:5173',
+  launchOptions: {
+    slowMo: 1000,
   },
+  trace: 'on-first-retry',
+  screenshot: 'only-on-failure',
+  video: 'retain-on-failure',
+},
+
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+    env: {
+      VITE_GEMINI_API_KEY: 'dummy-gemini-key',
+      VITE_OPENROUTER_API_KEY: 'dummy-groq-key',
+    },
+  },
+
+  projects: [
+    {
+      name: 'desktop-chrome',
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    {
+      name: 'mobile-chrome',
+      use: {
+        ...devices['Pixel 7'],
+      },
+    },
+  ],
 });
+````
+
+## File: README.md
+````markdown
+# PRD Architect
+
+> **Satu Alat untuk Semua Kebutuhan Spesifikasi Produk**  
+> Platform perancang *Product Requirement Document* (PRD) interaktif berbasis React untuk membantu Product Manager, System Analyst, dan Software Architect menyusun dokumen spesifikasi teknis dan bisnis secara terstruktur dan efisien.
+
+[![Version](https://img.shields.io/badge/version-3.5-blue.svg?style=flat-square)](https://github.com/)
+[![React](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.0-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](./LICENSE)
+
+---
+
+## Preview Aplikasi
+
+| Single Editor View | Live PRD Preview |
+| :---: | :---: |
+| *[ Sisipkan Screenshot Panel Editor di Sini ]* | *[ Sisipkan Screenshot Preview Dokumen di Sini ]* |
+
+---
+
+## Ringkasan Fitur
+
+PRD Architect dirancang untuk memangkas waktu pengerjaan dokumentasi produk tanpa mengorbankan kualitas spesifikasi teknis. Aplikasi ini menjembatani ideasi bisnis dengan kebutuhan implementasi teknis lewat dua alur kerja terpisah:
+
+* **Mode Simple MVP:** Berfokus pada komponen esensial (*Problem Statement*, *Core Features*, *High-level Flow*) untuk percepatan fase *prototyping* atau proyek skala kecil.
+* **Mode Enterprise:** Menyediakan modul dokumentasi mendalam termasuk *Persona Matrix*, *Design System Standard*, *Role & Permission Matrix*, *Schema Data*, *Acceptance Criteria*, hingga *Non-Functional Requirements (NFR)* dan *Risk Analysis*.
+
+---
+
+## Fitur Unggulan
+
+### Fleksibilitas & Kustomisasi
+* **Dynamic Section Toggling:** Aktifkan modul Enterprise secara parsial di Mode Simple tanpa perlu mengubah struktur dokumen secara keseluruhan.
+* **Live Side-by-Side Preview:** Render dokumen secara *real-time* saat pengisian data.
+
+### Editor & Manajemen Data
+* **Data Schema & Architecture Mapping:** Tentukan entitas data, relasi, tipe data, dan dependensi sistem secara eksplisit.
+* **State Persistence & History:** Dilengkapi fitur *Auto-save* ke `localStorage` serta *Undo/Redo stack* hingga 50 riwayat perubahan.
+* **Integrated Sample Data:** Lakukan eksplorasi fitur secara cepat menggunakan preset data bawaan (*Prime Property Case Study*).
+
+### Interoperabilitas Multi-Format
+* **Export & Import JSON:** Simpan berkas mentah untuk kebutuhan *backup* atau kolaborasi antar anggota tim.
+* **Markdown Generator:** Salin format Markdown siap pakai untuk diintegrasikan ke Notion, GitHub, atau Jira.
+* **A4 Print Engine:** Layout teroptimasi khusus untuk cetak langsung atau *Export to PDF* dengan tampilan korporat yang rapi.
+
+---
+
+## Stack Teknologi
+
+| Komponen | Teknologi | Keterangan |
+| :--- | :--- | :--- |
+| **Frontend Framework** | React 19 | Library utama antarmuka komponen |
+| **Build Tooling** | Vite 8 | Transpiler dan *dev server* berkecepatan tinggi |
+| **Styling Engine** | Tailwind CSS 4 | *Utility-first CSS framework* untuk desain responsif |
+| **State Management** | Zustand 5 | Manajemen state global yang ringan dan terprediksi |
+| **Icons & Media** | Font Awesome 7 | Set ikon grafis untuk navigasi UI |
+| **Utilities** | Lodash, File-Saver | Manipulasi data, manajemen *history*, dan penanganan ekspor berkas |
+
+---
+
+## Panduan Memulai (*Quick Start*)
+
+### Prasyarat Sistem
+* **Node.js**: v18.0.0 atau versi terbaru
+* **Package Manager**: `npm` v9+ atau `yarn` / `pnpm`
+
+### Langkah Instalasi
+
+1. **Clone repositori:**
+   ```bash
+   git clone https://github.com/username/prd-architect-pro.git
+   cd prd-architect-pro
+   ```
+
+2. **Pasang dependensi:**
+   ```bash
+   npm install
+   ```
+
+3. **Jalankan server pengembangan:**
+   ```bash
+   npm run dev
+   ```
+   Akses aplikasi pada peramban melalui alamat `http://localhost:5173`.
+
+4. **Kompilasi untuk Production:**
+   ```bash
+   npm run build
+   ```
+   Aset hasil kompilasi akan tersimpan pada direktori `/dist`.
+
+---
+
+## Struktur Direktori Proyek
+
+```bash
+prd-architect-pro/
+├── src/
+│   ├── components/
+│   │   ├── editor/          # Panel kontrol dan pengisian formulir
+│   │   │   └── sections/    # Komponen formulir spesifik per modul
+│   │   ├── header/          # Header utama, status indicator, & mode switcher
+│   │   ├── mobile/          # Modul responsif dan gesture navigation
+│   │   ├── preview/         # Visualizer dokumen live-preview
+│   │   │   └── sections/    # Komponen renderer dokumen spesifik
+│   │   └── shared/          # UI Kit reusable (Input, Modal, Button)
+│   ├── hooks/               # Custom hooks (Auto-save, History management)
+│   ├── services/            # Modul parser Markdown, PDF, dan File I/O
+│   ├── store/               # Zustand Central Store & State Mutator
+│   ├── styles/              # Design tokens dan Tailwind directives
+│   ├── utils/               # Form validator, formatter, dan mock constants
+│   ├── App.jsx              # Application Layout Shell
+│   └── main.jsx             # Entry point React DOM
+├── public/                  # Aset statis & manifes
+└── package.json             # Dependensi dan skrip proyek
+```
+
+---
+
+## Pintasan Board (Keyboard Shortcuts)
+
+| Kombinasi Tombol | Aksi |
+| :--- | :--- |
+| `Ctrl` + `Z` | Batalkan perubahan terakhir (*Undo*) |
+| `Ctrl` + `Y` | Ulangi perubahan (*Redo*) |
+| `Ctrl` + `Shift` + `Z` | Alternatif *Redo* |
+
+---
+
+## Kontribusi
+
+Aplikasi ini bersifat terbuka untuk pengembang dan praktisi manajemen produk. Jika Anda ingin berkontribusi:
+
+1. Lakukan **Fork** pada repositori ini.
+2. Buat *feature branch* baru (`git checkout -b feature/FiturBaru`).
+3. Simpan perubahan Anda (`git commit -m 'feat: menambahkan modul export baru'`).
+4. Unggah ke branch Anda (`git push origin feature/FiturBaru`).
+5. Buat **Pull Request** baru untuk ditinjau.
+
+---
+
+## Lisensi
+
+Proyek ini didistribusikan di bawah lisensi **MIT**. Silakan merujuk ke berkas [LICENSE](./LICENSE) untuk informasi selengkapnya.
+
+---
+
+<p align="center">
+  Didesain untuk efisiensi tim produk modern. Dipelihara oleh komunitas open-source.
+</p>
 ````
 
 ## File: src/components/preview/sections/NfrPreview.jsx
@@ -2727,79 +3358,6 @@ export default function PreviewPanel() {
 }
 ````
 
-## File: src/components/shared/AiRefineButton.jsx
-````javascript
-import { useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { refineText } from '../../services/aiService';
-import { usePrdStore } from '../../store/usePrdStore';
-import { useToast } from '../../hooks/useToast';
-
-export default function AiRefineButton(props) {
-  const value = props.value || '';
-  const onApply = props.onApply;
-  const mode = props.mode || 'paragraph';
-  const label = props.label || 'kolom ini';
-  const className = props.className || '';
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [lastRefined, setLastRefined] = useState(null);
-
-  const trimmed = value.trim();
-  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
-  const disabled = busy || !trimmed || unchangedSinceRefine;
-
-  async function handle() {
-    if (disabled) return;
-    setBusy(true);
-    try {
-      const result = await refineText(trimmed, mode, label);
-      if (result && result.trim()) {
-        if (result.trim() !== trimmed) {
-          onApply(result.trim());
-          commit();
-          showToast('Teks berhasil diperhalus oleh AI', 'success');
-        } else {
-          showToast('AI: Teks ini sudah cukup profesional', 'info');
-        }
-        setLastRefined(result.trim());
-      } else {
-        setLastRefined(trimmed);
-        showToast('AI tidak menghasilkan output', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal memperhalus: ' + e.message, 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const title = busy
-    ? 'Sedang memperhalus teks...'
-    : unchangedSinceRefine
-      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
-      : 'Perhalus teks dengan AI (Gemma)';
-
-  return (
-    <button
-      type="button"
-      onClick={handle}
-      disabled={disabled}
-      title={title}
-      aria-label={'Perhalus teks ' + label + ' dengan AI'}
-      className={
-        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed ' +
-        className
-      }
-    >
-      <FontAwesomeIcon icon={busy ? faSpinner : faWandMagicSparkles} className={'text-[11px] ' + (busy ? 'animate-spin' : '')} />
-    </button>
-  );
-}
-````
-
 ## File: src/components/shared/ToggleSwitch.jsx
 ````javascript
 export default function ToggleSwitch(props) {
@@ -2826,6 +3384,47 @@ export default function ToggleSwitch(props) {
     </label>
   );
 }
+````
+
+## File: vite.config.js
+````javascript
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@fortawesome/react-fontawesome': path.resolve(__dirname, 'src/icons/fontawesome-shim.jsx'),
+      '@fortawesome/free-solid-svg-icons': path.resolve(__dirname, 'src/icons/solid-shim.js'),
+      '@fortawesome/free-brands-svg-icons': path.resolve(__dirname, 'src/icons/brands-shim.js'),
+      '@fortawesome/free-regular-svg-icons': path.resolve(__dirname, 'src/icons/solid-shim.js'),
+    },
+  },
+  build: {
+    target: 'esnext',
+    cssMinify: true,
+    rollupOptions: {
+      output: {
+        manualChunks: function (id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) return 'vendor';
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('lodash') || id.includes('zustand')) return 'utils';
+            if (id.includes('file-saver') || id.includes('copy-to-clipboard')) return 'services';
+            return 'vendor';
+          }
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
+});
 ````
 
 ## File: src/components/editor/sections/AcSection.jsx
@@ -3275,122 +3874,6 @@ export default function RolesSection() {
 }
 ````
 
-## File: src/components/editor/sections/SchemaSection.jsx
-````javascript
-import { useState } from 'react';
-import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import ComboBox from '../../shared/ComboBox';
-import AiRefineButton from '../../shared/AiRefineButton';
-import { generateSchemaFromFlow } from '../../../services/aiService';
-import { useToast } from '../../../hooks/useToast';
-
-export default function SchemaSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const st = usePrdStore(function (s) { return s.schemaTables; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
-  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
-  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
-  const addF = usePrdStore(function (s) { return s.addSchemaField; });
-  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
-  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
-  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [genBusy, setGenBusy] = useState(false);
-  const flowText = (f.userFlow || '').trim();
-
-  async function handleGenerate() {
-    if (!flowText || genBusy) return;
-    setGenBusy(true);
-    try {
-      const tables = await generateSchemaFromFlow(flowText);
-      setTables(tables);
-      commit();
-      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
-    } catch (e) {
-      showToast('Gagal membuat schema: ' + e.message, 'error');
-    } finally {
-      setGenBusy(false);
-    }
-  }
-
-  if (mode !== 'enterprise' && !se.schema) return null;
-
-  return (
-    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList}
-      action={
-        <div className="flex items-center gap-2">
-          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
-            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
-            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
-          </IconButton>
-          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
-        </div>
-      }>
-      <p className="text-[11px] text-mut -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
-      <div className="space-y-4">
-        {st.map(function (t, ti) {
-          return (
-            <div key={ti} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
-              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
-                <span className="col-span-1 order-1 text-accent text-center" aria-hidden="true">
-                  <FontAwesomeIcon icon={faTableList} />
-                </span>
-                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
-                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-card border border-line rounded p-1.5 text-ink font-mono font-semibold" />
-                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-danger flex justify-center">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                </button>
-                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
-                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
-                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
-                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                {t.fields.map(function (s, fi) {
-                  return (
-                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-card border border-line rounded-lg">
-                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
-                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-field border border-line rounded p-1.5 text-ink font-mono" />
-                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-danger flex justify-center">
-                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                      </button>
-                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
-                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
-                      </div>
-                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
-                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-field border border-line rounded p-1.5 text-ink">
-                        <option value="Ya">Not Null</option>
-                        <option value="Opsional">Opsional</option>
-                      </select>
-                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
-                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
-                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
-                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-accent font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
 ## File: src/components/editor/sections/TechStack.jsx
 ````javascript
 import { useState, useRef, useEffect } from 'react';
@@ -3668,6 +4151,79 @@ export default function ScrollButtons() {
 }
 ````
 
+## File: src/components/shared/AiRefineButton.jsx
+````javascript
+import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { refineText } from '../../services/aiService';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useToast } from '../../hooks/useToast';
+
+export default function AiRefineButton(props) {
+  const value = props.value || '';
+  const onApply = props.onApply;
+  const mode = props.mode || 'paragraph';
+  const label = props.label || 'kolom ini';
+  const className = props.className || '';
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [lastRefined, setLastRefined] = useState(null);
+
+  const trimmed = value.trim();
+  const unchangedSinceRefine = lastRefined !== null && trimmed === lastRefined;
+  const disabled = busy || !trimmed || unchangedSinceRefine;
+
+  async function handle() {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const result = await refineText(trimmed, mode, label);
+      if (result && result.trim()) {
+        if (result.trim() !== trimmed) {
+          onApply(result.trim());
+          commit();
+          showToast('Teks berhasil diperhalus oleh AI', 'success');
+        } else {
+          showToast('AI: Teks ini sudah cukup profesional', 'info');
+        }
+        setLastRefined(result.trim());
+      } else {
+        setLastRefined(trimmed);
+        showToast('AI tidak menghasilkan output', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal memperhalus: ' + e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title = busy
+    ? 'Sedang memperhalus teks...'
+    : unchangedSinceRefine
+      ? 'Ubah teks terlebih dahulu untuk memperhalus lagi'
+      : 'Perhalus teks dengan AI (Gemma)';
+
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={disabled}
+      title={title}
+      aria-label={'Perhalus teks ' + label + ' dengan AI'}
+      className={
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed ' +
+        className
+      }
+    >
+      <FontAwesomeIcon icon={busy ? faSpinner : faWandMagicSparkles} className={'text-[11px] ' + (busy ? 'animate-spin' : '')} />
+    </button>
+  );
+}
+````
+
 ## File: src/components/shared/ComboBox.jsx
 ````javascript
 import { useState, useRef, useEffect } from 'react';
@@ -3795,80 +4351,6 @@ export default function IconButton(props) {
     </button>
   );
 }
-````
-
-## File: src/utils/constants.js
-````javascript
-import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask } from '@fortawesome/free-solid-svg-icons';
-import { faHtml5 } from '@fortawesome/free-brands-svg-icons';
-
-export const STORAGE_KEY = 'prdArchitectV4';
-export const MAX_HISTORY = 50;
-export const AUTOSAVE_DELAY = 800;
-
-export const EXTRAS_DEFINITIONS = [
-  { key: 'persona', label: 'Persona & KPI Sukses', icon: 'faUsers', color: 'indigo' },
-  { key: 'branding', label: 'Branding & Design System', icon: 'faPalette', color: 'pink' },
-  { key: 'roles', label: 'Role & Permission Matrix', icon: 'faUserShield', color: 'emerald' },
-  { key: 'ac', label: 'Acceptance Criteria', icon: 'faClipboardCheck', color: 'amber' },
-  { key: 'schema', label: 'Schema Data', icon: 'faTableList', color: 'cyan' },
-  { key: 'nfr', label: 'NFR & Keamanan', icon: 'faShieldHalved', color: 'rose' },
-];
-
-export const TECH_REQUIRED = [
-  { key: 'techFrontend', label: 'Frontend', icon: faHtml5, color: 'text-orange-400', ph: 'misal: React, Tailwind CSS' },
-  { key: 'techBackend', label: 'Backend', icon: faServer, color: 'text-emerald-400', ph: 'misal: Node.js, Laravel' },
-  { key: 'techDatabase', label: 'Database', icon: faDatabase, color: 'text-blue-400', ph: 'misal: PostgreSQL, Redis' },
-  { key: 'techInfra', label: 'Infrastructure & Cloud Hosting', icon: faCloud, color: 'text-purple-400', ph: 'misal: Vercel, AWS, Docker' },
-  { key: 'techDomain', label: 'Domain & DNS Management', icon: faGlobe, color: 'text-cyan-400', ph: 'misal: Niagahoster, Cloudflare DNS' },
-  { key: 'techVcs', label: 'Version Control System', icon: faCodeBranch, color: 'text-slate-400', ph: 'misal: GitHub, GitLab' },
-];
-
-export const TECH_OPTIONAL = [
-  { key: 'techSecurity', label: 'Security & Authentication', icon: faShieldHalved, color: 'text-rose-400', category: 'Esensial', ph: 'misal: OAuth 2.0, JWT, bcrypt' },
-  { key: 'techStorage', label: 'Object Storage & CDN', icon: faHardDrive, color: 'text-cyan-400', category: 'Esensial', ph: 'misal: AWS S3 + CloudFront, Cloudflare R2' },
-  { key: 'techThirdParty', label: 'Third-Party APIs / Integrations', icon: faPlug, color: 'text-amber-400', category: 'Esensial', ph: 'misal: Midtrans, Firebase Auth' },
-  { key: 'techDevOps', label: 'CI/CD & DevOps', icon: faInfinity, color: 'text-purple-400', category: 'Lanjutan', ph: 'misal: GitHub Actions, GitLab CI' },
-  { key: 'techCaching', label: 'Caching Layer', icon: faBolt, color: 'text-yellow-400', category: 'Lanjutan', ph: 'misal: Redis, Memcached' },
-  { key: 'techQueue', label: 'Message Brokers / Queueing', icon: faEnvelopeOpenText, color: 'text-emerald-400', category: 'Lanjutan', ph: 'misal: RabbitMQ, Kafka' },
-  { key: 'techMonitoring', label: 'Monitoring, Logging, & Error Tracking', icon: faChartLine, color: 'text-blue-400', category: 'Lanjutan', ph: 'misal: Sentry, Grafana' },
-  { key: 'techAnalytics', label: 'Analytics & Data Pipeline', icon: faChartColumn, color: 'text-indigo-400', category: 'Lanjutan', ph: 'misal: Google Analytics, Metabase' },
-  { key: 'techTesting', label: 'Testing / QA Automation', icon: faFlask, color: 'text-lime-400', category: 'Lanjutan', ph: 'misal: Vitest, Playwright' },
-];
-
-export const DATA_TYPES = [
-  { category: 'Numerik Tepat', items: ['TINYINT','SMALLINT','MEDIUMINT','INT / INTEGER','BIGINT','DECIMAL / NUMERIC'] },
-  { category: 'Numerik Perkiraan', items: ['FLOAT','DOUBLE','REAL'] },
-  { category: 'String Karakter', items: ['CHAR','VARCHAR','TEXT','MEDIUMTEXT','LONGTEXT'] },
-  { category: 'Temporal', items: ['DATE','TIME','DATETIME','TIMESTAMP','YEAR'] },
-  { category: 'Logika', items: ['BOOLEAN','BIT','ENUM','SET'] },
-  { category: 'Biner', items: ['BINARY','VARBINARY','BLOB'] },
-  { category: 'Semi-Terstruktur', items: ['JSON','XML'] },
-  { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
-];
-
-export const DEFAULT_FIELDS = {
-  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
-  problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
-  brandTypography:'',brandLayout:'',
-  bpMobileOp:'\u2264',bpMobile:'',bpMobileUnit:'px',
-  bpTabletOp:'\u2264',bpTablet:'',bpTabletUnit:'px',
-  bpDesktopOp:'\u2265',bpDesktop:'',bpDesktopUnit:'px',
-  userFlow:'',
-  techFrontend:'',techBackend:'',techDatabase:'',techInfra:'',techDomain:'',techVcs:'',
-  techSecurity:'',techStorage:'',techThirdParty:'',techDevOps:'',techCaching:'',
-  techQueue:'',techMonitoring:'',techAnalytics:'',techTesting:'',
-  dbSchema:'',
-  nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
-  outOfScope:'',defOfDone:'',
-  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
-  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
-  // SATU-SATUNYA sumber teks subtitle di sampul.
-  // Diisi manual oleh user atau lewat tombol "Pakai saran AI".
-  coverSubtitle:'',
-};
-
-export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
 ````
 
 ## File: src/utils/helpers.js
@@ -4169,335 +4651,6 @@ export const titleCaseForCover = function (text) {
 };
 ````
 
-## File: src/App.jsx
-````javascript
-import { useEffect, useRef, lazy, Suspense } from 'react';
-import { debounce } from 'lodash';
-import { usePrdStore } from './store/usePrdStore';
-import { storageService } from './services/storageService';
-import Header from './components/header/Header';
-import EditorPanel from './components/editor/EditorPanel';
-import MobileTabBar from './components/mobile/MobileTabBar';
-import ScrollButtons from './components/mobile/ScrollButtons';
-import ToastContainer from './components/shared/Toast';
-
-const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
-
-export default function App() {
-  const restoreState = usePrdStore(function (s) { return s.restoreState; });
-  const setMode = usePrdStore(function (s) { return s.setMode; });
-  const initDoneRef = useRef(false);
-
-  useEffect(function () {
-    if (initDoneRef.current) return;
-    initDoneRef.current = true;
-    const saved = storageService.load();
-    if (saved && saved.state) {
-      if (saved.mode) setMode(saved.mode);
-      restoreState(saved.state);
-    }
-    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
-  }, []);
-
-  useEffect(function () {
-    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
-    function onInput(e) {
-      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
-    }
-    function onClick(e) {
-      const b = e.target.closest ? e.target.closest('button') : null;
-      if (!b) return;
-      const t = b.title || '';
-      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
-      commit();
-    }
-    document.addEventListener('input', onInput);
-    document.addEventListener('change', onInput);
-    document.addEventListener('click', onClick);
-    return function () {
-      document.removeEventListener('input', onInput);
-      document.removeEventListener('change', onInput);
-      document.removeEventListener('click', onClick);
-      commit.cancel();
-    };
-  }, []);
-
-  useEffect(function () {
-    function handler(e) {
-      const tag = (e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        usePrdStore.getState().undo();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
-        e.preventDefault();
-        usePrdStore.getState().redo();
-      }
-    }
-    document.addEventListener('keydown', handler);
-    return function () { document.removeEventListener('keydown', handler); };
-  }, []);
-
-  return (
-    <div className="app-shell flex flex-col bg-base text-ink overflow-hidden">
-      <a href="#editorPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Editor</a>
-      <a href="#previewPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Preview</a>
-      <Header />
-      <main className="flex-grow min-h-0 overflow-hidden relative">
-        <div id="panelSlider">
-          <div><EditorPanel /></div>
-          <div>
-            <Suspense fallback={
-              <div id="previewPanel" className="bg-base p-6 flex items-center justify-center h-full">
-                <div className="text-mut text-sm">Memuat preview...</div>
-              </div>
-            }>
-              <PreviewPanel />
-            </Suspense>
-          </div>
-        </div>
-        <ScrollButtons />
-      </main>
-      <MobileTabBar />
-      <ToastContainer />
-    </div>
-  );
-}
-````
-
-## File: index.html
-````html
-<!doctype html>
-<html lang="id">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PRD Architect Pro - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
-    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
-    <meta name="author" content="PRD Architect Pro" />
-    <meta name="theme-color" content="#101013" />
-    <meta name="robots" content="index, follow" />
-    <script>
-      try {
-        if ((localStorage.getItem('prdTheme') || 'dark') === 'dark') {
-          document.documentElement.classList.add('dark');
-        }
-      } catch (e) {}
-    </script>
-    <meta property="og:title" content="PRD Architect Pro" />
-    <meta property="og:description" content="Perancang Dokumen PRD Profesional - Simple MVP & Enterprise Mode" />
-    <meta property="og:type" content="website" />
-    <meta property="og:locale" content="id_ID" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="PRD Architect Pro" />
-    <meta name="twitter:description" content="Perancang Dokumen PRD Profesional" />
-    <title>PRD Architect Pro - Perancang Dokumen PRD Profesional</title>
-    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-````
-
-## File: package.json
-````json
-{
-  "name": "prd-architect-pro",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite --host",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report"
-  },
-  "dependencies": {
-    "@fortawesome/free-brands-svg-icons": "^7.3.1",
-    "@fortawesome/free-regular-svg-icons": "^7.3.1",
-    "@fortawesome/free-solid-svg-icons": "^7.3.1",
-    "@fortawesome/react-fontawesome": "^3.5.0",
-    "copy-to-clipboard": "^4.0.2",
-    "file-saver": "^2.0.5",
-    "lodash": "^4.18.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-markdown": "^10.1.0",
-    "zustand": "^5.0.15"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.57.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.10.1",
-    "@vitejs/plugin-react": "^6.1.1",
-    "autoprefixer": "^10.5.4",
-    "tailwindcss": "^4.3.3",
-    "vite": "^8.2.2"
-  }
-}
-````
-
-## File: src/components/editor/sections/CoverFooterSection.jsx
-````javascript
-import { useState } from 'react';
-import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
-import { generateCoverTagline } from '../../../services/aiService';
-import { useToast } from '../../../hooks/useToast';
-import EditorSection from '../EditorSection';
-import ToggleSwitch from '../../shared/ToggleSwitch';
-
-function ColorField(props) {
-  const digits = (props.value || '').replace(/^#/, '');
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
-  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
-
-  return (
-    <div>
-      <span className="block text-ink font-medium mb-1">{props.label}</span>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={safe}
-          onChange={function (e) { props.onChange(e.target.value); }}
-          aria-label={'Pilih ' + props.label}
-          className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
-        />
-        <div className="relative w-full min-w-0">
-          <span
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none select-none"
-            aria-hidden="true"
-          >#</span>
-          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
-          <input
-            id={inputId}
-            type="text"
-            value={digits}
-            onChange={function (e) {
-              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
-              props.onChange(c ? '#' + c : '');
-            }}
-            placeholder="C9A961"
-            maxLength="6"
-            className="w-full bg-field border border-line rounded-lg p-2 pl-6 text-ink font-mono focus:border-accent focus:outline-none"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function CoverFooterSection() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [aiBusy, setAiBusy] = useState(false);
-  const auto = f.coverThemeAuto !== false;
-
-  const handleToggleAuto = function (v) {
-    if (!v) {
-      const t = resolveCoverTheme(f, palette);
-      set('coverPrimary', t.primary);
-      set('coverAccent', t.accent);
-      set('coverBg', t.bg);
-    }
-    set('coverThemeAuto', v);
-  };
-
-  const goalText = (f.productGoal || '').trim();
-
-  async function handleUseAi() {
-    if (aiBusy || !goalText) return;
-    setAiBusy(true);
-    try {
-      const t = await generateCoverTagline(goalText);
-      if (t) {
-        set('coverSubtitle', t);
-        commit();
-        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
-      } else {
-        showToast('AI tidak menghasilkan saran', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal membuat saran: ' + e.message, 'error');
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  return (
-    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
-      <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
-        {auto ? (
-          <p className="text-[11px] text-mut">
-            {palette.length
-              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis.'
-              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
-          </div>
-        )}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <label htmlFor="coverSubtitle" className="text-ink font-medium">Subtitle Sampul (di bawah judul)</label>
-            <button
-              type="button"
-              onClick={handleUseAi}
-              disabled={aiBusy || !goalText}
-              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
-              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-            >
-              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
-              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
-            </button>
-          </div>
-          <input
-            id="coverSubtitle"
-            type="text"
-            value={f.coverSubtitle}
-            onChange={function (e) { set('coverSubtitle', e.target.value); }}
-            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
-            className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none"
-          />
-          <p className="text-[10px] text-mut mt-1">
-            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen.
-          </p>
-        </div>
-        <div>
-          <label htmlFor="coverKicker" className="block text-ink font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
-          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="coverFooterNote" className="block text-ink font-medium mb-1">Catatan Footer</label>
-          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none resize-none" />
-        </div>
-        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
-      </div>
-    </EditorSection>
-  );
-}
-````
-
 ## File: src/components/editor/sections/ProjectInfo.jsx
 ````javascript
 import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
@@ -4563,23 +4716,120 @@ export default function ProjectInfo() {
 }
 ````
 
-## File: src/services/exportService.js
+## File: src/components/editor/sections/SchemaSection.jsx
 ````javascript
-import { saveAs } from 'file-saver';
-import copyToClipboard from 'copy-to-clipboard';
-import { generateMarkdown } from '../utils/markdown';
+import { useState } from 'react';
+import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import ComboBox from '../../shared/ComboBox';
+import AiRefineButton from '../../shared/AiRefineButton';
+import { generateSchemaFromFlow } from '../../../services/aiService';
+import { useToast } from '../../../hooks/useToast';
 
-export const exportService = {
-  exportJSON: function (state) {
-    const data = { app: 'PRD Architect Pro', version: '3.5', mode: state.mode, state: state };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
-  },
-  copyMarkdown: function (state) {
-    copyToClipboard(generateMarkdown(state));
-  },
-  printDocument: function () { window.print(); },
-};
+export default function SchemaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
+  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
+  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
+  const addF = usePrdStore(function (s) { return s.addSchemaField; });
+  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
+  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
+  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [genBusy, setGenBusy] = useState(false);
+  const flowText = (f.userFlow || '').trim();
+
+  async function handleGenerate() {
+    if (!flowText || genBusy) return;
+    setGenBusy(true);
+    try {
+      const tables = await generateSchemaFromFlow(flowText);
+      setTables(tables);
+      commit();
+      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
+    } catch (e) {
+      showToast('Gagal membuat schema: ' + e.message, 'error');
+    } finally {
+      setGenBusy(false);
+    }
+  }
+
+  if (mode !== 'enterprise' && !se.schema) return null;
+
+  return (
+    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList}
+      action={
+        <div className="flex items-center gap-2">
+          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
+            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
+            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
+          </IconButton>
+          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
+        </div>
+      }>
+      <p className="text-[11px] text-mut -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
+      <div className="space-y-4">
+        {st.map(function (t, ti) {
+          return (
+            <div key={ti} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
+              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
+                <span className="col-span-1 order-1 text-accent text-center" aria-hidden="true">
+                  <FontAwesomeIcon icon={faTableList} />
+                </span>
+                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
+                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-card border border-line rounded p-1.5 text-ink font-mono font-semibold" />
+                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-danger flex justify-center">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                </button>
+                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
+                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
+                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {t.fields.map(function (s, fi) {
+                  return (
+                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-card border border-line rounded-lg">
+                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
+                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-field border border-line rounded p-1.5 text-ink font-mono" />
+                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-danger flex justify-center">
+                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                      </button>
+                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
+                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
+                      </div>
+                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
+                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-field border border-line rounded p-1.5 text-ink">
+                        <option value="Ya">Not Null</option>
+                        <option value="Opsional">Opsional</option>
+                      </select>
+                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
+                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
+                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
+                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-accent font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
 ````
 
 ## File: src/styles/globals.css
@@ -4772,6 +5022,377 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 }
 .cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
 .cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
+````
+
+## File: src/utils/constants.js
+````javascript
+import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask } from '@fortawesome/free-solid-svg-icons';
+import { faHtml5 } from '@fortawesome/free-brands-svg-icons';
+export const STORAGE_KEY = 'prdArchitectV4';
+export const MAX_HISTORY = 50;
+export const AUTOSAVE_DELAY = 800;
+export const EXTRAS_DEFINITIONS = [
+  { key: 'persona', label: 'Persona & KPI Sukses', icon: 'faUsers', color: 'indigo' },
+  { key: 'branding', label: 'Branding & Design System', icon: 'faPalette', color: 'pink' },
+  { key: 'roles', label: 'Role & Permission Matrix', icon: 'faUserShield', color: 'emerald' },
+  { key: 'ac', label: 'Acceptance Criteria', icon: 'faClipboardCheck', color: 'amber' },
+  { key: 'schema', label: 'Schema Data', icon: 'faTableList', color: 'cyan' },
+  { key: 'nfr', label: 'NFR & Keamanan', icon: 'faShieldHalved', color: 'rose' },
+];
+const ICON_TONE = 'text-mut';
+export const TECH_REQUIRED = [
+  { key: 'techFrontend', label: 'Frontend', icon: faHtml5, color: ICON_TONE, ph: 'misal: React, Tailwind CSS' },
+  { key: 'techBackend', label: 'Backend', icon: faServer, color: ICON_TONE, ph: 'misal: Node.js, Laravel' },
+  { key: 'techDatabase', label: 'Database', icon: faDatabase, color: ICON_TONE, ph: 'misal: PostgreSQL, Redis' },
+  { key: 'techInfra', label: 'Infrastructure & Cloud Hosting', icon: faCloud, color: ICON_TONE, ph: 'misal: Vercel, AWS, Docker' },
+  { key: 'techDomain', label: 'Domain & DNS Management', icon: faGlobe, color: ICON_TONE, ph: 'misal: Niagahoster, Cloudflare DNS' },
+  { key: 'techVcs', label: 'Version Control System', icon: faCodeBranch, color: ICON_TONE, ph: 'misal: GitHub, GitLab' },
+];
+export const TECH_OPTIONAL = [
+  { key: 'techSecurity', label: 'Security & Authentication', icon: faShieldHalved, color: ICON_TONE, category: 'Esensial', ph: 'misal: OAuth 2.0, JWT, bcrypt' },
+  { key: 'techStorage', label: 'Object Storage & CDN', icon: faHardDrive, color: ICON_TONE, category: 'Esensial', ph: 'misal: AWS S3 + CloudFront, Cloudflare R2' },
+  { key: 'techThirdParty', label: 'Third-Party APIs / Integrations', icon: faPlug, color: ICON_TONE, category: 'Esensial', ph: 'misal: Midtrans, Firebase Auth' },
+  { key: 'techDevOps', label: 'CI/CD & DevOps', icon: faInfinity, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: GitHub Actions, GitLab CI' },
+  { key: 'techCaching', label: 'Caching Layer', icon: faBolt, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Redis, Memcached' },
+  { key: 'techQueue', label: 'Message Brokers / Queueing', icon: faEnvelopeOpenText, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: RabbitMQ, Kafka' },
+  { key: 'techMonitoring', label: 'Monitoring, Logging, & Error Tracking', icon: faChartLine, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Sentry, Grafana' },
+  { key: 'techAnalytics', label: 'Analytics & Data Pipeline', icon: faChartColumn, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Google Analytics, Metabase' },
+  { key: 'techTesting', label: 'Testing / QA Automation', icon: faFlask, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Vitest, Playwright' },
+];
+export const DATA_TYPES = [
+  { category: 'Numerik Tepat', items: ['TINYINT','SMALLINT','MEDIUMINT','INT / INTEGER','BIGINT','DECIMAL / NUMERIC'] },
+  { category: 'Numerik Perkiraan', items: ['FLOAT','DOUBLE','REAL'] },
+  { category: 'String Karakter', items: ['CHAR','VARCHAR','TEXT','MEDIUMTEXT','LONGTEXT'] },
+  { category: 'Temporal', items: ['DATE','TIME','DATETIME','TIMESTAMP','YEAR'] },
+  { category: 'Logika', items: ['BOOLEAN','BIT','ENUM','SET'] },
+  { category: 'Biner', items: ['BINARY','VARBINARY','BLOB'] },
+  { category: 'Semi-Terstruktur', items: ['JSON','XML'] },
+  { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
+];
+export const DEFAULT_FIELDS = {
+  projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
+  problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
+  brandTypography:'',brandLayout:'',
+  bpMobileOp:'≤',bpMobile:'',bpMobileUnit:'px',
+  bpTabletOp:'≤',bpTablet:'',bpTabletUnit:'px',
+  bpDesktopOp:'≥',bpDesktop:'',bpDesktopUnit:'px',
+  userFlow:'',
+  techFrontend:'',techBackend:'',techDatabase:'',techInfra:'',techDomain:'',techVcs:'',
+  techSecurity:'',techStorage:'',techThirdParty:'',techDevOps:'',techCaching:'',
+  techQueue:'',techMonitoring:'',techAnalytics:'',techTesting:'',
+  dbSchema:'',
+  nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
+  outOfScope:'',defOfDone:'',
+  coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
+  coverKicker:'',coverFooterNote:'',coverShowFooter:true,
+  coverSubtitle:'',
+};
+export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
+````
+
+## File: src/App.jsx
+````javascript
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { debounce } from 'lodash';
+import { usePrdStore } from './store/usePrdStore';
+import { storageService } from './services/storageService';
+import Header from './components/header/Header';
+import EditorPanel from './components/editor/EditorPanel';
+import MobileTabBar from './components/mobile/MobileTabBar';
+import ScrollButtons from './components/mobile/ScrollButtons';
+import ToastContainer from './components/shared/Toast';
+import DocsPage from './components/docs/DocsPage';
+
+const PreviewPanel = lazy(() => import('./components/preview/PreviewPanel'));
+
+export default function App() {
+  const [page, setPage] = useState('app');
+  const restoreState = usePrdStore(function (s) { return s.restoreState; });
+  const setMode = usePrdStore(function (s) { return s.setMode; });
+  const initDoneRef = useRef(false);
+
+  useEffect(function () {
+    if (initDoneRef.current) return;
+    initDoneRef.current = true;
+    const saved = storageService.load();
+    if (saved && saved.state) {
+      if (saved.mode) setMode(saved.mode);
+      restoreState(saved.state);
+    }
+    setTimeout(function () { usePrdStore.getState().commitHistory(); }, 0);
+  }, []);
+
+  useEffect(function () {
+    const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
+    function onInput(e) {
+      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
+    }
+    function onClick(e) {
+      const b = e.target.closest ? e.target.closest('button') : null;
+      if (!b) return;
+      const t = b.title || '';
+      if (t.indexOf('Undo') === 0 || t.indexOf('Redo') === 0) return;
+      commit();
+    }
+    document.addEventListener('input', onInput);
+    document.addEventListener('change', onInput);
+    document.addEventListener('click', onClick);
+    return function () {
+      document.removeEventListener('input', onInput);
+      document.removeEventListener('change', onInput);
+      document.removeEventListener('click', onClick);
+      commit.cancel();
+    };
+  }, []);
+
+  useEffect(function () {
+    function handler(e) {
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        usePrdStore.getState().undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault();
+        usePrdStore.getState().redo();
+      }
+    }
+    document.addEventListener('keydown', handler);
+    return function () { document.removeEventListener('keydown', handler); };
+  }, []);
+
+  if (page === 'docs') {
+    return <DocsPage onBack={function () { setPage('app'); }} />;
+  }
+
+  return (
+    <div className="app-shell flex flex-col bg-base text-ink overflow-hidden">
+      <a href="#editorPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Editor</a>
+      <a href="#previewPanel" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:bg-accent focus:text-white focus:px-3 focus:py-2 focus:rounded focus:text-sm">Lompat ke Preview</a>
+      <Header onOpenDocs={function () { setPage('docs'); }} />
+      <main className="flex-grow min-h-0 overflow-hidden relative">
+        <div id="panelSlider">
+          <div><EditorPanel /></div>
+          <div>
+            <Suspense fallback={
+              <div id="previewPanel" className="bg-base p-6 flex items-center justify-center h-full">
+                <div className="text-mut text-sm">Memuat preview...</div>
+              </div>
+            }>
+              <PreviewPanel />
+            </Suspense>
+          </div>
+        </div>
+        <ScrollButtons />
+      </main>
+      <MobileTabBar />
+      <ToastContainer />
+    </div>
+  );
+}
+````
+
+## File: index.html
+````html
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PRD Architect - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
+    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
+    <meta name="author" content="PRD Architect" />
+    <meta name="theme-color" content="#101013" />
+    <meta name="robots" content="index, follow" />
+    <script>
+      try {
+        if ((localStorage.getItem('prdTheme') || 'dark') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
+    <meta property="og:title" content="PRD Architect" />
+    <meta property="og:description" content="Perancang Dokumen PRD Profesional - Simple MVP & Enterprise Mode" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="id_ID" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="PRD Architect" />
+    <meta name="twitter:description" content="Perancang Dokumen PRD Profesional" />
+    <title>PRD Architect - Perancang Dokumen PRD Profesional</title>
+    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "PRD Architect",
+      "description": "Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise.",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "inLanguage": "id-ID",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "IDR" }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+````
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { useState } from 'react';
+import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import { generateCoverTagline } from '../../../services/aiService';
+import { useToast } from '../../../hooks/useToast';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+function ColorField(props) {
+  const digits = (props.value || '').replace(/^#/, '');
+  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
+  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+
+  return (
+    <div>
+      <span className="block text-ink font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={safe}
+          onChange={function (e) { props.onChange(e.target.value); }}
+          aria-label={'Pilih ' + props.label}
+          className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
+        />
+        <div className="relative w-full min-w-0">
+          <span
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none select-none"
+            aria-hidden="true"
+          >#</span>
+          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={digits}
+            onChange={function (e) {
+              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+              props.onChange(c ? '#' + c : '');
+            }}
+            placeholder="C9A961"
+            maxLength="6"
+            className="w-full bg-field border border-line rounded-lg p-2 pl-6 text-ink font-mono focus:border-accent focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [aiBusy, setAiBusy] = useState(false);
+  const auto = f.coverThemeAuto !== false;
+
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  const goalText = (f.productGoal || '').trim();
+
+  async function handleUseAi() {
+    if (aiBusy || !goalText) return;
+    setAiBusy(true);
+    try {
+      const t = await generateCoverTagline(goalText);
+      if (t) {
+        set('coverSubtitle', t);
+        commit();
+        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
+      } else {
+        showToast('AI tidak menghasilkan saran', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal membuat saran: ' + e.message, 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-mut">
+            {palette.length
+              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis.'
+              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="coverSubtitle" className="text-ink font-medium">Subtitle Sampul (di bawah judul)</label>
+            <button
+              type="button"
+              onClick={handleUseAi}
+              disabled={aiBusy || !goalText}
+              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
+              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
+            </button>
+          </div>
+          <input
+            id="coverSubtitle"
+            type="text"
+            value={f.coverSubtitle}
+            onChange={function (e) { set('coverSubtitle', e.target.value); }}
+            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
+            className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none"
+          />
+          <p className="text-[10px] text-mut mt-1">
+            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="coverKicker" className="block text-ink font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-ink font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
+  );
+}
 ````
 
 ## File: src/components/editor/AiAnalysisCard.jsx
@@ -5133,6 +5754,24 @@ export default function AiAnalysisCard() {
 }
 ````
 
+## File: src/services/exportService.js
+````javascript
+import { saveAs } from 'file-saver';
+import copyToClipboard from 'copy-to-clipboard';
+import { generateMarkdown } from '../utils/markdown';
+export const exportService = {
+  exportJSON: function (state) {
+    const data = { app: 'PRD Architect', version: '3.5', mode: state.mode, state: state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
+  },
+  copyMarkdown: function (state) {
+    copyToClipboard(generateMarkdown(state));
+  },
+  printDocument: function () { window.print(); },
+};
+````
+
 ## File: .gitignore
 ````
 node_modules
@@ -5154,10 +5793,53 @@ repomix-output.md
 /playwright/.auth/
 ````
 
+## File: package.json
+````json
+{
+  "name": "prd-architect",
+  "private": true,
+  "version": "3.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node generate-icon-shims.js && vite --host",
+    "build": "node generate-icon-shims.js && vite build",
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
+  },
+  "dependencies": {
+    "@fortawesome/free-brands-svg-icons": "^7.3.1",
+    "@fortawesome/free-regular-svg-icons": "^7.3.1",
+    "@fortawesome/free-solid-svg-icons": "^7.3.1",
+    "@fortawesome/react-fontawesome": "^3.5.0",
+    "copy-to-clipboard": "^4.0.2",
+    "file-saver": "^2.0.5",
+    "lodash": "^4.18.1",
+    "lucide-react": "^0.460.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.5.4",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  }
+}
+````
+
 ## File: src/components/header/Header.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileContract, faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash, faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import { faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash, faMoon, faSun, faBookOpen } from '@fortawesome/free-solid-svg-icons';
 import { usePrdStore } from '../../store/usePrdStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import ModeSwitcher from './ModeSwitcher';
@@ -5165,7 +5847,8 @@ import IconButton from '../shared/IconButton';
 import { useToast } from '../../hooks/useToast';
 import { storageService } from '../../services/storageService';
 
-export default function Header() {
+export default function Header(props) {
+  const onOpenDocs = props.onOpenDocs;
   const saveIndicator = usePrdStore(function (s) { return s.saveIndicator; });
   const undo = usePrdStore(function (s) { return s.undo; });
   const redo = usePrdStore(function (s) { return s.redo; });
@@ -5181,16 +5864,11 @@ export default function Header() {
   return (
     <header className="bg-panel border-b border-line py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
       <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
-        <div className="bg-accent text-white p-2 rounded-lg shrink-0">
-          <FontAwesomeIcon icon={faFileContract} className="text-lg md:text-xl" />
+        <div className="bg-accent p-1.5 rounded-lg shrink-0">
+          <img src="/logo-riskychici.svg" alt="Logo PRD Architect" className="w-6 h-6 md:w-7 md:h-7" />
         </div>
         <div className="min-w-0">
-          <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">
-            PRD Architect{' '}
-            <span className="align-middle whitespace-nowrap text-[10px] md:text-xs bg-accent/15 text-accent border border-accent/30 px-1.5 md:px-2 py-0.5 rounded-full ml-1">
-              Pro V3.4
-            </span>
-          </h1>
+          <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">PRD Architect</h1>
           <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
         </div>
       </div>
@@ -5211,6 +5889,9 @@ export default function Header() {
             className="w-10 h-10 md:w-auto md:h-auto"
           />
         </div>
+        <IconButton icon={faBookOpen} onClick={onOpenDocs} title="Dokumentasi & Panduan" className="order-3 flex-1 md:flex-none h-10 md:h-auto">
+          <span className="hidden md:inline">Dokumentasi</span>
+        </IconButton>
         <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">
           Muat Contoh
         </IconButton>

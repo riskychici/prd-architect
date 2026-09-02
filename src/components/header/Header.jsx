@@ -32,9 +32,13 @@ export default function Header(props) {
           <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
         </div>
       </div>
+
       <ModeSwitcher />
+
       <div className="contents md:flex md:items-center md:space-x-3 md:order-3">
         <span className="text-[10px] text-mut hidden lg:inline">{saveIndicator}</span>
+
+        {/* Grup Undo/Redo (tanpa tombol tema) */}
         <div className="flex items-center space-x-1 bg-base border border-line rounded-lg p-0.5 order-2">
           <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto">
             <span className="hidden md:inline">Undo</span>
@@ -42,13 +46,16 @@ export default function Header(props) {
           <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto">
             <span className="hidden md:inline">Redo</span>
           </IconButton>
-          <IconButton
-            icon={theme === 'dark' ? faSun : faMoon}
-            onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
-            title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
-            className="w-10 h-10 md:w-auto md:h-auto"
-          />
         </div>
+
+        {/* Tombol switch tema (terpisah) */}
+        <IconButton
+          icon={theme === 'dark' ? faSun : faMoon}
+          onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+          title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
+          className="w-10 h-10 md:w-auto md:h-auto order-2"
+        />
+
         <IconButton icon={faBookOpen} onClick={onOpenDocs} title="Dokumentasi & Panduan" className="order-3 flex-1 md:flex-none h-10 md:h-auto">
           <span className="hidden md:inline">Dokumentasi</span>
         </IconButton>

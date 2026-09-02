@@ -3,16 +3,16 @@
   "private": true,
   "version": "3.5.0",
   "type": "module",
-  "scripts": {
-    "dev": "node generate-icon-shims.js && vite --host",
-    "build": "node generate-icon-shims.js && vite build",
-    "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report"
-  },
+"scripts": {
+  "dev": "vite --host",
+  "build": "vite build",
+  "preview": "vite preview",
+  "test:e2e": "playwright test",
+  "test:e2e:ui": "playwright test --ui",
+  "test:e2e:headed": "playwright test --headed",
+  "test:e2e:debug": "playwright test --debug",
+  "test:e2e:report": "playwright show-report"
+},
   "dependencies": {
     "@fortawesome/free-brands-svg-icons": "^7.3.1",
     "@fortawesome/free-regular-svg-icons": "^7.3.1",
