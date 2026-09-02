@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { useAutoResize } from '../../hooks/useAutoResize';
+
 import ModeBanner from './ModeBanner';
 import ExtrasPicker from './ExtrasPicker';
 import AiAnalysisCard from './AiAnalysisCard';
+
 import ProjectInfo from './sections/ProjectInfo';
 import ProblemGoal from './sections/ProblemGoal';
 import PersonaSection from './sections/PersonaSection';
@@ -29,27 +31,50 @@ export default function EditorPanel() {
     function onInput(e) {
       if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
     }
+
     document.addEventListener('input', onInput);
-    return function () { document.removeEventListener('input', onInput); };
+
+    return function () {
+      document.removeEventListener('input', onInput);
+    };
   }, [ra.resize]);
 
   return (
-    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base" style={{ height: '100%' }}>
+    <section
+      id="editorPanel"
+      className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base"
+      style={{ height: '100%' }}
+    >
       <AutoSaveBridge />
+
       <ModeBanner />
+
       <ExtrasPicker />
+
       <AiAnalysisCard />
+
       <CoverFooterSection />
+
       <ProjectInfo />
+
       <ProblemGoal />
+
       <PersonaSection />
+
       <BrandingSection />
+
       <RolesSection />
+
       <FeaturesList />
+
       <AcSection />
+
       <TechStack />
+
       <SchemaSection />
+
       <NfrSection />
+
       <OutOfScope />
     </section>
   );

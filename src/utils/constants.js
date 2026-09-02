@@ -49,6 +49,34 @@ export const DATA_TYPES = [
   { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
 ];
 
+export const SECTION_NOTE_KEYS = [
+  'problemGoal',
+  'persona',
+  'branding',
+  'roles',
+  'features',
+  'ac',
+  'techStack',
+  'schema',
+  'nfr',
+  'outOfScope',
+];
+
+export const DEFAULT_SECTION_NOTES = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = '';
+  return acc;
+}, {});
+
+export const DEFAULT_SECTION_NOTES_ENABLED = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = false;
+  return acc;
+}, {});
+
+export const DEFAULT_SECTION_NOTES_IMPORTANT = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = false;
+  return acc;
+}, {});
+
 export const DEFAULT_FIELDS = {
   projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
   problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
@@ -66,6 +94,13 @@ export const DEFAULT_FIELDS = {
   coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
   coverKicker:'',coverFooterNote:'',coverShowFooter:true,
   coverSubtitle:'',
+  sectionNotes: { ...DEFAULT_SECTION_NOTES },
+  sectionNotesEnabled: { ...DEFAULT_SECTION_NOTES_ENABLED },
+  sectionNotesImportant: { ...DEFAULT_SECTION_NOTES_IMPORTANT },
 };
 
-export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
+export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) {
+  const o = Object.assign({}, a);
+  o[d.key] = false;
+  return o;
+}, {});

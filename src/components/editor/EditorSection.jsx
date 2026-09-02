@@ -1,10 +1,13 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import SectionNote from './SectionNote';
+import { getNoteKeyByTitle } from '../../utils/sectionNotes';
 
 export default function EditorSection(props) {
   const title = props.title;
   const icon = props.icon;
   const action = props.action;
   const children = props.children;
+  const noteKey = props.noteKey || getNoteKeyByTitle(title);
 
   return (
     <div className="bg-card p-5 rounded-xl border border-line space-y-4">
@@ -15,7 +18,10 @@ export default function EditorSection(props) {
         </h2>
         {action}
       </div>
+
       {children}
+
+      {noteKey ? <SectionNote noteKey={noteKey} /> : null}
     </div>
   );
 }

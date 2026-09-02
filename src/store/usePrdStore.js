@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY } from '../utils/constants';
+import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY, DEFAULT_SECTION_NOTES, DEFAULT_SECTION_NOTES_ENABLED } from '../utils/constants';
 import { buildAiPrompt } from '../utils/aiPrompts';
 
 const init = function () {
@@ -470,7 +470,7 @@ export const usePrdStore = create(function (set, get) {
             techSecurity: 'OAuth 2.0 + JWT + bcrypt + 2FA',
             techStorage: 'AWS S3 + CloudFront CDN',
             techThirdParty: 'Firebase Cloud Messaging + FFmpeg + Google Maps',
-            techAi: 'Gemini API + LangChain untuk moderasi konten & rekomendasi feed',
+            techAi: 'Gemini API + LangChain + OpenRouter',
             techDevOps: 'GitHub Actions CI/CD + Sentry',
             techCaching: 'Redis + Memcached',
             techQueue: 'Kafka',
@@ -493,7 +493,9 @@ export const usePrdStore = create(function (set, get) {
             nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
             figmaLink: 'https://figma.com/file/instagram-clone',
             riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
-          }, keepCover),
+          sectionNotes: { ...DEFAULT_SECTION_NOTES },
+           sectionNotesEnabled: { ...DEFAULT_SECTION_NOTES_ENABLED },
+         }, keepCover),
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techAi', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
