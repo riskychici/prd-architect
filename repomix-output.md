@@ -1224,11 +1224,37 @@ usePrdStore.subscribe(function () {
 import { create } from 'zustand';
 
 const KEY = 'prdTheme';
+const TRANSITION_MS = 500;
+let transitionTimer = null;
 
-export const applyTheme = function (t) {
+export const applyTheme = function (t, animate) {
   const root = document.documentElement;
-  if (t === 'dark') root.classList.add('dark');
-  else root.classList.remove('dark');
+
+  var applyChange = function () {
+    if (t === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+  };
+
+  if (!animate) {
+    applyChange();
+    return;
+  }
+
+  // Metode utama: View Transition API (Chrome, Edge, Opera)
+  // Sangat mulus karena cross-fade diproses di compositor browser
+  if (typeof document.startViewTransition === 'function') {
+    document.startViewTransition(applyChange);
+    return;
+  }
+
+  // Fallback: CSS transition (Firefox, Safari, browser lama)
+  root.classList.add('theme-transition');
+  applyChange();
+  if (transitionTimer) clearTimeout(transitionTimer);
+  transitionTimer = setTimeout(function () {
+    root.classList.remove('theme-transition');
+    transitionTimer = null;
+  }, TRANSITION_MS);
 };
 
 export const useThemeStore = create(function (set) {
@@ -1237,7 +1263,7 @@ export const useThemeStore = create(function (set) {
   return {
     theme: initial,
     setTheme: function (t) {
-      applyTheme(t);
+      applyTheme(t, true);
       try { localStorage.setItem(KEY, t); } catch (e) {}
       set({ theme: t });
     },
@@ -4879,6 +4905,60 @@ export default function SchemaSection() {
   --t-ok: #3fbe80;
 }
 
+/* ============================================
+   ANIMASI HALUS SAAT GANTI TEMA (LIGHT/DARK)
+   Metode utama: View Transition API
+   Fallback: CSS transition kelas .theme-transition
+   ============================================ */
+
+/* --- View Transition API (Chrome, Edge, Opera) --- */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.35s;
+  animation-timing-function: ease-in-out;
+}
+
+/* --- Fallback CSS transition (Firefox, Safari) --- */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after,
+.theme-transition *::placeholder {
+  transition:
+    background-color 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    fill 0.45s ease,
+    stroke 0.45s ease,
+    box-shadow 0.45s ease !important;
+}
+
+/* Placeholder perlu deklarasi terpisah agar pasti tercakup */
+.theme-transition input::placeholder,
+.theme-transition textarea::placeholder {
+  transition: color 0.45s ease !important;
+}
+
+/* Scrollbar color transition */
+.theme-transition *::-webkit-scrollbar-thumb {
+  transition: background 0.45s ease !important;
+}
+
+/* Hormati preferensi user yang mematikan animasi */
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after,
+  .theme-transition *::placeholder {
+    transition: none !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01s !important;
+  }
+}
+
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -4889,7 +4969,6 @@ button:disabled { cursor: not-allowed; }
 *::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
 
 textarea { overflow-y: hidden; }
-
 input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 .dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
@@ -5800,16 +5879,16 @@ repomix-output.md
   "private": true,
   "version": "3.5.0",
   "type": "module",
-  "scripts": {
-    "dev": "node generate-icon-shims.js && vite --host",
-    "build": "node generate-icon-shims.js && vite build",
-    "preview": "vite preview",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "test:e2e:report": "playwright show-report"
-  },
+"scripts": {
+  "dev": "vite --host",
+  "build": "vite build",
+  "preview": "vite preview",
+  "test:e2e": "playwright test",
+  "test:e2e:ui": "playwright test --ui",
+  "test:e2e:headed": "playwright test --headed",
+  "test:e2e:debug": "playwright test --debug",
+  "test:e2e:report": "playwright show-report"
+},
   "dependencies": {
     "@fortawesome/free-brands-svg-icons": "^7.3.1",
     "@fortawesome/free-regular-svg-icons": "^7.3.1",
@@ -5833,74 +5912,6 @@ repomix-output.md
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.2"
   }
-}
-````
-
-## File: src/components/header/Header.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash, faMoon, faSun, faBookOpen } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../store/usePrdStore';
-import { useThemeStore } from '../../store/useThemeStore';
-import ModeSwitcher from './ModeSwitcher';
-import IconButton from '../shared/IconButton';
-import { useToast } from '../../hooks/useToast';
-import { storageService } from '../../services/storageService';
-
-export default function Header(props) {
-  const onOpenDocs = props.onOpenDocs;
-  const saveIndicator = usePrdStore(function (s) { return s.saveIndicator; });
-  const undo = usePrdStore(function (s) { return s.undo; });
-  const redo = usePrdStore(function (s) { return s.redo; });
-  const hi = usePrdStore(function (s) { return s.historyIndex; });
-  const hl = usePrdStore(function (s) { return s.history.length; });
-  const loadSampleData = usePrdStore(function (s) { return s.loadSampleData; });
-  const clearAll = usePrdStore(function (s) { return s.clearAll; });
-  const commitHistory = usePrdStore(function (s) { return s.commitHistory; });
-  const theme = useThemeStore(function (s) { return s.theme; });
-  const setTheme = useThemeStore(function (s) { return s.setTheme; });
-  const showToast = useToast();
-
-  return (
-    <header className="bg-panel border-b border-line py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
-      <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
-        <div className="bg-accent p-1.5 rounded-lg shrink-0">
-          <img src="/logo-riskychici.svg" alt="Logo PRD Architect" className="w-6 h-6 md:w-7 md:h-7" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">PRD Architect</h1>
-          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
-        </div>
-      </div>
-      <ModeSwitcher />
-      <div className="contents md:flex md:items-center md:space-x-3 md:order-3">
-        <span className="text-[10px] text-mut hidden lg:inline">{saveIndicator}</span>
-        <div className="flex items-center space-x-1 bg-base border border-line rounded-lg p-0.5 order-2">
-          <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto">
-            <span className="hidden md:inline">Undo</span>
-          </IconButton>
-          <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto">
-            <span className="hidden md:inline">Redo</span>
-          </IconButton>
-          <IconButton
-            icon={theme === 'dark' ? faSun : faMoon}
-            onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
-            title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
-            className="w-10 h-10 md:w-auto md:h-auto"
-          />
-        </div>
-        <IconButton icon={faBookOpen} onClick={onOpenDocs} title="Dokumentasi & Panduan" className="order-3 flex-1 md:flex-none h-10 md:h-auto">
-          <span className="hidden md:inline">Dokumentasi</span>
-        </IconButton>
-        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">
-          Muat Contoh
-        </IconButton>
-        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); commitHistory(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">
-          Reset
-        </IconButton>
-      </div>
-    </header>
-  );
 }
 ````
 
@@ -5960,6 +5971,81 @@ export default function EditorPanel() {
       <NfrSection />
       <OutOfScope />
     </section>
+  );
+}
+````
+
+## File: src/components/header/Header.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faRotateLeft, faRotateRight, faWandMagicSparkles, faTrash, faMoon, faSun, faBookOpen } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useThemeStore } from '../../store/useThemeStore';
+import ModeSwitcher from './ModeSwitcher';
+import IconButton from '../shared/IconButton';
+import { useToast } from '../../hooks/useToast';
+import { storageService } from '../../services/storageService';
+
+export default function Header(props) {
+  const onOpenDocs = props.onOpenDocs;
+  const saveIndicator = usePrdStore(function (s) { return s.saveIndicator; });
+  const undo = usePrdStore(function (s) { return s.undo; });
+  const redo = usePrdStore(function (s) { return s.redo; });
+  const hi = usePrdStore(function (s) { return s.historyIndex; });
+  const hl = usePrdStore(function (s) { return s.history.length; });
+  const loadSampleData = usePrdStore(function (s) { return s.loadSampleData; });
+  const clearAll = usePrdStore(function (s) { return s.clearAll; });
+  const commitHistory = usePrdStore(function (s) { return s.commitHistory; });
+  const theme = useThemeStore(function (s) { return s.theme; });
+  const setTheme = useThemeStore(function (s) { return s.setTheme; });
+  const showToast = useToast();
+
+  return (
+    <header className="bg-panel border-b border-line py-3 md:py-3.5 px-4 md:px-6 no-print sticky top-0 z-50 flex flex-wrap justify-between items-center gap-2 md:gap-4">
+      <div className="flex items-center space-x-2.5 md:space-x-3 order-1 flex-1 md:flex-none min-w-0">
+        <div className="bg-accent p-1.5 rounded-lg shrink-0">
+          <img src="/logo-riskychici.svg" alt="Logo PRD Architect" className="w-6 h-6 md:w-7 md:h-7" />
+        </div>
+        <div className="min-w-0">
+          <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">PRD Architect</h1>
+          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
+        </div>
+      </div>
+
+      <ModeSwitcher />
+
+      <div className="contents md:flex md:items-center md:space-x-3 md:order-3">
+        <span className="text-[10px] text-mut hidden lg:inline">{saveIndicator}</span>
+
+        {/* Grup Undo/Redo (tanpa tombol tema) */}
+        <div className="flex items-center space-x-1 bg-base border border-line rounded-lg p-0.5 order-2">
+          <IconButton icon={faRotateLeft} onClick={undo} disabled={hi <= 0} title="Undo (Ctrl+Z)" className="w-10 h-10 md:w-auto md:h-auto">
+            <span className="hidden md:inline">Undo</span>
+          </IconButton>
+          <IconButton icon={faRotateRight} onClick={redo} disabled={hi >= hl - 1} title="Redo (Ctrl+Y)" className="w-10 h-10 md:w-auto md:h-auto">
+            <span className="hidden md:inline">Redo</span>
+          </IconButton>
+        </div>
+
+        {/* Tombol switch tema (terpisah) */}
+        <IconButton
+          icon={theme === 'dark' ? faSun : faMoon}
+          onClick={function () { setTheme(theme === 'dark' ? 'light' : 'dark'); }}
+          title={theme === 'dark' ? 'Ganti ke Light Mode' : 'Ganti ke Dark Mode'}
+          className="w-10 h-10 md:w-auto md:h-auto order-2"
+        />
+
+        <IconButton icon={faBookOpen} onClick={onOpenDocs} title="Dokumentasi & Panduan" className="order-3 flex-1 md:flex-none h-10 md:h-auto">
+          <span className="hidden md:inline">Dokumentasi</span>
+        </IconButton>
+        <IconButton icon={faWandMagicSparkles} onClick={function () { loadSampleData(); commitHistory(); showToast('Data contoh Instagram dimuat'); }} className="order-4 flex-1 md:flex-none h-10 md:h-auto">
+          Muat Contoh
+        </IconButton>
+        <IconButton icon={faTrash} onClick={function () { clearAll(); storageService.clear(); commitHistory(); showToast('Form direset', 'info'); }} variant="danger" className="order-4 flex-1 md:flex-none h-10 md:h-auto">
+          Reset
+        </IconButton>
+      </div>
+    </header>
   );
 }
 ````

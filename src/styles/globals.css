@@ -43,6 +43,60 @@
   --t-ok: #3fbe80;
 }
 
+/* ============================================
+   ANIMASI HALUS SAAT GANTI TEMA (LIGHT/DARK)
+   Metode utama: View Transition API
+   Fallback: CSS transition kelas .theme-transition
+   ============================================ */
+
+/* --- View Transition API (Chrome, Edge, Opera) --- */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.35s;
+  animation-timing-function: ease-in-out;
+}
+
+/* --- Fallback CSS transition (Firefox, Safari) --- */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after,
+.theme-transition *::placeholder {
+  transition:
+    background-color 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    fill 0.45s ease,
+    stroke 0.45s ease,
+    box-shadow 0.45s ease !important;
+}
+
+/* Placeholder perlu deklarasi terpisah agar pasti tercakup */
+.theme-transition input::placeholder,
+.theme-transition textarea::placeholder {
+  transition: color 0.45s ease !important;
+}
+
+/* Scrollbar color transition */
+.theme-transition *::-webkit-scrollbar-thumb {
+  transition: background 0.45s ease !important;
+}
+
+/* Hormati preferensi user yang mematikan animasi */
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after,
+  .theme-transition *::placeholder {
+    transition: none !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01s !important;
+  }
+}
+
 button:not(:disabled) { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -53,7 +107,6 @@ button:disabled { cursor: not-allowed; }
 *::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
 
 textarea { overflow-y: hidden; }
-
 input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 .dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
 
