@@ -1219,58 +1219,6 @@ usePrdStore.subscribe(function () {
 });
 ````
 
-## File: src/store/useThemeStore.js
-````javascript
-import { create } from 'zustand';
-
-const KEY = 'prdTheme';
-const TRANSITION_MS = 500;
-let transitionTimer = null;
-
-export const applyTheme = function (t, animate) {
-  const root = document.documentElement;
-
-  var applyChange = function () {
-    if (t === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
-  };
-
-  if (!animate) {
-    applyChange();
-    return;
-  }
-
-  // Metode utama: View Transition API (Chrome, Edge, Opera)
-  // Sangat mulus karena cross-fade diproses di compositor browser
-  if (typeof document.startViewTransition === 'function') {
-    document.startViewTransition(applyChange);
-    return;
-  }
-
-  // Fallback: CSS transition (Firefox, Safari, browser lama)
-  root.classList.add('theme-transition');
-  applyChange();
-  if (transitionTimer) clearTimeout(transitionTimer);
-  transitionTimer = setTimeout(function () {
-    root.classList.remove('theme-transition');
-    transitionTimer = null;
-  }, TRANSITION_MS);
-};
-
-export const useThemeStore = create(function (set) {
-  let initial = 'dark';
-  try { initial = localStorage.getItem(KEY) || 'dark'; } catch (e) {}
-  return {
-    theme: initial,
-    setTheme: function (t) {
-      applyTheme(t, true);
-      try { localStorage.setItem(KEY, t); } catch (e) {}
-      set({ theme: t });
-    },
-  };
-});
-````
-
 ## File: src/store/useViewStore.js
 ````javascript
 import { create } from 'zustand';
@@ -2562,6 +2510,58 @@ export const useAutoTagline = function () {
 };
 ````
 
+## File: src/store/useThemeStore.js
+````javascript
+import { create } from 'zustand';
+
+const KEY = 'prdTheme';
+const TRANSITION_MS = 500;
+let transitionTimer = null;
+
+export const applyTheme = function (t, animate) {
+  const root = document.documentElement;
+
+  var applyChange = function () {
+    if (t === 'dark') root.classList.add('dark');
+    else root.classList.remove('dark');
+  };
+
+  if (!animate) {
+    applyChange();
+    return;
+  }
+
+  // Metode utama: View Transition API (Chrome, Edge, Opera)
+  // Sangat mulus karena cross-fade diproses di compositor browser
+  if (typeof document.startViewTransition === 'function') {
+    document.startViewTransition(applyChange);
+    return;
+  }
+
+  // Fallback: CSS transition (Firefox, Safari, browser lama)
+  root.classList.add('theme-transition');
+  applyChange();
+  if (transitionTimer) clearTimeout(transitionTimer);
+  transitionTimer = setTimeout(function () {
+    root.classList.remove('theme-transition');
+    transitionTimer = null;
+  }, TRANSITION_MS);
+};
+
+export const useThemeStore = create(function (set) {
+  let initial = 'dark';
+  try { initial = localStorage.getItem(KEY) || 'dark'; } catch (e) {}
+  return {
+    theme: initial,
+    setTheme: function (t) {
+      applyTheme(t, true);
+      try { localStorage.setItem(KEY, t); } catch (e) {}
+      set({ theme: t });
+    },
+  };
+});
+````
+
 ## File: src/utils/aiPrompts.js
 ````javascript
 // Utils untuk membangun prompt AI secara terpisah dari store
@@ -2785,6 +2785,7 @@ ATURAN FORMAT KHUSUS:
     "techBackend": "nama teknologi saja",
     "techDatabase": "nama teknologi saja",
     "techInfra": "nama teknologi saja",
+    "techAi": "nama model AI/LLM jika aplikasi menggunakan AI",
     "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
     "outOfScope": "Item pertama\\nItem kedua",
     "defOfDone": "Kriteria pertama\\nKriteria kedua",
@@ -4858,258 +4859,15 @@ export default function SchemaSection() {
 }
 ````
 
-## File: src/styles/globals.css
-````css
-@import "tailwindcss";
-
-@theme inline {
-  --color-base: var(--t-base);
-  --color-panel: var(--t-panel);
-  --color-card: var(--t-card);
-  --color-field: var(--t-field);
-  --color-line: var(--t-line);
-  --color-ink: var(--t-ink);
-  --color-mut: var(--t-mut);
-  --color-accent: var(--t-accent);
-  --color-accent2: var(--t-accent2);
-  --color-danger: var(--t-danger);
-  --color-ok: var(--t-ok);
-}
-
-:root {
-  --t-base: #eef0f3;
-  --t-panel: #ffffff;
-  --t-card: #ffffff;
-  --t-field: #f2f3f6;
-  --t-line: #e1e4e9;
-  --t-ink: #17181c;
-  --t-mut: #666b76;
-  --t-accent: #4d96e5;
-  --t-accent2: #3583d6;
-  --t-danger: #dd4b45;
-  --t-ok: #2ba36b;
-  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
-
-.dark {
-  --t-base: #101013;
-  --t-panel: #17171b;
-  --t-card: #1c1c21;
-  --t-field: #232329;
-  --t-line: #2c2c34;
-  --t-ink: #f1f1f3;
-  --t-mut: #9c9ca6;
-  --t-accent: #5b9ee8;
-  --t-accent2: #74abec;
-  --t-danger: #e8564f;
-  --t-ok: #3fbe80;
-}
-
-/* ============================================
-   ANIMASI HALUS SAAT GANTI TEMA (LIGHT/DARK)
-   Metode utama: View Transition API
-   Fallback: CSS transition kelas .theme-transition
-   ============================================ */
-
-/* --- View Transition API (Chrome, Edge, Opera) --- */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.35s;
-  animation-timing-function: ease-in-out;
-}
-
-/* --- Fallback CSS transition (Firefox, Safari) --- */
-.theme-transition,
-.theme-transition *,
-.theme-transition *::before,
-.theme-transition *::after,
-.theme-transition *::placeholder {
-  transition:
-    background-color 0.45s ease,
-    color 0.45s ease,
-    border-color 0.45s ease,
-    fill 0.45s ease,
-    stroke 0.45s ease,
-    box-shadow 0.45s ease !important;
-}
-
-/* Placeholder perlu deklarasi terpisah agar pasti tercakup */
-.theme-transition input::placeholder,
-.theme-transition textarea::placeholder {
-  transition: color 0.45s ease !important;
-}
-
-/* Scrollbar color transition */
-.theme-transition *::-webkit-scrollbar-thumb {
-  transition: background 0.45s ease !important;
-}
-
-/* Hormati preferensi user yang mematikan animasi */
-@media (prefers-reduced-motion: reduce) {
-  .theme-transition,
-  .theme-transition *,
-  .theme-transition *::before,
-  .theme-transition *::after,
-  .theme-transition *::placeholder {
-    transition: none !important;
-  }
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation-duration: 0.01s !important;
-  }
-}
-
-button:not(:disabled) { cursor: pointer; }
-button:disabled { cursor: not-allowed; }
-
-* { scrollbar-width: thin; scrollbar-color: var(--t-line) transparent; }
-*::-webkit-scrollbar { width: 6px; height: 6px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--t-line); border-radius: 999px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
-
-textarea { overflow-y: hidden; }
-input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
-.dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
-
-.app-shell { height: 100vh; height: 100dvh; }
-
-.sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
-}
-.sr-only:focus {
-  position: fixed; width: auto; height: auto; padding: 0.5rem 1rem; margin: 0;
-  overflow: visible; clip: auto; white-space: normal;
-}
-
-@keyframes slideUp {
-  from { transform: translateY(12px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-#panelSlider {
-  display: flex; flex-direction: row; height: 100%; min-height: 0;
-  width: 200%; transform: translateX(0);
-  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: transform;
-}
-#panelSlider.slide-preview { transform: translateX(-50%); }
-#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
-
-@media (min-width: 1024px) {
-  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
-  #panelSlider > div { width: 50%; }
-}
-
-@media (max-width: 1023.98px) {
-  html, body { overflow: hidden; }
-  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
-  #panelSlider {
-    height: 100%;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
-    box-sizing: border-box;
-  }
-  #panelSlider > div > section {
-    max-height: none !important; height: 100% !important; min-height: 0;
-    overflow-y: auto !important; overscroll-behavior: contain;
-  }
-}
-
-#editorPanel, #previewPanel { height: 100%; min-height: 0; overscroll-behavior: contain; }
-
-#prdDocument { min-width: 0; }
-#prdDocument table { table-layout: fixed; width: 100%; }
-#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
-#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
-
-#prdDocument {
-  --doc-primary: #2563eb;
-  --doc-primary-text: #1e40af;
-  --doc-accent: #b45309;
-  --doc-accent-text: #92400e;
-}
-#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
-#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
-#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
-#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
-#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
-
-@media screen and (max-width: 640px) {
-  #prdDocument { padding: 1.5rem 1rem; }
-  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
-  #prdDocument table.tbl-stack thead { display: none; }
-  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
-  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
-    display: block; width: 100%; box-sizing: border-box;
-  }
-  #prdDocument table.tbl-stack tr {
-    border: 1px solid #e2e8f0; border-radius: 8px;
-    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
-  }
-  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
-  #prdDocument table.tbl-stack td[data-label]::before {
-    content: attr(data-label); display: block; font-size: 9px;
-    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-    color: #64748b; margin-bottom: 1px;
-  }
-}
-
-@page { size: A4; margin: 14mm 12mm; }
-@page :first { margin: 0; }
-
-@media print {
-  .no-print, nav, header { display: none !important; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
-  #root { height: auto !important; }
-  #root > div { display: block !important; height: auto !important; overflow: visible !important; background: #ffffff !important; }
-  main { display: block !important; height: auto !important; overflow: visible !important; }
-  #panelSlider { display: block !important; width: 100% !important; height: auto !important; transform: none !important; padding: 0 !important; }
-  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
-  #panelSlider > div:first-child { display: none !important; }
-  #previewPanel { height: auto !important; max-height: none !important; overflow: visible !important; background: #ffffff !important; padding: 0 !important; }
-  .doc-cover {
-    width: 100% !important; max-width: none !important; min-height: 0 !important;
-    height: 296mm; margin: 0 !important; overflow: hidden;
-    border-radius: 0 !important; box-shadow: none !important;
-    break-after: page; page-break-after: always;
-  }
-  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
-  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
-  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
-  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-  .cover-meta .meta-label { font-size: 10px !important; }
-  #prdDocument {
-    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
-    border: none !important; border-radius: 0 !important;
-    box-shadow: none !important; background: #ffffff !important;
-  }
-  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
-  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
-  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
-  p, li { orphans: 3; widows: 3; }
-  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
-  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
-}
-
-@keyframes coverSubtitleIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
-.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
-````
-
 ## File: src/utils/constants.js
 ````javascript
-import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask } from '@fortawesome/free-solid-svg-icons';
+import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask, faRobot } from '@fortawesome/free-solid-svg-icons';
 import { faHtml5 } from '@fortawesome/free-brands-svg-icons';
+
 export const STORAGE_KEY = 'prdArchitectV4';
 export const MAX_HISTORY = 50;
 export const AUTOSAVE_DELAY = 800;
+
 export const EXTRAS_DEFINITIONS = [
   { key: 'persona', label: 'Persona & KPI Sukses', icon: 'faUsers', color: 'indigo' },
   { key: 'branding', label: 'Branding & Design System', icon: 'faPalette', color: 'pink' },
@@ -5118,7 +4876,9 @@ export const EXTRAS_DEFINITIONS = [
   { key: 'schema', label: 'Schema Data', icon: 'faTableList', color: 'cyan' },
   { key: 'nfr', label: 'NFR & Keamanan', icon: 'faShieldHalved', color: 'rose' },
 ];
+
 const ICON_TONE = 'text-mut';
+
 export const TECH_REQUIRED = [
   { key: 'techFrontend', label: 'Frontend', icon: faHtml5, color: ICON_TONE, ph: 'misal: React, Tailwind CSS' },
   { key: 'techBackend', label: 'Backend', icon: faServer, color: ICON_TONE, ph: 'misal: Node.js, Laravel' },
@@ -5127,10 +4887,12 @@ export const TECH_REQUIRED = [
   { key: 'techDomain', label: 'Domain & DNS Management', icon: faGlobe, color: ICON_TONE, ph: 'misal: Niagahoster, Cloudflare DNS' },
   { key: 'techVcs', label: 'Version Control System', icon: faCodeBranch, color: ICON_TONE, ph: 'misal: GitHub, GitLab' },
 ];
+
 export const TECH_OPTIONAL = [
   { key: 'techSecurity', label: 'Security & Authentication', icon: faShieldHalved, color: ICON_TONE, category: 'Esensial', ph: 'misal: OAuth 2.0, JWT, bcrypt' },
   { key: 'techStorage', label: 'Object Storage & CDN', icon: faHardDrive, color: ICON_TONE, category: 'Esensial', ph: 'misal: AWS S3 + CloudFront, Cloudflare R2' },
   { key: 'techThirdParty', label: 'Third-Party APIs / Integrations', icon: faPlug, color: ICON_TONE, category: 'Esensial', ph: 'misal: Midtrans, Firebase Auth' },
+  { key: 'techAi', label: 'AI / LLM & Machine Learning', icon: faRobot, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: OpenAI GPT-4, Gemini, LangChain, HuggingFace' },
   { key: 'techDevOps', label: 'CI/CD & DevOps', icon: faInfinity, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: GitHub Actions, GitLab CI' },
   { key: 'techCaching', label: 'Caching Layer', icon: faBolt, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Redis, Memcached' },
   { key: 'techQueue', label: 'Message Brokers / Queueing', icon: faEnvelopeOpenText, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: RabbitMQ, Kafka' },
@@ -5138,6 +4900,7 @@ export const TECH_OPTIONAL = [
   { key: 'techAnalytics', label: 'Analytics & Data Pipeline', icon: faChartColumn, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Google Analytics, Metabase' },
   { key: 'techTesting', label: 'Testing / QA Automation', icon: faFlask, color: ICON_TONE, category: 'Lanjutan', ph: 'misal: Vitest, Playwright' },
 ];
+
 export const DATA_TYPES = [
   { category: 'Numerik Tepat', items: ['TINYINT','SMALLINT','MEDIUMINT','INT / INTEGER','BIGINT','DECIMAL / NUMERIC'] },
   { category: 'Numerik Perkiraan', items: ['FLOAT','DOUBLE','REAL'] },
@@ -5148,6 +4911,7 @@ export const DATA_TYPES = [
   { category: 'Semi-Terstruktur', items: ['JSON','XML'] },
   { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
 ];
+
 export const DEFAULT_FIELDS = {
   projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
   problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
@@ -5157,7 +4921,7 @@ export const DEFAULT_FIELDS = {
   bpDesktopOp:'≥',bpDesktop:'',bpDesktopUnit:'px',
   userFlow:'',
   techFrontend:'',techBackend:'',techDatabase:'',techInfra:'',techDomain:'',techVcs:'',
-  techSecurity:'',techStorage:'',techThirdParty:'',techDevOps:'',techCaching:'',
+  techSecurity:'',techStorage:'',techThirdParty:'',techAi:'',techDevOps:'',techCaching:'',
   techQueue:'',techMonitoring:'',techAnalytics:'',techTesting:'',
   dbSchema:'',
   nfrSpecs:'',nfrPerformance:'',nfrLocalization:'',nfrBrowser:'',figmaLink:'',riskMitigation:'',
@@ -5166,6 +4930,7 @@ export const DEFAULT_FIELDS = {
   coverKicker:'',coverFooterNote:'',coverShowFooter:true,
   coverSubtitle:'',
 };
+
 export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
 ````
 
@@ -5851,6 +5616,251 @@ export const exportService = {
 };
 ````
 
+## File: src/styles/globals.css
+````css
+@import "tailwindcss";
+
+@theme inline {
+  --color-base: var(--t-base);
+  --color-panel: var(--t-panel);
+  --color-card: var(--t-card);
+  --color-field: var(--t-field);
+  --color-line: var(--t-line);
+  --color-ink: var(--t-ink);
+  --color-mut: var(--t-mut);
+  --color-accent: var(--t-accent);
+  --color-accent2: var(--t-accent2);
+  --color-danger: var(--t-danger);
+  --color-ok: var(--t-ok);
+}
+
+:root {
+  --t-base: #eef0f3;
+  --t-panel: #ffffff;
+  --t-card: #ffffff;
+  --t-field: #f2f3f6;
+  --t-line: #e1e4e9;
+  --t-ink: #17181c;
+  --t-mut: #666b76;
+  --t-accent: #4d96e5;
+  --t-accent2: #3583d6;
+  --t-danger: #dd4b45;
+  --t-ok: #2ba36b;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.dark {
+  --t-base: #101013;
+  --t-panel: #17171b;
+  --t-card: #1c1c21;
+  --t-field: #232329;
+  --t-line: #2c2c34;
+  --t-ink: #f1f1f3;
+  --t-mut: #9c9ca6;
+  --t-accent: #5b9ee8;
+  --t-accent2: #74abec;
+  --t-danger: #e8564f;
+  --t-ok: #3fbe80;
+}
+
+/* ============================================
+   ANIMASI HALUS SAAT GANTI TEMA (LIGHT/DARK)
+   Metode utama: View Transition API
+   Fallback: CSS transition kelas .theme-transition
+   ============================================ */
+
+/* --- View Transition API (Chrome, Edge, Opera) --- */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.35s;
+  animation-timing-function: ease-in-out;
+}
+
+/* --- Fallback CSS transition (Firefox, Safari) --- */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after,
+.theme-transition *::placeholder {
+  transition:
+    background-color 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    fill 0.45s ease,
+    stroke 0.45s ease,
+    box-shadow 0.45s ease !important;
+}
+
+/* Placeholder perlu deklarasi terpisah agar pasti tercakup */
+.theme-transition input::placeholder,
+.theme-transition textarea::placeholder {
+  transition: color 0.45s ease !important;
+}
+
+/* Scrollbar color transition */
+.theme-transition *::-webkit-scrollbar-thumb {
+  transition: background 0.45s ease !important;
+}
+
+/* Hormati preferensi user yang mematikan animasi */
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after,
+  .theme-transition *::placeholder {
+    transition: none !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0.01s !important;
+  }
+}
+
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--t-line) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--t-line); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--t-mut); }
+
+textarea { overflow-y: hidden; }
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+.dark input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+.app-shell { height: 100vh; height: 100dvh; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.sr-only:focus {
+  position: fixed; width: auto; height: auto; padding: 0.5rem 1rem; margin: 0;
+  overflow: visible; clip: auto; white-space: normal;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+#panelSlider {
+  display: flex; flex-direction: row; height: 100%; min-height: 0;
+  width: 200%; transform: translateX(0);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+#panelSlider.slide-preview { transform: translateX(-50%); }
+#panelSlider > div { width: 50%; height: 100%; flex-shrink: 0; min-height: 0; }
+
+@media (min-width: 1024px) {
+  #panelSlider { width: 100% !important; transform: none !important; transition: none !important; }
+  #panelSlider > div { width: 50%; }
+}
+
+@media (max-width: 1023.98px) {
+  html, body { overflow: hidden; }
+  body { height: 100vh; height: 100dvh; min-height: 0 !important; }
+  #panelSlider {
+    height: 100%;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+  #panelSlider > div > section {
+    max-height: none !important; height: 100% !important; min-height: 0;
+    overflow-y: auto !important; overscroll-behavior: contain;
+  }
+}
+
+#editorPanel, #previewPanel { height: 100%; min-height: 0; overscroll-behavior: contain; }
+
+#prdDocument { min-width: 0; }
+#prdDocument table { table-layout: fixed; width: 100%; }
+#prdDocument th, #prdDocument td { overflow-wrap: break-word; }
+#prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
+
+#prdDocument {
+  --doc-primary: #2563eb;
+  --doc-primary-text: #1e40af;
+  --doc-accent: #b45309;
+  --doc-accent-text: #92400e;
+}
+#prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
+#prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
+#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
+#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
+#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
+
+@media screen and (max-width: 640px) {
+  #prdDocument { padding: 1.5rem 1rem; }
+  #prdDocument table.tbl-stack { table-layout: auto; border: none; }
+  #prdDocument table.tbl-stack thead { display: none; }
+  #prdDocument table.tbl-stack, #prdDocument table.tbl-stack tbody,
+  #prdDocument table.tbl-stack tr, #prdDocument table.tbl-stack td {
+    display: block; width: 100%; box-sizing: border-box;
+  }
+  #prdDocument table.tbl-stack tr {
+    border: 1px solid #e2e8f0; border-radius: 8px;
+    margin-bottom: 10px; padding: 10px 12px; background: #f8fafc;
+  }
+  #prdDocument table.tbl-stack td { border: none; padding: 4px 0; text-align: left; }
+  #prdDocument table.tbl-stack td[data-label]::before {
+    content: attr(data-label); display: block; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    color: #64748b; margin-bottom: 1px;
+  }
+}
+
+@page { size: A4; margin: 14mm 12mm; }
+@page :first { margin: 0; }
+
+@media print {
+  .no-print, nav, header { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { background: #ffffff !important; height: auto !important; overflow: visible !important; }
+  #root { height: auto !important; }
+  #root > div { display: block !important; height: auto !important; overflow: visible !important; background: #ffffff !important; }
+  main { display: block !important; height: auto !important; overflow: visible !important; }
+  #panelSlider { display: block !important; width: 100% !important; height: auto !important; transform: none !important; padding: 0 !important; }
+  #panelSlider > div { width: 100% !important; height: auto !important; overflow: visible !important; }
+  #panelSlider > div:first-child { display: none !important; }
+  #previewPanel { height: auto !important; max-height: none !important; overflow: visible !important; background: #ffffff !important; padding: 0 !important; }
+  .doc-cover {
+    width: 100% !important; max-width: none !important; min-height: 0 !important;
+    height: 296mm; margin: 0 !important; overflow: hidden;
+    border-radius: 0 !important; box-shadow: none !important;
+    break-after: page; page-break-after: always;
+  }
+  .cover-body { padding: 48mm 18mm 18mm 18mm !important; }
+  .doc-cover h1 { font-size: 50px !important; line-height: 1.15 !important; }
+  .doc-cover h2 { font-size: 22px !important; line-height: 1.35 !important; }
+  .cover-meta { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  .cover-meta .meta-label { font-size: 10px !important; }
+  #prdDocument {
+    max-width: 100% !important; margin: 0 !important; padding: 0 !important;
+    border: none !important; border-radius: 0 !important;
+    box-shadow: none !important; background: #ffffff !important;
+  }
+  .keep-together { break-inside: avoid !important; page-break-inside: avoid !important; }
+  tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+  h1, h2, h3, h4 { break-after: avoid !important; page-break-after: avoid !important; }
+  p, li { orphans: 3; widows: 3; }
+  pre { break-inside: avoid !important; white-space: pre-wrap !important; word-break: break-word !important; }
+  .shadow-lg, .shadow-md, .shadow-2xl { box-shadow: none !important; }
+}
+
+@keyframes coverSubtitleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cover-subtitle-in { animation: coverSubtitleIn 0.5s ease; }
+.cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
+````
+
 ## File: .gitignore
 ````
 node_modules
@@ -6524,6 +6534,7 @@ export const usePrdStore = create(function (set, get) {
             techSecurity: 'OAuth 2.0 + JWT + bcrypt + 2FA',
             techStorage: 'AWS S3 + CloudFront CDN',
             techThirdParty: 'Firebase Cloud Messaging + FFmpeg + Google Maps',
+            techAi: 'Gemini API + LangChain untuk moderasi konten & rekomendasi feed',
             techDevOps: 'GitHub Actions CI/CD + Sentry',
             techCaching: 'Redis + Memcached',
             techQueue: 'Kafka',
@@ -6547,7 +6558,7 @@ export const usePrdStore = create(function (set, get) {
             figmaLink: 'https://figma.com/file/instagram-clone',
             riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
           }, keepCover),
-          techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
+          techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techAi', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
             { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol utama & link aktif' },

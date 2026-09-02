@@ -470,6 +470,7 @@ export const usePrdStore = create(function (set, get) {
             techSecurity: 'OAuth 2.0 + JWT + bcrypt + 2FA',
             techStorage: 'AWS S3 + CloudFront CDN',
             techThirdParty: 'Firebase Cloud Messaging + FFmpeg + Google Maps',
+            techAi: 'Gemini API + LangChain untuk moderasi konten & rekomendasi feed',
             techDevOps: 'GitHub Actions CI/CD + Sentry',
             techCaching: 'Redis + Memcached',
             techQueue: 'Kafka',
@@ -493,7 +494,7 @@ export const usePrdStore = create(function (set, get) {
             figmaLink: 'https://figma.com/file/instagram-clone',
             riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
           }, keepCover),
-          techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
+          techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techAi', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
             { name: 'Primary Blue', hex: '#0095F6', usage: 'Tombol utama & link aktif' },

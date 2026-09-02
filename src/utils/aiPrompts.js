@@ -219,6 +219,7 @@ ATURAN FORMAT KHUSUS:
     "techBackend": "nama teknologi saja",
     "techDatabase": "nama teknologi saja",
     "techInfra": "nama teknologi saja",
+    "techAi": "nama model AI/LLM jika aplikasi menggunakan AI",
     "dbSchema": "users: id, username, email\\nposts: id, user_id, caption",
     "outOfScope": "Item pertama\\nItem kedua",
     "defOfDone": "Kriteria pertama\\nKriteria kedua",
