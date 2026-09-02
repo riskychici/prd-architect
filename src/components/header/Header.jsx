@@ -29,7 +29,7 @@ export default function Header(props) {
         </div>
         <div className="min-w-0">
           <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">PRD Architect</h1>
-          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
+          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang PRD Profesional</p>
         </div>
       </div>
 

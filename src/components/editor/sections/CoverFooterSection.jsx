@@ -4,23 +4,39 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { usePrdStore } from '../../../store/usePrdStore';
 import { resolveCoverTheme } from '../../../utils/helpers';
 import { generateCoverTagline } from '../../../services/aiService';
+import { useSmoothColor } from '../../../hooks/useSmoothColor';
 import { useToast } from '../../../hooks/useToast';
 import EditorSection from '../EditorSection';
 import ToggleSwitch from '../../shared/ToggleSwitch';
 
 function ColorField(props) {
   const digits = (props.value || '').replace(/^#/, '');
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
   const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+
+  const smooth = useSmoothColor({
+    value: props.value,
+    commit: props.onChange,
+    makeLive: function (hex) {
+      const patch = {};
+      patch[props.fieldKey] = hex;
+      return { fieldsPatch: patch };
+    },
+    onLiveDom: function (hex) {
+      const el = document.getElementById(inputId);
+      if (el) el.value = (hex || '').replace(/^#/, '');
+    },
+  });
 
   return (
     <div>
       <span className="block text-ink font-medium mb-1">{props.label}</span>
       <div className="flex items-center gap-2">
         <input
+          key={smooth.version}
           type="color"
-          value={safe}
-          onChange={function (e) { props.onChange(e.target.value); }}
+          ref={smooth.ref}
+          defaultValue={smooth.defaultHex}
+          onChange={smooth.onInput}
           aria-label={'Pilih ' + props.label}
           className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
         />
@@ -55,6 +71,7 @@ export default function CoverFooterSection() {
   const commit = usePrdStore(function (s) { return s.commitHistory; });
   const showToast = useToast();
   const [aiBusy, setAiBusy] = useState(false);
+
   const auto = f.coverThemeAuto !== false;
 
   const handleToggleAuto = function (v) {
@@ -100,9 +117,9 @@ export default function CoverFooterSection() {
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+            <ColorField fieldKey="coverPrimary" label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField fieldKey="coverAccent" label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField fieldKey="coverBg" label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
           </div>
         )}
         <div>

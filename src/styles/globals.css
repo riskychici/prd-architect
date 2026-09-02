@@ -161,11 +161,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 #prdDocument th, #prdDocument td { overflow-wrap: break-word; }
 #prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
 
-#prdDocument {
+#previewThemeRoot {
   --doc-primary: #2563eb;
   --doc-primary-text: #1e40af;
   --doc-accent: #b45309;
   --doc-accent-text: #92400e;
+   --doc-bg: #15171C;
 }
 #prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
 #prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }

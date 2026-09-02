@@ -200,7 +200,7 @@ function PagePintasan() {
       <div className="space-y-4">
         <Card className="space-y-2">
           <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Undo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Z</Kbd></span></div>
-          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Redo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Y</Kbd> atau <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd></span></div>
+          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Redo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Y</Kbd> <span className="text-ink font-semibold"> / </span> <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd></span></div>
           <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Pindah Editor/Preview (mobile)</span><span className="text-ink font-semibold">Swipe kiri / kanan</span></div>
         </Card>
       </div>
@@ -213,7 +213,7 @@ function PageVersi() {
     <div>
       <PageHeader icon={faTag} title="Versi Aplikasi" desc="Informasi rilis PRD Architect" />
       <div className="space-y-4">
-        <Card><H3 icon={faTag}>Versi saat ini: {APP_VERSION}</H3><P>PRD Architect versi {APP_VERSION} adalah rilis terbaru. Nomor versi tidak lagi ditampilkan di header agar tampilan lebih bersih; informasi versi dipusatkan di halaman ini dan di footer dokumentasi.</P></Card>
+        <Card><H3 icon={faTag}>Versi saat ini: {APP_VERSION}</H3><P>Kamu sedang menggunakan PRD Architect versi {APP_VERSION}. Di halaman ini kamu bisa melihat informasi versi aplikasi dan catatan pembaruan terbaru.</P></Card>
         <Card>
           <H3 icon={faLightbulb}>Yang baru di {APP_VERSION}</H3>
           <ul className="list-disc pl-5 text-xs md:text-sm text-mut space-y-1.5 leading-relaxed">
@@ -290,11 +290,11 @@ function PageSupport() {
         </Card>
         <Card>
           <H3 icon={faEnvelope}>Kontak & Masukan</H3>
-          <P>Punya ide fitur atau menemukan kejanggalan? Sampaikan masukanmu lewat halaman kontak atau repositori proyek. Masukan kecil sekalipun sangat membantu.</P>
+          <P>Punya ide fitur baru atau menemukan bug? Kirimkan saja masukannya ke email <a href="mailto:contact@riskychici.my.id" className="text-accent hover:underline font-semibold">contact@riskychici.my.id</a>. Setiap saran darimu sangat berarti untuk pengembangan aplikasi ini.</P>
         </Card>
         <Card>
           <H3 icon={faHeart}>Terima kasih</H3>
-          <P>Dukunganmu dipakai untuk biaya hosting, kuota API, dan pengembangan fitur baru. Terima kasih sudah menjadi bagian dari perjalanan PRD Architect.</P>
+          <P>Dukunganmu dipakai untuk biaya domain, pengembangan fitur baru dan operasional lainnya. Terima kasih sudah menjadi bagian dari perjalanan PRD Architect.</P>
         </Card>
       </div>
     </div>

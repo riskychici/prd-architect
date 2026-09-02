@@ -1,30 +1,20 @@
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { formatTargetDate, resolveCoverTheme, titleCaseForCover } from '../../utils/helpers';
+import { formatTargetDate, titleCaseForCover } from '../../utils/helpers';
 
 export default function CoverPage() {
   const f = usePrdStore(function (s) { return s.fields; });
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const features = usePrdStore(function (s) { return s.features; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-
-  const theme = resolveCoverTheme(f, palette);
 
   const kicker = (f.coverKicker || '').trim() || 'PRODUCT REQUIREMENT DOCUMENT';
   const words = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase().split(/\s+/).filter(Boolean);
   const firstWord = words[0] || '';
   const restWords = words.slice(1).join(' ');
 
-  // SATU SUMBER KEBENARAN: sampul hanya membaca coverSubtitle.
-  // Apa yang diketik di field Subtitle Sampul, itu yang tampil.
-  // Jika kosong, tampilkan teks default yang netral.
   const rawSubtitle = (f.coverSubtitle || '').trim();
   const subtitle = rawSubtitle ? titleCaseForCover(rawSubtitle) : 'Dokumen Spesifikasi Produk';
 
-  // Baris fitur: ambil maksimal 4 nama fitur pertama.
-  // PERBAIKAN KECIL: nama yang terlalu panjang dipotong di
-  // batas kata (bukan di tengah kata) agar sampul tidak
-  // berantakan dan tetap terlihat profesional.
   const featureLine = features.length
     ? features.slice(0, 4).map(function (ft) {
         let name = (ft.name || ft.id || '').trim();
@@ -34,8 +24,8 @@ export default function CoverPage() {
           name = cut.slice(0, lastSpace > 12 ? lastSpace : 22).trimEnd() + '...';
         }
         return name;
-      }).join(' · ')
-    : 'Overview · Fitur Utama · Tech Stack';
+      }).join(' \u00B7 ')
+    : 'Overview \u00B7 Fitur Utama \u00B7 Tech Stack';
 
   const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
   const scope = ['Overview & Goals'];
@@ -56,67 +46,56 @@ export default function CoverPage() {
   const targetDate = formatTargetDate(f.targetDate, f.targetDateFormat);
   const owner = (f.author || '').trim() || '-';
   const status = f.docStatus || 'Draft';
-
   const labelCls = 'meta-label text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap';
   const valueCls = 'mt-1 text-[11px] text-slate-400';
 
   return (
-    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: theme.bg }}>
-      <div className="h-8 w-full" style={{ background: theme.primary }} />
-
+    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: 'var(--doc-bg, #15171C)' }}>
+      <div className="h-8 w-full" style={{ background: 'var(--doc-primary, #C9A961)' }} />
       <div className="cover-body flex-1 flex flex-col px-8 md:px-14 pt-16 md:pt-20 pb-8">
         <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-wide text-white leading-tight">
           {firstWord}
-          {restWords && <span style={{ color: theme.primary }}> {restWords}</span>}
+          {restWords && <span style={{ color: 'var(--doc-primary, #C9A961)' }}> {restWords}</span>}
         </h1>
-
-        <div className="mt-5 h-[3px] w-16" style={{ background: theme.accent }} />
-
-        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
-
-        {/* Subtitle sampul: stabil, terkendali, satu sumber */}
+        <div className="mt-5 h-[3px] w-16" style={{ background: 'var(--doc-accent, #AB883A)' }} />
+        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: 'var(--doc-primary, #C9A961)' }}>{kicker}</p>
         <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white" title={rawSubtitle || 'Isi lewat section Sampul & Footer Dokumen'}>
           {subtitle}
         </h2>
-
         <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
-
-        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' · ')}</p>
+        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: 'var(--doc-primary, #C9A961)', background: 'rgba(255,255,255,0.05)' }}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--doc-primary, #C9A961)' }}>Ruang Lingkup Dokumen</p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' \u00B7 ')}</p>
         </div>
-
         <div className="flex-1 min-h-6" />
-
         <div className="cover-meta grid grid-cols-2 md:grid-cols-3 gap-x-4 md:gap-x-6 gap-y-5 border-t border-slate-700 pt-4">
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Versi</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Versi</p>
             <p className={valueCls}>{f.docVersion || '1.0'}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Bahasa</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Bahasa</p>
             <p className={valueCls}>Indonesia</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Target Rilis</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Target Rilis</p>
             <p className={valueCls}>{targetDate}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Tanggal Dibuat</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Tanggal Dibuat</p>
             <p className={valueCls}>{createdDate}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Owner</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Owner</p>
             <p className={valueCls}>{owner}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Status</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Status</p>
             <p className={valueCls}>{status}</p>
           </div>
         </div>
       </div>
-
-      <div className="h-8 w-full" style={{ background: theme.accent }} />
+      <div className="h-8 w-full" style={{ background: 'var(--doc-accent, #AB883A)' }} />
     </div>
   );
 }

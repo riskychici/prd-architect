@@ -74,6 +74,7 @@ src/
       EditorSection.jsx
       ExtrasPicker.jsx
       ModeBanner.jsx
+      SectionNote.jsx
     header/
       Header.jsx
       ModeSwitcher.jsx
@@ -86,6 +87,7 @@ src/
         BrandingPreview.jsx
         FeaturesPreview.jsx
         NfrPreview.jsx
+        NotePreview.jsx
         OverviewPreview.jsx
         PersonaPreview.jsx
         RolesPreview.jsx
@@ -94,6 +96,7 @@ src/
         TechStackPreview.jsx
       CoverPage.jsx
       DocFooter.jsx
+      LiveThemeVars.jsx
       PreviewActions.jsx
       PreviewDocument.jsx
       PreviewPanel.jsx
@@ -107,7 +110,9 @@ src/
     useAutoResize.js
     useAutoSave.js
     useAutoTagline.js
+    useSmoothColor.js
     useSwipe.js
+    useThrottledCallback.js
     useToast.js
   icons/
     brands-shim.js
@@ -118,6 +123,7 @@ src/
     exportService.js
     storageService.js
   store/
+    useLiveColorStore.js
     usePrdStore.js
     usePreviewStore.js
     useThemeStore.js
@@ -129,6 +135,7 @@ src/
     constants.js
     helpers.js
     markdown.js
+    sectionNotes.js
     validators.js
   App.jsx
   main.jsx
@@ -142,6 +149,189 @@ vite.config.js
 ````
 
 # Files
+
+## File: src/components/preview/LiveThemeVars.jsx
+````javascript
+import { useEffect } from 'react';
+import { usePrdStore } from '../../store/usePrdStore';
+import { useLiveColorStore } from '../../store/useLiveColorStore';
+import { resolveCoverTheme } from '../../utils/helpers';
+
+export default function LiveThemeVars(props) {
+  const targetId = props.targetId;
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const live = useLiveColorStore(function (s) { return s.live; });
+
+  useEffect(function () {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+
+    const fields = live && live.fieldsPatch ? Object.assign({}, f, live.fieldsPatch) : f;
+    const pal = live && live.palette ? live.palette : palette;
+    const t = resolveCoverTheme(fields, pal);
+
+    el.style.setProperty('--doc-primary', t.primary);
+    el.style.setProperty('--doc-primary-text', t.primaryText);
+    el.style.setProperty('--doc-accent', t.accent);
+    el.style.setProperty('--doc-accent-text', t.accentText);
+    el.style.setProperty('--doc-bg', t.bg);
+  }, [targetId, f, palette, live]);
+
+  return null;
+}
+````
+
+## File: src/hooks/useSmoothColor.js
+````javascript
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeHex } from '../utils/helpers';
+import { useLiveColorStore } from '../store/useLiveColorStore';
+
+export const useSmoothColor = function (opts) {
+  const storeHex = opts.value;
+  const [defaultHex, setDefaultHex] = useState(function () { return normalizeHex(storeHex); });
+  const [version, setVersion] = useState(0);
+  const first = useRef(true);
+  const lastPushed = useRef(null);
+  const lastCommitted = useRef(null);
+  const idleTimer = useRef(null);
+  const raf = useRef(null);
+  const pendingHex = useRef(null);
+  const cleanupRef = useRef(null);
+  const optsRef = useRef(opts);
+
+  useEffect(function () { optsRef.current = opts; });
+
+  // Remount (ganti key) HANYA untuk perubahan dari luar:
+  // ketik hex, undo, redo, impor, atau AI.
+  useEffect(function () {
+    if (first.current) { first.current = false; return; }
+    if (storeHex !== lastPushed.current && storeHex !== lastCommitted.current) {
+      setDefaultHex(normalizeHex(storeHex));
+      setVersion(function (v) { return v + 1; });
+    }
+  }, [storeHex]);
+
+  useEffect(function () {
+    return function () {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      if (raf.current) cancelAnimationFrame(raf.current);
+      if (cleanupRef.current) cleanupRef.current();
+    };
+  }, []);
+
+  const commitNow = useCallback(function (v) {
+    lastCommitted.current = v;
+    lastPushed.current = v;
+    if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = null; }
+    if (raf.current) { cancelAnimationFrame(raf.current); raf.current = null; }
+    pendingHex.current = null;
+    useLiveColorStore.getState().clearLive();
+    optsRef.current.commit(v);
+  }, []);
+
+  // Selama geseran: tidak ada setState, tidak ada commit store.
+  // Hanya live override via requestAnimationFrame (max 1x per frame).
+  const onInput = useCallback(function (e) {
+    const v = e.target.value;
+    if (v === lastPushed.current) return;
+    lastPushed.current = v;
+    pendingHex.current = v;
+
+    if (!raf.current) {
+      raf.current = requestAnimationFrame(function () {
+        raf.current = null;
+        const h = pendingHex.current;
+        pendingHex.current = null;
+        if (!h) return;
+        const o = optsRef.current;
+        if (o.makeLive) useLiveColorStore.getState().setLive(o.makeLive(h));
+        if (o.onLiveDom) o.onLiveDom(h);
+      });
+    }
+
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(function () {
+      idleTimer.current = null;
+      commitNow(v);
+    }, 450);
+  }, [commitNow]);
+
+  const setRef = useCallback(function (node) {
+    if (cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
+    if (node) {
+      const onNativeChange = function () {
+        commitNow(node.value);
+      };
+      node.addEventListener('change', onNativeChange);
+      cleanupRef.current = function () { node.removeEventListener('change', onNativeChange); };
+    }
+  }, [commitNow]);
+
+  return { version: version, defaultHex: defaultHex, onInput: onInput, ref: setRef };
+};
+````
+
+## File: src/hooks/useThrottledCallback.js
+````javascript
+import { useCallback, useEffect, useRef } from 'react';
+
+export const useThrottledCallback = function (fn, wait) {
+  wait = wait || 50;
+
+  const fnRef = useRef(fn);
+  const timer = useRef(null);
+  const pending = useRef(null);
+  const lastRun = useRef(0);
+
+  useEffect(function () {
+    fnRef.current = fn;
+  });
+
+  useEffect(function () {
+    return function () {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  return useCallback(function (value) {
+    pending.current = value;
+
+    const now = Date.now();
+    const elapsed = now - lastRun.current;
+
+    if (elapsed >= wait) {
+      lastRun.current = now;
+      fnRef.current(pending.current);
+      pending.current = null;
+      return;
+    }
+
+    if (timer.current) return;
+
+    timer.current = setTimeout(function () {
+      timer.current = null;
+      lastRun.current = Date.now();
+      fnRef.current(pending.current);
+      pending.current = null;
+    }, wait - elapsed);
+  }, [wait]);
+};
+````
+
+## File: src/store/useLiveColorStore.js
+````javascript
+import { create } from 'zustand';
+
+export const useLiveColorStore = create(function (set) {
+  return {
+    live: null,
+    setLive: function (live) { set({ live: live }); },
+    clearLive: function () { set({ live: null }); },
+  };
+});
+````
 
 ## File: e2e/fixtures/sample-import.json
 ````json
@@ -516,24 +706,172 @@ ${JSON.stringify(prdData, null, 2)}`
 }
 ````
 
+## File: src/components/editor/SectionNote.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleInfo, faCircleExclamation } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../store/usePrdStore';
+import ToggleSwitch from '../shared/ToggleSwitch';
+import { SECTION_TITLES, isSectionVisible } from '../../utils/sectionNotes';
+
+export default function SectionNote(props) {
+  const noteKey = props.noteKey;
+
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+
+  if (!isSectionVisible(noteKey, mode, simpleExtras)) return null;
+
+  const title = SECTION_TITLES[noteKey] || noteKey;
+  const enabledMap = f.sectionNotesEnabled || {};
+  const notesMap = f.sectionNotes || {};
+  const importantMap = f.sectionNotesImportant || {};
+  const enabled = enabledMap[noteKey] === true;
+  const important = importantMap[noteKey] === true;
+  const value = notesMap[noteKey] || '';
+
+  function handleToggle(v) {
+    set('sectionNotesEnabled', Object.assign({}, enabledMap, {
+      [noteKey]: v,
+    }));
+    commit();
+  }
+
+  function handleImportant(v) {
+    set('sectionNotesImportant', Object.assign({}, importantMap, {
+      [noteKey]: v,
+    }));
+    commit();
+  }
+
+  function handleChange(e) {
+    set('sectionNotes', Object.assign({}, notesMap, {
+      [noteKey]: e.target.value,
+    }));
+  }
+
+  const boxCls = important
+    ? 'mt-4 rounded-lg border border-dashed border-danger/50 bg-danger/5 p-3 space-y-2'
+    : 'mt-4 rounded-lg border border-dashed border-accent/40 bg-accent/5 p-3 space-y-2';
+
+  return (
+    <div className={boxCls}>
+      <ToggleSwitch
+        checked={enabled}
+        onChange={handleToggle}
+        label={'Catatan section: ' + title}
+        icon={<FontAwesomeIcon icon={faCircleInfo} />}
+        iconColor={important ? 'text-danger' : 'text-accent'}
+      />
+
+      {enabled && (
+        <div className="space-y-2">
+          <div>
+            <label htmlFor={'section-note-' + noteKey} className="sr-only">
+              {'Catatan untuk ' + title}
+            </label>
+
+            <textarea
+              id={'section-note-' + noteKey}
+              value={value}
+              onChange={handleChange}
+              rows="2"
+              maxLength={500}
+              placeholder="Tulis catatan: asumsi, aturan teknis, TODO, atau reminder untuk tim."
+              className="w-full bg-field border border-line rounded-lg p-2.5 text-xs text-ink focus:border-accent focus:outline-none resize-none"
+            />
+
+            <p className="text-[10px] text-mut">{value.length}/500</p>
+          </div>
+
+          <ToggleSwitch
+            checked={important}
+            onChange={handleImportant}
+            label="Tandai sebagai catatan penting"
+            icon={<FontAwesomeIcon icon={faCircleExclamation} />}
+            iconColor="text-danger"
+          />
+
+          <p className="text-[10px] text-mut">
+            {important
+              ? 'Di dokumen, catatan ini tampil dengan aksen merah dan label Penting.'
+              : 'Di dokumen, catatan ini tampil mengikuti warna dokumen dengan label Catatan.'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/NotePreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { getSectionNote } from '../../../utils/sectionNotes';
+
+export default function NotePreview(props) {
+  const noteKey = props.noteKey;
+
+  const fields = usePrdStore(function (s) { return s.fields; });
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
+
+  const note = getSectionNote(
+    {
+      fields: fields,
+      mode: mode,
+      simpleExtras: simpleExtras,
+    },
+    noteKey
+  );
+
+  if (!note) return null;
+
+  if (note.important) {
+    return (
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-600 rounded text-xs keep-together">
+        <p className="text-rose-900 leading-relaxed">
+          <strong className="font-bold">Penting:</strong>{' '}
+          <span className="whitespace-pre-wrap">{note.text}</span>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="p-3 bg-slate-100 border-l-4 rounded text-xs keep-together"
+      style={{ borderLeftColor: 'var(--doc-accent)' }}
+    >
+      <p className="text-slate-700 leading-relaxed">
+        <strong className="font-bold" style={{ color: 'var(--doc-accent-text)' }}>
+          Catatan:
+        </strong>{' '}
+        <span className="whitespace-pre-wrap">{note.text}</span>
+      </p>
+    </div>
+  );
+}
+````
+
 ## File: src/components/preview/DocFooter.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { resolveCoverTheme } from '../../utils/helpers';
 
 export default function DocFooter() {
   const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
   if (f.coverShowFooter === false) return null;
-  const theme = resolveCoverTheme(f, palette);
   const title = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase();
   const docLabel = 'Product Requirement Document';
   const note = (f.coverFooterNote || '').trim() || 'Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi.';
   return (
-    <div className="doc-footer keep-together mt-8 pt-4 border-t-2 text-center space-y-1" style={{ borderColor: theme.primary }}>
+    <div className="doc-footer keep-together mt-8 pt-4 border-t-2 text-center space-y-1" style={{ borderColor: 'var(--doc-primary, #2563eb)' }}>
       <p className="text-[11px] text-slate-600">
         <strong className="text-slate-900">{title}</strong>
-        <span>{' · '}{docLabel}{' · Versi '}{f.docVersion || '1.0'}</span>
+        <span>{' \u00B7 '}{docLabel}{' \u00B7 Versi '}{f.docVersion || '1.0'}</span>
       </p>
       <p className="text-[11px] text-slate-500">{note}</p>
     </div>
@@ -1227,92 +1565,84 @@ export const useViewStore = create(function (set) {
 });
 ````
 
-## File: src/utils/markdown.js
+## File: src/utils/sectionNotes.js
 ````javascript
-import { buildBreakpoints, formatTargetDate } from './helpers';
-import { TECH_REQUIRED, TECH_OPTIONAL } from './constants';
+export const SECTION_TITLES = {
+  problemGoal: 'Masalah & Tujuan',
+  persona: 'Target User Persona & KPI Sukses',
+  branding: 'Branding & Design System',
+  roles: 'Role & Permission Matrix',
+  features: 'Fitur Utama',
+  ac: 'Acceptance Criteria',
+  techStack: 'Tech Stack & Arsitektur',
+  schema: 'Schema Data',
+  nfr: 'NFR, Keamanan & Figma',
+  outOfScope: 'Out of Scope & Definition of Done',
+};
 
-const BT = String.fromCharCode(96);
-const FENCE = BT + BT + BT;
+export const isSectionVisible = function (key, mode, simpleExtras) {
+  const se = simpleExtras || {};
 
-const isVis = function (mode, extras, key) { return mode === 'enterprise' || extras[key] === true; };
-
-export const generateMarkdown = function (state) {
-  const f = state.fields;
-  const features = state.features;
-  const palette = state.palette;
-  const roles = state.roles;
-  const acModules = state.acModules;
-  const schemaTables = state.schemaTables;
-  const mode = state.mode;
-  const se = state.simpleExtras;
-  const techOptional = state.techOptional || [];
-
-  const title = f.projectName || 'PROYEK TANPA NAMA';
-  const date = formatTargetDate(f.targetDate, f.targetDateFormat);
-
-  let feat = '| ID | Fitur | Deskripsi | Prioritas |\n|---|---|---|---|\n';
-  features.forEach(function (ft) { feat += '| ' + ft.id + ' | ' + ft.name + ' | ' + ft.story + ' | ' + ft.priority + ' |\n'; });
-
-  let out = '# ' + title + '\n**Product Requirement Document (' + mode.toUpperCase() + ')**\n\n';
-  out += '**Author:** ' + f.author + ' | **Version:** ' + f.docVersion + ' | **Target:** ' + date + '\n\n';
-  out += '## 1. Overview & Goals\n- **Problem:** ' + f.problemStatement + '\n- **Goal:** ' + f.productGoal + '\n\n';
-
-  if (isVis(mode, se, 'persona')) out += '## 1.1 Target User Persona & Metrics\n- **Persona:** ' + f.userPersona + '\n- **Success KPI:** ' + f.successMetrics + '\n\n';
-
-  if (isVis(mode, se, 'branding') && (palette.length || f.brandTypography)) {
-    const bp = buildBreakpoints(f);
-    out += '## 1.2 Branding & Design System\n';
-    out += palette.map(function (p) { return '- **' + p.name + '** ' + BT + p.hex + BT + ' : ' + p.usage; }).join('\n');
-    out += '\n\n**Typography:** ' + f.brandTypography + '\n**Layout:** ' + f.brandLayout + '\n';
-    if (bp) out += '**Breakpoint:** ' + bp + '\n';
-    out += '\n';
+  if (key === 'persona') {
+    return mode === 'enterprise' || se.persona === true;
   }
 
-  if (isVis(mode, se, 'roles') && roles.length) {
-    out += '## 1.3 Role & Permission Matrix\n';
-    out += roles.map(function (r) {
-      return '### ' + r.name + '\n- \u2705 ' + r.can.split('\n').filter(function (x) { return x.trim(); }).join(' | ') + '\n- \u274c ' + r.cannot.split('\n').filter(function (x) { return x.trim(); }).join(' | ');
-    }).join('\n\n');
-    out += '\n\n';
+  if (key === 'branding') {
+    return mode === 'enterprise' || se.branding === true;
   }
 
-  out += '## 2. Core Features (Requirements)\n' + feat + '\n';
-
-  if (isVis(mode, se, 'ac') && acModules.length) {
-    out += '## 2.1 Acceptance Criteria per Modul\n';
-    out += acModules.map(function (m, mi) {
-      return '### ' + (mi + 1) + '. ' + m.title + '\n' + m.items.map(function (it, ii) { return '- **AC-' + (mi + 1) + '.' + (ii + 1) + ' ' + it.title + '**: ' + it.desc; }).join('\n');
-    }).join('\n\n');
-    out += '\n\n';
+  if (key === 'roles') {
+    return mode === 'enterprise' || se.roles === true;
   }
 
-  out += '## 3. User Flow\n' + BT + f.userFlow + BT + '\n\n';
-
-  out += '## 4. Detailed Tech Stack & Architecture\n';
-  TECH_REQUIRED.forEach(function (d) { out += '- **' + d.label + ':** ' + (f[d.key] || '-') + '\n'; });
-  TECH_OPTIONAL.forEach(function (d) { if (techOptional.includes(d.key)) out += '- **' + d.label + ':** ' + (f[d.key] || '-') + '\n'; });
-  out += '\n' + FENCE + 'sql\n' + f.dbSchema + '\n' + FENCE + '\n\n';
-
-  if (isVis(mode, se, 'schema') && schemaTables.length) {
-    out += '## 4.1 Schema Data\n';
-    out += schemaTables.map(function (t) {
-      let s = '### Tabel: ' + (t.name || 'tanpa_nama') + '\n';
-      if (t.desc) s += '> ' + t.desc + '\n';
-      s += '| Field | Tipe | Not Null | Keterangan |\n|---|---|---|---|\n';
-      s += t.fields.map(function (c) { return '| ' + c.field + ' | ' + c.type + ' | ' + c.required + ' | ' + c.note + ' |'; }).join('\n');
-      return s;
-    }).join('\n\n');
-    out += '\n\n';
+  if (key === 'ac') {
+    return mode === 'enterprise' || se.ac === true;
   }
 
-  if (isVis(mode, se, 'nfr')) {
-    out += '## 4.2 NFR, Prototype & Risk Analysis\n- **Keamanan:** ' + f.nfrSpecs + '\n- **Performance:** ' + f.nfrPerformance + '\n- **Lokalisasi:** ' + f.nfrLocalization + '\n- **Browser:** ' + f.nfrBrowser + '\n- **Figma Link:** ' + f.figmaLink + '\n- **Risk & Mitigation:** ' + f.riskMitigation + '\n\n';
+  if (key === 'schema') {
+    return mode === 'enterprise' || se.schema === true;
   }
 
-  out += '## 5. Out of Scope\n' + f.outOfScope + '\n\n';
-  out += '## 6. Definition of Done\n' + f.defOfDone;
-  return out;
+  if (key === 'nfr') {
+    return mode === 'enterprise' || se.nfr === true;
+  }
+
+  return true;
+};
+
+export const getSectionNote = function (state, key) {
+  const fields = state.fields || {};
+  const enabledMap = fields.sectionNotesEnabled || {};
+  const notesMap = fields.sectionNotes || {};
+  const importantMap = fields.sectionNotesImportant || {};
+
+  if (enabledMap[key] !== true) return null;
+  if (!isSectionVisible(key, state.mode, state.simpleExtras)) return null;
+
+  const text = (notesMap[key] || '').trim();
+  if (!text) return null;
+
+  return {
+    text: text,
+    important: importantMap[key] === true,
+  };
+};
+
+export const getNoteKeyByTitle = function (title) {
+  if (!title) return '';
+
+  if (title.includes('Masalah & Tujuan')) return 'problemGoal';
+  if (title.includes('Target User Persona')) return 'persona';
+  if (title.includes('Branding & Design System')) return 'branding';
+  if (title.includes('Role & Permission')) return 'roles';
+  if (title.includes('Fitur Utama')) return 'features';
+  if (title.includes('Acceptance Criteria')) return 'ac';
+  if (title.includes('Tech Stack')) return 'techStack';
+  if (title.includes('Schema Data')) return 'schema';
+  if (title.includes('NFR')) return 'nfr';
+  if (title.includes('Out of Scope')) return 'outOfScope';
+
+  return '';
 };
 ````
 
@@ -1702,7 +2032,7 @@ function PagePintasan() {
       <div className="space-y-4">
         <Card className="space-y-2">
           <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Undo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Z</Kbd></span></div>
-          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Redo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Y</Kbd> atau <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd></span></div>
+          <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Redo</span><span><Kbd>Ctrl</Kbd> + <Kbd>Y</Kbd> <span className="text-ink font-semibold"> / </span> <Kbd>Ctrl</Kbd> + <Kbd>Shift</Kbd> + <Kbd>Z</Kbd></span></div>
           <div className="flex items-center justify-between text-xs md:text-sm"><span className="text-mut">Pindah Editor/Preview (mobile)</span><span className="text-ink font-semibold">Swipe kiri / kanan</span></div>
         </Card>
       </div>
@@ -1715,7 +2045,7 @@ function PageVersi() {
     <div>
       <PageHeader icon={faTag} title="Versi Aplikasi" desc="Informasi rilis PRD Architect" />
       <div className="space-y-4">
-        <Card><H3 icon={faTag}>Versi saat ini: {APP_VERSION}</H3><P>PRD Architect versi {APP_VERSION} adalah rilis terbaru. Nomor versi tidak lagi ditampilkan di header agar tampilan lebih bersih; informasi versi dipusatkan di halaman ini dan di footer dokumentasi.</P></Card>
+        <Card><H3 icon={faTag}>Versi saat ini: {APP_VERSION}</H3><P>Kamu sedang menggunakan PRD Architect versi {APP_VERSION}. Di halaman ini kamu bisa melihat informasi versi aplikasi dan catatan pembaruan terbaru.</P></Card>
         <Card>
           <H3 icon={faLightbulb}>Yang baru di {APP_VERSION}</H3>
           <ul className="list-disc pl-5 text-xs md:text-sm text-mut space-y-1.5 leading-relaxed">
@@ -1792,11 +2122,11 @@ function PageSupport() {
         </Card>
         <Card>
           <H3 icon={faEnvelope}>Kontak & Masukan</H3>
-          <P>Punya ide fitur atau menemukan kejanggalan? Sampaikan masukanmu lewat halaman kontak atau repositori proyek. Masukan kecil sekalipun sangat membantu.</P>
+          <P>Punya ide fitur baru atau menemukan bug? Kirimkan saja masukannya ke email <a href="mailto:contact@riskychici.my.id" className="text-accent hover:underline font-semibold">contact@riskychici.my.id</a>. Setiap saran darimu sangat berarti untuk pengembangan aplikasi ini.</P>
         </Card>
         <Card>
           <H3 icon={faHeart}>Terima kasih</H3>
-          <P>Dukunganmu dipakai untuk biaya hosting, kuota API, dan pengembangan fitur baru. Terima kasih sudah menjadi bagian dari perjalanan PRD Architect.</P>
+          <P>Dukunganmu dipakai untuk biaya domain, pengembangan fitur baru dan operasional lainnya. Terima kasih sudah menjadi bagian dari perjalanan PRD Architect.</P>
         </Card>
       </div>
     </div>
@@ -1909,31 +2239,6 @@ export default function DocsPage(props) {
           </div>
         </main>
       </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/editor/EditorSection.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-
-export default function EditorSection(props) {
-  const title = props.title;
-  const icon = props.icon;
-  const action = props.action;
-  const children = props.children;
-
-  return (
-    <div className="bg-card p-5 rounded-xl border border-line space-y-4">
-      <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-bold uppercase tracking-wider flex items-center text-ink">
-          {icon && <FontAwesomeIcon icon={icon} className="mr-2 text-accent" />}
-          {title}
-        </h2>
-        {action}
-      </div>
-      {children}
     </div>
   );
 }
@@ -2113,32 +2418,59 @@ export default function AcPreview() {
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
 import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
+
 export default function BrandingPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const f = usePrdStore(function (s) { return s.fields; });
   const palette = usePrdStore(function (s) { return s.palette; });
+
   if (mode !== 'enterprise' && !se.branding) return null;
+
   return (
     <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.2 Branding & Design System</h3>
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">
+        1.2 Branding & Design System
+      </h3>
+
       <div className="pl-3 space-y-2 text-xs text-slate-700">
         <div className="space-y-1">
           {palette.length ? palette.map(function (p, i) {
             const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
+
             return (
               <div key={i} className="flex items-center space-x-2">
-                <span className="w-4 h-4 rounded shrink-0" style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }} />
+                <span
+                  id={'preview-palette-swatch-' + i}
+                  className="w-4 h-4 rounded shrink-0"
+                  style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }}
+                />
                 <span className="font-semibold text-slate-900">{p.name || '-'}</span>
-                <span className="font-mono text-slate-500">{p.hex}</span>
+                <span id={'preview-palette-hex-' + i} className="font-mono text-slate-500">
+                  {p.hex}
+                </span>
                 <span className="text-slate-500">{'\u00B7'} {p.usage}</span>
               </div>
             );
-          }) : <p className="italic text-slate-400">Belum ada palette warna.</p>}
+          }) : (
+            <p className="italic text-slate-400">Belum ada palette warna.</p>
+          )}
         </div>
-        <p><strong className="text-slate-900">Typography:</strong> <span>{f.brandTypography || '-'}</span></p>
-        <p><strong className="text-slate-900">Prinsip Layout:</strong> <span>{f.brandLayout || '-'}</span></p>
-        <p><strong className="text-slate-900">Breakpoint:</strong> <span className="font-mono">{buildBreakpoints(f) || '-'}</span></p>
+
+        <p>
+          <strong className="text-slate-900">Typography:</strong>{' '}
+          <span>{f.brandTypography || '-'}</span>
+        </p>
+
+        <p>
+          <strong className="text-slate-900">Prinsip Layout:</strong>{' '}
+          <span>{f.brandLayout || '-'}</span>
+        </p>
+
+        <p>
+          <strong className="text-slate-900">Breakpoint:</strong>{' '}
+          <span className="font-mono">{buildBreakpoints(f) || '-'}</span>
+        </p>
       </div>
     </div>
   );
@@ -2562,6 +2894,176 @@ export const useThemeStore = create(function (set) {
 });
 ````
 
+## File: src/utils/markdown.js
+````javascript
+import { buildBreakpoints, formatTargetDate } from './helpers';
+import { TECH_REQUIRED, TECH_OPTIONAL } from './constants';
+import { getSectionNote } from './sectionNotes';
+
+const BT = String.fromCharCode(96);
+const FENCE = BT + BT + BT;
+
+const isVis = function (mode, extras, key) {
+  return mode === 'enterprise' || extras[key] === true;
+};
+
+const noteBlock = function (state, key) {
+  const note = getSectionNote(state, key);
+
+  if (!note) return '';
+
+  const label = note.important ? 'Penting' : 'Catatan';
+  const parts = note.text.split('\n');
+
+  let block = '> **' + label + ':** ' + parts[0] + '\n';
+
+  for (let i = 1; i < parts.length; i++) {
+    block += '> ' + parts[i] + '\n';
+  }
+
+  return block + '\n';
+};
+
+export const generateMarkdown = function (state) {
+  const f = state.fields;
+  const features = state.features;
+  const palette = state.palette;
+  const roles = state.roles;
+  const acModules = state.acModules;
+  const schemaTables = state.schemaTables;
+  const mode = state.mode;
+  const se = state.simpleExtras;
+  const techOptional = state.techOptional || [];
+
+  const title = f.projectName || 'PROYEK TANPA NAMA';
+  const date = formatTargetDate(f.targetDate, f.targetDateFormat);
+
+  let feat = '| ID | Fitur | Deskripsi | Prioritas |\n|---|---|---|---|\n';
+
+  features.forEach(function (ft) {
+    feat += '| ' + ft.id + ' | ' + ft.name + ' | ' + ft.story + ' | ' + ft.priority + ' |\n';
+  });
+
+  let out = '# ' + title + '\n**Product Requirement Document (' + mode.toUpperCase() + ')**\n\n';
+
+  out += '**Author:** ' + f.author + ' | **Version:** ' + f.docVersion + ' | **Target:** ' + date + '\n\n';
+
+  out += '## 1. Overview & Goals\n- **Problem:** ' + f.problemStatement + '\n- **Goal:** ' + f.productGoal + '\n\n';
+  out += noteBlock(state, 'problemGoal');
+
+  if (isVis(mode, se, 'persona')) {
+    out += '## 1.1 Target User Persona & Metrics\n- **Persona:** ' + f.userPersona + '\n- **Success KPI:** ' + f.successMetrics + '\n\n';
+    out += noteBlock(state, 'persona');
+  }
+
+  if (isVis(mode, se, 'branding') && (palette.length || f.brandTypography)) {
+    const bp = buildBreakpoints(f);
+
+    out += '## 1.2 Branding & Design System\n';
+    out += palette.map(function (p) {
+      return '- **' + p.name + '** ' + BT + p.hex + BT + ' : ' + p.usage;
+    }).join('\n');
+
+    out += '\n\n**Typography:** ' + f.brandTypography + '\n**Layout:** ' + f.brandLayout + '\n';
+
+    if (bp) out += '**Breakpoint:** ' + bp + '\n';
+
+    out += '\n';
+    out += noteBlock(state, 'branding');
+  }
+
+  if (isVis(mode, se, 'roles') && roles.length) {
+    out += '## 1.3 Role & Permission Matrix\n';
+
+    out += roles.map(function (r) {
+      return (
+        '### ' + r.name + '\n- \u2705 ' +
+        r.can.split('\n').filter(function (x) { return x.trim(); }).join(' | ') +
+        '\n- \u274c ' +
+        r.cannot.split('\n').filter(function (x) { return x.trim(); }).join(' | ')
+      );
+    }).join('\n\n');
+
+    out += '\n\n';
+    out += noteBlock(state, 'roles');
+  }
+
+  out += '## 2. Core Features (Requirements)\n' + feat + '\n';
+  out += noteBlock(state, 'features');
+
+  if (isVis(mode, se, 'ac') && acModules.length) {
+    out += '## 2.1 Acceptance Criteria per Modul\n';
+
+    out += acModules.map(function (m, mi) {
+      return (
+        '### ' + (mi + 1) + '. ' + m.title + '\n' +
+        m.items.map(function (it, ii) {
+          return '- **AC-' + (mi + 1) + '.' + (ii + 1) + ' ' + it.title + '**: ' + it.desc;
+        }).join('\n')
+      );
+    }).join('\n\n');
+
+    out += '\n\n';
+    out += noteBlock(state, 'ac');
+  }
+
+  out += '## 3. User Flow\n' + BT + f.userFlow + BT + '\n\n';
+
+  out += '## 4. Detailed Tech Stack & Architecture\n';
+
+  TECH_REQUIRED.forEach(function (d) {
+    out += '- **' + d.label + ':** ' + (f[d.key] || '-') + '\n';
+  });
+
+  TECH_OPTIONAL.forEach(function (d) {
+    if (techOptional.includes(d.key)) {
+      out += '- **' + d.label + ':** ' + (f[d.key] || '-') + '\n';
+    }
+  });
+
+  out += '\n' + FENCE + 'sql\n' + f.dbSchema + '\n' + FENCE + '\n\n';
+  out += noteBlock(state, 'techStack');
+
+  if (isVis(mode, se, 'schema') && schemaTables.length) {
+    out += '## 4.1 Schema Data\n';
+
+    out += schemaTables.map(function (t) {
+      let s = '### Tabel: ' + (t.name || 'tanpa_nama') + '\n';
+
+      if (t.desc) s += '> ' + t.desc + '\n';
+
+      s += '| Field | Tipe | Not Null | Keterangan |\n|---|---|---|---|\n';
+
+      s += t.fields.map(function (c) {
+        return '| ' + c.field + ' | ' + c.type + ' | ' + c.required + ' | ' + c.note + ' |';
+      }).join('\n');
+
+      return s;
+    }).join('\n\n');
+
+    out += '\n\n';
+    out += noteBlock(state, 'schema');
+  }
+
+  if (isVis(mode, se, 'nfr')) {
+    out += '## 4.2 NFR, Prototype & Risk Analysis\n';
+    out += '- **Keamanan:** ' + f.nfrSpecs + '\n';
+    out += '- **Performance:** ' + f.nfrPerformance + '\n';
+    out += '- **Lokalisasi:** ' + f.nfrLocalization + '\n';
+    out += '- **Browser:** ' + f.nfrBrowser + '\n';
+    out += '- **Figma Link:** ' + f.figmaLink + '\n';
+    out += '- **Risk & Mitigation:** ' + f.riskMitigation + '\n\n';
+    out += noteBlock(state, 'nfr');
+  }
+
+  out += '## 5. Out of Scope\n' + f.outOfScope + '\n\n';
+  out += '## 6. Definition of Done\n' + f.defOfDone;
+  out += noteBlock(state, 'outOfScope');
+
+  return out;
+};
+````
+
 ## File: playwright.config.js
 ````javascript
 import { defineConfig, devices } from '@playwright/test';
@@ -2764,6 +3266,37 @@ Proyek ini didistribusikan di bawah lisensi **MIT**. Silakan merujuk ke berkas [
 </p>
 ````
 
+## File: src/components/editor/EditorSection.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import SectionNote from './SectionNote';
+import { getNoteKeyByTitle } from '../../utils/sectionNotes';
+
+export default function EditorSection(props) {
+  const title = props.title;
+  const icon = props.icon;
+  const action = props.action;
+  const children = props.children;
+  const noteKey = props.noteKey || getNoteKeyByTitle(title);
+
+  return (
+    <div className="bg-card p-5 rounded-xl border border-line space-y-4">
+      <div className="flex justify-between items-center gap-2">
+        <h2 className="text-sm font-bold uppercase tracking-wider flex items-center text-ink">
+          {icon && <FontAwesomeIcon icon={icon} className="mr-2 text-accent" />}
+          {title}
+        </h2>
+        {action}
+      </div>
+
+      {children}
+
+      {noteKey ? <SectionNote noteKey={noteKey} /> : null}
+    </div>
+  );
+}
+````
+
 ## File: src/components/preview/sections/NfrPreview.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
@@ -2859,32 +3392,22 @@ export default function RolesPreview() {
 ## File: src/components/preview/CoverPage.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { formatTargetDate, resolveCoverTheme, titleCaseForCover } from '../../utils/helpers';
+import { formatTargetDate, titleCaseForCover } from '../../utils/helpers';
 
 export default function CoverPage() {
   const f = usePrdStore(function (s) { return s.fields; });
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
   const features = usePrdStore(function (s) { return s.features; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-
-  const theme = resolveCoverTheme(f, palette);
 
   const kicker = (f.coverKicker || '').trim() || 'PRODUCT REQUIREMENT DOCUMENT';
   const words = (f.projectName || 'PROYEK TANPA NAMA').toUpperCase().split(/\s+/).filter(Boolean);
   const firstWord = words[0] || '';
   const restWords = words.slice(1).join(' ');
 
-  // SATU SUMBER KEBENARAN: sampul hanya membaca coverSubtitle.
-  // Apa yang diketik di field Subtitle Sampul, itu yang tampil.
-  // Jika kosong, tampilkan teks default yang netral.
   const rawSubtitle = (f.coverSubtitle || '').trim();
   const subtitle = rawSubtitle ? titleCaseForCover(rawSubtitle) : 'Dokumen Spesifikasi Produk';
 
-  // Baris fitur: ambil maksimal 4 nama fitur pertama.
-  // PERBAIKAN KECIL: nama yang terlalu panjang dipotong di
-  // batas kata (bukan di tengah kata) agar sampul tidak
-  // berantakan dan tetap terlihat profesional.
   const featureLine = features.length
     ? features.slice(0, 4).map(function (ft) {
         let name = (ft.name || ft.id || '').trim();
@@ -2894,8 +3417,8 @@ export default function CoverPage() {
           name = cut.slice(0, lastSpace > 12 ? lastSpace : 22).trimEnd() + '...';
         }
         return name;
-      }).join(' · ')
-    : 'Overview · Fitur Utama · Tech Stack';
+      }).join(' \u00B7 ')
+    : 'Overview \u00B7 Fitur Utama \u00B7 Tech Stack';
 
   const vis = function (key) { return mode === 'enterprise' || se[key] === true; };
   const scope = ['Overview & Goals'];
@@ -2916,67 +3439,56 @@ export default function CoverPage() {
   const targetDate = formatTargetDate(f.targetDate, f.targetDateFormat);
   const owner = (f.author || '').trim() || '-';
   const status = f.docStatus || 'Draft';
-
   const labelCls = 'meta-label text-[9px] md:text-[10px] font-semibold uppercase tracking-[0.18em] whitespace-nowrap';
   const valueCls = 'mt-1 text-[11px] text-slate-400';
 
   return (
-    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: theme.bg }}>
-      <div className="h-8 w-full" style={{ background: theme.primary }} />
-
+    <div className="doc-cover relative flex flex-col w-full max-w-2xl mx-auto mb-6 overflow-hidden rounded-lg shadow-2xl text-slate-300 min-h-[780px]" style={{ background: 'var(--doc-bg, #15171C)' }}>
+      <div className="h-8 w-full" style={{ background: 'var(--doc-primary, #C9A961)' }} />
       <div className="cover-body flex-1 flex flex-col px-8 md:px-14 pt-16 md:pt-20 pb-8">
         <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-wide text-white leading-tight">
           {firstWord}
-          {restWords && <span style={{ color: theme.primary }}> {restWords}</span>}
+          {restWords && <span style={{ color: 'var(--doc-primary, #C9A961)' }}> {restWords}</span>}
         </h1>
-
-        <div className="mt-5 h-[3px] w-16" style={{ background: theme.accent }} />
-
-        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: theme.primary }}>{kicker}</p>
-
-        {/* Subtitle sampul: stabil, terkendali, satu sumber */}
+        <div className="mt-5 h-[3px] w-16" style={{ background: 'var(--doc-accent, #AB883A)' }} />
+        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.35em]" style={{ color: 'var(--doc-primary, #C9A961)' }}>{kicker}</p>
         <h2 className="mt-3 max-w-[85%] text-xl md:text-2xl font-bold leading-snug text-white" title={rawSubtitle || 'Isi lewat section Sampul & Footer Dokumen'}>
           {subtitle}
         </h2>
-
         <p className="mt-5 text-xs text-slate-400">{featureLine}</p>
-
-        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: theme.primary, background: 'rgba(255,255,255,0.05)' }}>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: theme.primary }}>Ruang Lingkup Dokumen</p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' · ')}</p>
+        <div className="mt-8 border-l-[3px] px-5 py-4" style={{ borderColor: 'var(--doc-primary, #C9A961)', background: 'rgba(255,255,255,0.05)' }}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--doc-primary, #C9A961)' }}>Ruang Lingkup Dokumen</p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-300">{scope.join(' \u00B7 ')}</p>
         </div>
-
         <div className="flex-1 min-h-6" />
-
         <div className="cover-meta grid grid-cols-2 md:grid-cols-3 gap-x-4 md:gap-x-6 gap-y-5 border-t border-slate-700 pt-4">
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Versi</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Versi</p>
             <p className={valueCls}>{f.docVersion || '1.0'}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Bahasa</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Bahasa</p>
             <p className={valueCls}>Indonesia</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Target Rilis</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Target Rilis</p>
             <p className={valueCls}>{targetDate}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Tanggal Dibuat</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Tanggal Dibuat</p>
             <p className={valueCls}>{createdDate}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Owner</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Owner</p>
             <p className={valueCls}>{owner}</p>
           </div>
           <div>
-            <p className={labelCls} style={{ color: theme.primary }}>Status</p>
+            <p className={labelCls} style={{ color: 'var(--doc-primary, #C9A961)' }}>Status</p>
             <p className={valueCls}>{status}</p>
           </div>
         </div>
       </div>
-
-      <div className="h-8 w-full" style={{ background: theme.accent }} />
+      <div className="h-8 w-full" style={{ background: 'var(--doc-accent, #AB883A)' }} />
     </div>
   );
 }
@@ -3046,56 +3558,6 @@ export default function PreviewActions() {
         <IconButton icon={faPrint} onClick={function () { exportService.printDocument(); }} variant="primary" className="col-span-2 w-full sm:w-auto" ariaLabel="Ekspor PDF atau cetak">Ekspor PDF / Cetak</IconButton>
       </div>
     </div>
-  );
-}
-````
-
-## File: src/components/preview/PreviewDocument.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-import { resolveCoverTheme } from '../../utils/helpers';
-import CoverPage from './CoverPage';
-import DocFooter from './DocFooter';
-import OverviewPreview from './sections/OverviewPreview';
-import FeaturesPreview from './sections/FeaturesPreview';
-import TechStackPreview from './sections/TechStackPreview';
-import PersonaPreview from './sections/PersonaPreview';
-import BrandingPreview from './sections/BrandingPreview';
-import RolesPreview from './sections/RolesPreview';
-import AcPreview from './sections/AcPreview';
-import SchemaPreview from './sections/SchemaPreview';
-import NfrPreview from './sections/NfrPreview';
-import ScopeDonePreview from './sections/ScopeDonePreview';
-
-export default function PreviewDocument() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const theme = resolveCoverTheme(f, palette);
-
-  return (
-    <>
-      <CoverPage />
-      <div
-        id="prdDocument"
-        className="bg-white text-slate-900 p-8 rounded-lg border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
-        style={{
-          '--doc-primary': theme.primary,
-          '--doc-primary-text': theme.primaryText,
-          '--doc-accent': theme.accent,
-          '--doc-accent-text': theme.accentText,
-        }}
-      >
-        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
-        <div className="space-y-2 keep-together">
-          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
-          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">
-            {f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}
-          </div>
-        </div>
-        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
-        <DocFooter />
-      </div>
-    </>
   );
 }
 ````
@@ -3534,10 +3996,156 @@ export default function AcSection() {
 import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { usePrdStore } from '../../../store/usePrdStore';
-import { liveHexColor, normalizeHex } from '../../../utils/helpers';
+import { liveHexColor } from '../../../utils/helpers';
+import { useSmoothColor } from '../../../hooks/useSmoothColor';
 import EditorSection from '../EditorSection';
 import IconButton from '../../shared/IconButton';
 import AiRefineButton from '../../shared/AiRefineButton';
+
+function updateDomColor(i, hex) {
+  const clean = (hex || '').replace(/^#/, '');
+
+  const editorSwatch = document.getElementById('palette-swatch-' + i);
+  if (editorSwatch) editorSwatch.style.background = hex;
+
+  const editorHex = document.getElementById('palette-hex-' + i);
+  if (editorHex) editorHex.value = clean;
+
+  const previewSwatch = document.getElementById('preview-palette-swatch-' + i);
+  if (previewSwatch) previewSwatch.style.border = '8px solid ' + hex;
+
+  const previewHex = document.getElementById('preview-palette-hex-' + i);
+  if (previewHex) previewHex.textContent = hex;
+}
+
+function PaletteRow(props) {
+  const p = props.p;
+  const i = props.i;
+  const updP = props.updP;
+  const remP = props.remP;
+
+  const smooth = useSmoothColor({
+    value: p.hex,
+    commit: function (v) {
+      updP(i, { hex: v });
+    },
+    makeLive: function (hex) {
+      const current = usePrdStore.getState().palette || [];
+      const pal = current.slice();
+
+      pal[i] = Object.assign({}, pal[i] || {}, {
+        hex: hex,
+      });
+
+      return { palette: pal };
+    },
+    onLiveDom: function (hex) {
+      updateDomColor(i, hex);
+    },
+  });
+
+  const d = (p.hex || '').replace(/^#/, '');
+
+  return (
+    <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-field border border-line rounded-lg text-xs">
+      <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
+        <span
+          id={'palette-swatch-' + i}
+          className="w-5 h-5 rounded-full border border-line"
+          style={{ background: liveHexColor(d) || '#0f172a' }}
+        />
+      </span>
+
+      <label htmlFor={'palette-name-' + i} className="sr-only">
+        Nama warna {i + 1}
+      </label>
+
+      <input
+        id={'palette-name-' + i}
+        value={p.name}
+        onChange={function (e) { updP(i, { name: e.target.value }); }}
+        placeholder="Nama warna"
+        className="col-span-4 md:col-span-3 order-2 bg-card border border-line rounded p-1.5 text-ink"
+      />
+
+      <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
+        <label htmlFor={'palette-hex-' + i} className="sr-only">
+          Kode hex warna {i + 1}
+        </label>
+
+        <span
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none"
+          aria-hidden="true"
+        >
+          #
+        </span>
+
+        <input
+          id={'palette-hex-' + i}
+          type="text"
+          value={d}
+          onChange={function (e) {
+            const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+            updP(i, { hex: c ? '#' + c : '' });
+          }}
+          placeholder="FFFFFF"
+          maxLength="6"
+          className="w-full bg-card border border-line rounded p-1.5 pl-6 pr-8 text-ink font-mono focus:border-accent focus:outline-none"
+        />
+
+        <label htmlFor={'palette-picker-' + i} className="sr-only">
+          Pilih warna {i + 1}
+        </label>
+
+        <input
+          key={smooth.version}
+          id={'palette-picker-' + i}
+          type="color"
+          ref={smooth.ref}
+          defaultValue={smooth.defaultHex}
+          onChange={smooth.onInput}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer"
+        />
+
+        <FontAwesomeIcon
+          icon={faEyeDropper}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-mut pointer-events-none"
+          aria-hidden="true"
+        />
+      </div>
+
+      <label htmlFor={'palette-usage-' + i} className="sr-only">
+        Penggunaan warna {i + 1}
+      </label>
+
+      <div className="relative col-span-3 order-5 md:order-4">
+        <input
+          id={'palette-usage-' + i}
+          value={p.usage}
+          onChange={function (e) { updP(i, { usage: e.target.value }); }}
+          placeholder="Penggunaan"
+          className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink"
+        />
+
+        <AiRefineButton
+          value={p.usage}
+          onApply={function (v) { updP(i, { usage: v }); }}
+          mode="phrase"
+          label={'penggunaan warna ' + (p.name || (i + 1))}
+          className="absolute right-1 top-1/2 -translate-y-1/2"
+        />
+      </div>
+
+      <button
+        onClick={function () { remP(i); }}
+        aria-label={'Hapus warna ' + (p.name || (i + 1))}
+        className="col-span-1 order-3 md:order-5 text-danger flex justify-center"
+      >
+        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 export default function BrandingSection() {
   const mode = usePrdStore(function (s) { return s.mode; });
@@ -3558,70 +4166,133 @@ export default function BrandingSection() {
   ];
 
   return (
-    <EditorSection title="Branding & Design System" icon={faPalette}
-      action={<IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">+ Warna</IconButton>}>
+    <EditorSection
+      title="Branding & Design System"
+      icon={faPalette}
+      action={
+        <IconButton onClick={addP} variant="accent" ariaLabel="Tambah warna baru">
+          + Warna
+        </IconButton>
+      }
+    >
       <div className="space-y-2">
         {palette.map(function (p, i) {
-          const d = (p.hex || '').replace(/^#/, '');
           return (
-            <div key={i} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-field border border-line rounded-lg text-xs">
-              <span className="col-span-1 order-1 flex justify-center" aria-hidden="true">
-                <span className="w-5 h-5 rounded-full border border-line" style={{ background: liveHexColor(d) || '#0f172a' }} />
-              </span>
-              <label htmlFor={'palette-name-' + i} className="sr-only">Nama warna {i + 1}</label>
-              <input id={'palette-name-' + i} value={p.name} onChange={function (e) { updP(i, { name: e.target.value }); }} placeholder="Nama warna" className="col-span-4 md:col-span-3 order-2 bg-card border border-line rounded p-1.5 text-ink" />
-              <div className="relative col-span-3 md:col-span-4 order-4 md:order-3">
-                <label htmlFor={'palette-hex-' + i} className="sr-only">Kode hex warna {i + 1}</label>
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none" aria-hidden="true">#</span>
-                <input id={'palette-hex-' + i} type="text" value={d} onChange={function (e) { const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6); updP(i, { hex: c ? '#' + c : '' }); }} placeholder="FFFFFF" maxLength="6" className="w-full bg-card border border-line rounded p-1.5 pl-6 pr-8 text-ink font-mono focus:border-accent focus:outline-none" />
-                <label htmlFor={'palette-picker-' + i} className="sr-only">Pilih warna {i + 1}</label>
-                <input id={'palette-picker-' + i} type="color" value={normalizeHex(p.hex)} onChange={function (e) { updP(i, { hex: e.target.value }); }} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 opacity-0 cursor-pointer" />
-                <FontAwesomeIcon icon={faEyeDropper} className="absolute right-3 top-1/2 -translate-y-1/2 text-mut pointer-events-none" aria-hidden="true" />
-              </div>
-              <label htmlFor={'palette-usage-' + i} className="sr-only">Penggunaan warna {i + 1}</label>
-              <div className="relative col-span-3 order-5 md:order-4">
-                <input id={'palette-usage-' + i} value={p.usage} onChange={function (e) { updP(i, { usage: e.target.value }); }} placeholder="Penggunaan" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
-                <AiRefineButton value={p.usage} onApply={function (v) { updP(i, { usage: v }); }} mode="phrase" label={'penggunaan warna ' + (p.name || (i + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-              </div>
-              <button onClick={function () { remP(i); }} aria-label={'Hapus warna ' + (p.name || (i + 1))} className="col-span-1 order-3 md:order-5 text-danger flex justify-center">
-                <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-              </button>
-            </div>
+            <PaletteRow
+              key={i}
+              p={p}
+              i={i}
+              updP={updP}
+              remP={remP}
+            />
           );
         })}
       </div>
+
       <div className="space-y-3 text-xs pt-2">
         <div>
-          <label htmlFor="brandTypography" className="block text-ink font-medium mb-1">Typography</label>
+          <label htmlFor="brandTypography" className="block text-ink font-medium mb-1">
+            Typography
+          </label>
+
           <div className="relative">
-            <input id="brandTypography" type="text" value={f.brandTypography} onChange={function (e) { set('brandTypography', e.target.value); }} placeholder="misal: Inter / Geist" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
-            <AiRefineButton value={f.brandTypography} onApply={function (v) { set('brandTypography', v); }} mode="phrase" label="Typography" className="absolute right-2 top-1/2 -translate-y-1/2" />
+            <input
+              id="brandTypography"
+              type="text"
+              value={f.brandTypography}
+              onChange={function (e) { set('brandTypography', e.target.value); }}
+              placeholder="misal: Inter / Geist"
+              className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none"
+            />
+
+            <AiRefineButton
+              value={f.brandTypography}
+              onApply={function (v) { set('brandTypography', v); }}
+              mode="phrase"
+              label="Typography"
+              className="absolute right-2 top-1/2 -translate-y-1/2"
+            />
           </div>
         </div>
+
         <div>
-          <label htmlFor="brandLayout" className="block text-ink font-medium mb-1">Prinsip Layout</label>
+          <label htmlFor="brandLayout" className="block text-ink font-medium mb-1">
+            Prinsip Layout
+          </label>
+
           <div className="relative">
-            <textarea id="brandLayout" value={f.brandLayout} onChange={function (e) { set('brandLayout', e.target.value); }} rows="2" placeholder="misal: compact, mobile-responsive" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none" />
-            <AiRefineButton value={f.brandLayout} onApply={function (v) { set('brandLayout', v); }} mode="paragraph" label="Prinsip Layout" className="absolute right-2 top-2" />
+            <textarea
+              id="brandLayout"
+              value={f.brandLayout}
+              onChange={function (e) { set('brandLayout', e.target.value); }}
+              rows="2"
+              placeholder="misal: compact, mobile-responsive"
+              className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none resize-none"
+            />
+
+            <AiRefineButton
+              value={f.brandLayout}
+              onApply={function (v) { set('brandLayout', v); }}
+              mode="paragraph"
+              label="Prinsip Layout"
+              className="absolute right-2 top-2"
+            />
           </div>
         </div>
+
         <div>
-          <span className="block text-ink font-medium mb-1">Breakpoint Responsif</span>
+          <span className="block text-ink font-medium mb-1">
+            Breakpoint Responsif
+          </span>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {bps.map(function (bp) {
               return (
                 <div key={bp.k}>
-                  <label htmlFor={bp.k + '-op'} className="block text-[10px] text-mut mb-1 uppercase tracking-wider">{bp.l} operator</label>
+                  <label
+                    htmlFor={bp.k + '-op'}
+                    className="block text-[10px] text-mut mb-1 uppercase tracking-wider"
+                  >
+                    {bp.l} operator
+                  </label>
+
                   <div className="flex">
-                    <select id={bp.k + '-op'} value={f[bp.k + 'Op']} onChange={function (e) { set(bp.k + 'Op', e.target.value); }} className="bg-card border border-line rounded-l-lg px-1.5 py-2 text-[11px] text-mut font-mono">
+                    <select
+                      id={bp.k + '-op'}
+                      value={f[bp.k + 'Op']}
+                      onChange={function (e) { set(bp.k + 'Op', e.target.value); }}
+                      className="bg-card border border-line rounded-l-lg px-1.5 py-2 text-[11px] text-mut font-mono"
+                    >
                       <option value={'\u2264'}>{'\u2264'}</option>
                       <option value={'\u2265'}>{'\u2265'}</option>
                       <option value="=">=</option>
                     </select>
-                    <label htmlFor={bp.k} className="sr-only">{bp.l} breakpoint value</label>
-                    <input id={bp.k} type="text" value={f[bp.k]} onChange={function (e) { set(bp.k, e.target.value.replace(/[^0-9.]/g, '')); }} placeholder={bp.l === 'Mobile' ? '640' : '1024'} className="w-full min-w-0 bg-field border-y border-line px-2 py-2 text-[11px] text-ink font-mono" />
-                    <label htmlFor={bp.k + '-unit'} className="sr-only">{bp.l} unit</label>
-                    <select id={bp.k + '-unit'} value={f[bp.k + 'Unit']} onChange={function (e) { set(bp.k + 'Unit', e.target.value); }} className="bg-card border border-line rounded-r-lg px-1.5 py-2 text-[11px] text-mut font-mono">
+
+                    <label htmlFor={bp.k} className="sr-only">
+                      {bp.l} breakpoint value
+                    </label>
+
+                    <input
+                      id={bp.k}
+                      type="text"
+                      value={f[bp.k]}
+                      onChange={function (e) {
+                        set(bp.k, e.target.value.replace(/[^0-9.]/g, ''));
+                      }}
+                      placeholder={bp.l === 'Mobile' ? '640' : '1024'}
+                      className="w-full min-w-0 bg-field border-y border-line px-2 py-2 text-[11px] text-ink font-mono"
+                    />
+
+                    <label htmlFor={bp.k + '-unit'} className="sr-only">
+                      {bp.l} unit
+                    </label>
+
+                    <select
+                      id={bp.k + '-unit'}
+                      value={f[bp.k + 'Unit']}
+                      onChange={function (e) { set(bp.k + 'Unit', e.target.value); }}
+                      className="bg-card border border-line rounded-r-lg px-1.5 py-2 text-[11px] text-mut font-mono"
+                    >
                       <option value="px">px</option>
                       <option value="rem">rem</option>
                       <option value="em">em</option>
@@ -4173,6 +4844,53 @@ export default function ScrollButtons() {
     <div>
       <div className={editorCls}>{btn('editor')}</div>
       <div className={previewCls}>{btn('preview')}</div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/PreviewDocument.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+
+import CoverPage from './CoverPage';
+import DocFooter from './DocFooter';
+import LiveThemeVars from './LiveThemeVars';
+
+import OverviewPreview from './sections/OverviewPreview';
+import FeaturesPreview from './sections/FeaturesPreview';
+import TechStackPreview from './sections/TechStackPreview';
+import PersonaPreview from './sections/PersonaPreview';
+import BrandingPreview from './sections/BrandingPreview';
+import RolesPreview from './sections/RolesPreview';
+import AcPreview from './sections/AcPreview';
+import SchemaPreview from './sections/SchemaPreview';
+import NfrPreview from './sections/NfrPreview';
+import ScopeDonePreview from './sections/ScopeDonePreview';
+
+export default function PreviewDocument() {
+  const f = usePrdStore(function (s) { return s.fields; });
+
+  return (
+    <div id="previewThemeRoot">
+      <LiveThemeVars targetId="previewThemeRoot" />
+
+      <CoverPage />
+
+      <div
+        id="prdDocument"
+        className="bg-white text-slate-900 p-8 rounded-lg border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
+      >
+        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
+        <div className="space-y-2 keep-together">
+          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">
+            {f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}
+          </div>
+        </div>
+        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
+        <DocFooter />
+      </div>
     </div>
   );
 }
@@ -4981,13 +5699,13 @@ export default function App() {
       } catch (e) {}
     </script>
     <meta property="og:title" content="PRD Architect" />
-    <meta property="og:description" content="Perancang Dokumen PRD Profesional - Simple MVP & Enterprise Mode" />
+    <meta property="og:description" content="Perancang PRD Profesional - Simple MVP & Enterprise Mode" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="id_ID" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="PRD Architect" />
-    <meta name="twitter:description" content="Perancang Dokumen PRD Profesional" />
-    <title>PRD Architect - Perancang Dokumen PRD Profesional</title>
+    <meta name="twitter:description" content="Perancang PRD Profesional" />
+    <title>PRD Architect - Perancang PRD Profesional</title>
     <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -5022,23 +5740,39 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { usePrdStore } from '../../../store/usePrdStore';
 import { resolveCoverTheme } from '../../../utils/helpers';
 import { generateCoverTagline } from '../../../services/aiService';
+import { useSmoothColor } from '../../../hooks/useSmoothColor';
 import { useToast } from '../../../hooks/useToast';
 import EditorSection from '../EditorSection';
 import ToggleSwitch from '../../shared/ToggleSwitch';
 
 function ColorField(props) {
   const digits = (props.value || '').replace(/^#/, '');
-  const safe = /^#[0-9A-Fa-f]{6}$/.test(props.value || '') ? props.value : '#000000';
   const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+
+  const smooth = useSmoothColor({
+    value: props.value,
+    commit: props.onChange,
+    makeLive: function (hex) {
+      const patch = {};
+      patch[props.fieldKey] = hex;
+      return { fieldsPatch: patch };
+    },
+    onLiveDom: function (hex) {
+      const el = document.getElementById(inputId);
+      if (el) el.value = (hex || '').replace(/^#/, '');
+    },
+  });
 
   return (
     <div>
       <span className="block text-ink font-medium mb-1">{props.label}</span>
       <div className="flex items-center gap-2">
         <input
+          key={smooth.version}
           type="color"
-          value={safe}
-          onChange={function (e) { props.onChange(e.target.value); }}
+          ref={smooth.ref}
+          defaultValue={smooth.defaultHex}
+          onChange={smooth.onInput}
           aria-label={'Pilih ' + props.label}
           className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
         />
@@ -5073,6 +5807,7 @@ export default function CoverFooterSection() {
   const commit = usePrdStore(function (s) { return s.commitHistory; });
   const showToast = useToast();
   const [aiBusy, setAiBusy] = useState(false);
+
   const auto = f.coverThemeAuto !== false;
 
   const handleToggleAuto = function (v) {
@@ -5118,9 +5853,9 @@ export default function CoverFooterSection() {
           </p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+            <ColorField fieldKey="coverPrimary" label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField fieldKey="coverAccent" label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField fieldKey="coverBg" label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
           </div>
         )}
         <div>
@@ -5706,11 +6441,12 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 #prdDocument th, #prdDocument td { overflow-wrap: break-word; }
 #prdDocument p, #prdDocument span, #prdDocument li { overflow-wrap: anywhere; }
 
-#prdDocument {
+#previewThemeRoot {
   --doc-primary: #2563eb;
   --doc-primary-text: #1e40af;
   --doc-accent: #b45309;
   --doc-accent-text: #92400e;
+   --doc-bg: #15171C;
 }
 #prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
 #prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
@@ -5786,6 +6522,27 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 .cover-fade-in { animation: coverSubtitleIn 0.6s ease; }
 ````
 
+## File: .gitignore
+````
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode
+.env
+repomix-output.md
+.repomixignore
+.vercel
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+````
+
 ## File: src/utils/constants.js
 ````javascript
 import { faServer, faDatabase, faCloud, faGlobe, faCodeBranch, faShieldHalved, faHardDrive, faPlug, faInfinity, faBolt, faEnvelopeOpenText, faChartLine, faChartColumn, faFlask, faRobot } from '@fortawesome/free-solid-svg-icons';
@@ -5839,6 +6596,34 @@ export const DATA_TYPES = [
   { category: 'Sistem & Identitas', items: ['UUID / GUID','INET','MACADDR'] },
 ];
 
+export const SECTION_NOTE_KEYS = [
+  'problemGoal',
+  'persona',
+  'branding',
+  'roles',
+  'features',
+  'ac',
+  'techStack',
+  'schema',
+  'nfr',
+  'outOfScope',
+];
+
+export const DEFAULT_SECTION_NOTES = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = '';
+  return acc;
+}, {});
+
+export const DEFAULT_SECTION_NOTES_ENABLED = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = false;
+  return acc;
+}, {});
+
+export const DEFAULT_SECTION_NOTES_IMPORTANT = SECTION_NOTE_KEYS.reduce(function (acc, key) {
+  acc[key] = false;
+  return acc;
+}, {});
+
 export const DEFAULT_FIELDS = {
   projectName:'',docVersion:'1.0',docStatus:'Draft',author:'',targetDate:'',targetDateFormat:'full',
   problemStatement:'',productGoal:'',userPersona:'',successMetrics:'',
@@ -5856,30 +6641,16 @@ export const DEFAULT_FIELDS = {
   coverThemeAuto:true,coverPrimary:'#C9A961',coverAccent:'#AB883A',coverBg:'#15171C',
   coverKicker:'',coverFooterNote:'',coverShowFooter:true,
   coverSubtitle:'',
+  sectionNotes: { ...DEFAULT_SECTION_NOTES },
+  sectionNotesEnabled: { ...DEFAULT_SECTION_NOTES_ENABLED },
+  sectionNotesImportant: { ...DEFAULT_SECTION_NOTES_IMPORTANT },
 };
 
-export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) { const o = Object.assign({}, a); o[d.key] = false; return o; }, {});
-````
-
-## File: .gitignore
-````
-node_modules
-dist
-dist-ssr
-*.local
-.DS_Store
-.vscode
-.env
-repomix-output.md
-.repomixignore
-.vercel
-
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
+export const INITIAL_SIMPLE_EXTRAS = EXTRAS_DEFINITIONS.reduce(function (a, d) {
+  const o = Object.assign({}, a);
+  o[d.key] = false;
+  return o;
+}, {});
 ````
 
 ## File: package.json
@@ -5925,66 +6696,6 @@ repomix-output.md
 }
 ````
 
-## File: src/components/editor/EditorPanel.jsx
-````javascript
-import { useEffect } from 'react';
-import { useAutoSave } from '../../hooks/useAutoSave';
-import { useAutoResize } from '../../hooks/useAutoResize';
-import ModeBanner from './ModeBanner';
-import ExtrasPicker from './ExtrasPicker';
-import AiAnalysisCard from './AiAnalysisCard';
-import ProjectInfo from './sections/ProjectInfo';
-import ProblemGoal from './sections/ProblemGoal';
-import PersonaSection from './sections/PersonaSection';
-import BrandingSection from './sections/BrandingSection';
-import CoverFooterSection from './sections/CoverFooterSection';
-import RolesSection from './sections/RolesSection';
-import FeaturesList from './sections/FeaturesList';
-import AcSection from './sections/AcSection';
-import TechStack from './sections/TechStack';
-import SchemaSection from './sections/SchemaSection';
-import NfrSection from './sections/NfrSection';
-import OutOfScope from './sections/OutOfScope';
-
-function AutoSaveBridge() {
-  useAutoSave();
-  return null;
-}
-
-export default function EditorPanel() {
-  const ra = useAutoResize();
-
-  useEffect(function () {
-    function onInput(e) {
-      if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
-    }
-    document.addEventListener('input', onInput);
-    return function () { document.removeEventListener('input', onInput); };
-  }, [ra.resize]);
-
-  return (
-    <section id="editorPanel" className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base" style={{ height: '100%' }}>
-      <AutoSaveBridge />
-      <ModeBanner />
-      <ExtrasPicker />
-      <AiAnalysisCard />
-      <CoverFooterSection />
-      <ProjectInfo />
-      <ProblemGoal />
-      <PersonaSection />
-      <BrandingSection />
-      <RolesSection />
-      <FeaturesList />
-      <AcSection />
-      <TechStack />
-      <SchemaSection />
-      <NfrSection />
-      <OutOfScope />
-    </section>
-  );
-}
-````
-
 ## File: src/components/header/Header.jsx
 ````javascript
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -6018,7 +6729,7 @@ export default function Header(props) {
         </div>
         <div className="min-w-0">
           <h1 className="font-bold text-base md:text-lg text-ink leading-snug truncate py-0.5">PRD Architect</h1>
-          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang Dokumen PRD Profesional</p>
+          <p className="text-[11px] md:text-xs text-mut mt-0.5 md:mt-1 truncate">Perancang PRD Profesional</p>
         </div>
       </div>
 
@@ -6060,10 +6771,95 @@ export default function Header(props) {
 }
 ````
 
+## File: src/components/editor/EditorPanel.jsx
+````javascript
+import { useEffect } from 'react';
+import { useAutoSave } from '../../hooks/useAutoSave';
+import { useAutoResize } from '../../hooks/useAutoResize';
+
+import ModeBanner from './ModeBanner';
+import ExtrasPicker from './ExtrasPicker';
+import AiAnalysisCard from './AiAnalysisCard';
+
+import ProjectInfo from './sections/ProjectInfo';
+import ProblemGoal from './sections/ProblemGoal';
+import PersonaSection from './sections/PersonaSection';
+import BrandingSection from './sections/BrandingSection';
+import CoverFooterSection from './sections/CoverFooterSection';
+import RolesSection from './sections/RolesSection';
+import FeaturesList from './sections/FeaturesList';
+import AcSection from './sections/AcSection';
+import TechStack from './sections/TechStack';
+import SchemaSection from './sections/SchemaSection';
+import NfrSection from './sections/NfrSection';
+import OutOfScope from './sections/OutOfScope';
+
+function AutoSaveBridge() {
+  useAutoSave();
+  return null;
+}
+
+export default function EditorPanel() {
+  const ra = useAutoResize();
+
+  useEffect(function () {
+    function onInput(e) {
+      if (e.target.tagName === 'TEXTAREA') ra.resize(e.target);
+    }
+
+    document.addEventListener('input', onInput);
+
+    return function () {
+      document.removeEventListener('input', onInput);
+    };
+  }, [ra.resize]);
+
+  return (
+    <section
+      id="editorPanel"
+      className="p-4 md:p-6 overflow-y-auto no-print space-y-6 border-r border-line bg-base"
+      style={{ height: '100%' }}
+    >
+      <AutoSaveBridge />
+
+      <ModeBanner />
+
+      <ExtrasPicker />
+
+      <AiAnalysisCard />
+
+      <CoverFooterSection />
+
+      <ProjectInfo />
+
+      <ProblemGoal />
+
+      <PersonaSection />
+
+      <BrandingSection />
+
+      <RolesSection />
+
+      <FeaturesList />
+
+      <AcSection />
+
+      <TechStack />
+
+      <SchemaSection />
+
+      <NfrSection />
+
+      <OutOfScope />
+    </section>
+  );
+}
+````
+
 ## File: src/store/usePrdStore.js
 ````javascript
 import { create } from 'zustand';
-import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY } from '../utils/constants';
+import { DEFAULT_FIELDS, INITIAL_SIMPLE_EXTRAS, MAX_HISTORY, DEFAULT_SECTION_NOTES, DEFAULT_SECTION_NOTES_ENABLED } from '../utils/constants';
 import { buildAiPrompt } from '../utils/aiPrompts';
 
 const init = function () {
@@ -6557,7 +7353,9 @@ export const usePrdStore = create(function (set, get) {
             nfrBrowser: 'iOS 15+, Android 9+, Chrome/Safari/Edge 2 versi terakhir',
             figmaLink: 'https://figma.com/file/instagram-clone',
             riskMitigation: 'Konten ilegal & cyberbullying \u2192 AI moderation + report flow + rate limit upload',
-          }, keepCover),
+          sectionNotes: { ...DEFAULT_SECTION_NOTES },
+           sectionNotesEnabled: { ...DEFAULT_SECTION_NOTES_ENABLED },
+         }, keepCover),
           techOptional: ['techSecurity', 'techStorage', 'techThirdParty', 'techAi', 'techDevOps', 'techCaching', 'techQueue', 'techMonitoring', 'techAnalytics', 'techTesting'],
           simpleExtras: { persona: true, branding: true, roles: true, ac: true, schema: true, nfr: true },
           palette: [
