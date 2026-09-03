@@ -62,7 +62,6 @@ export default function AiAnalysisCard() {
   const aiTypewriterActive = usePrdStore((s) => s.aiTypewriterActive);
   const setAiTypewriterActive = usePrdStore((s) => s.setAiTypewriterActive);
   const showToast = useToast();
-
   const isPrdEmpty = usePrdStore((s) => {
     const f = s.fields;
     return !(f.projectName || '').trim() &&
@@ -70,18 +69,15 @@ export default function AiAnalysisCard() {
       !(f.productGoal || '').trim() &&
       s.features.length === 0;
   });
-
   const feedbackBoxRef = useRef(null);
   const briefRef = useRef(null);
   const typewriterStartRef = useRef(null);
   const userScrolledUpRef = useRef(false);
   const rafScrollRef = useRef(null);
-
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingFinished, setIsTypingFinished] = useState(true);
   const [showJumpButton, setShowJumpButton] = useState(false);
   const [briefText, setBriefText] = useState('');
-
   const boxMounted = !!(displayedText || isAnalyzing);
 
   useEffect(() => {
@@ -214,11 +210,13 @@ export default function AiAnalysisCard() {
     <div className="bg-card p-4 md:p-5 rounded-xl border border-line space-y-4">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
         <div className="flex items-start space-x-2.5 min-w-0">
-          <FontAwesomeIcon icon={faRobot} className="text-accent text-base mt-1 shrink-0" />
+          {/* PERBAIKAN 1: hapus kelas text-base (bentrok dengan warna base),
+              ukuran icon diatur lewat prop size agar konsisten 16px */}
+          <FontAwesomeIcon icon={faRobot} size={16} className="text-accent mt-1 shrink-0" />
           <div className="min-w-0">
+            {/* PERBAIKAN 2: label GEMINI AI dihapus */}
             <h2 className="text-sm font-bold text-ink uppercase tracking-wider flex items-center gap-x-2 gap-y-1 flex-wrap">
               <span>Analisis PRD Berbasis AI</span>
-              <span className="text-[9px] bg-accent/15 text-accent border border-accent/30 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">Gemini AI</span>
             </h2>
             <p className="text-[11px] text-mut mt-0.5">Evaluasi kelengkapan, risiko teknis, & perbaikan spesifikasi</p>
           </div>
@@ -241,7 +239,6 @@ export default function AiAnalysisCard() {
           )}
         </button>
       </div>
-
       {isPrdEmpty && (
         <div className="space-y-2.5 pt-3 border-t border-line">
           <div className="flex items-start gap-2">
@@ -275,13 +272,11 @@ export default function AiAnalysisCard() {
           </div>
         </div>
       )}
-
       {aiError && (
         <div className="p-3 bg-danger/10 border border-danger/40 rounded-lg text-xs text-danger">
           {aiError}
         </div>
       )}
-
       {(displayedText || isAnalyzing) && (
         <div className="space-y-3 pt-1 border-t border-line">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
