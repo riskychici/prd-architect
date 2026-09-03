@@ -108,7 +108,9 @@ export default function CoverFooterSection() {
   return (
     <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
       <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        <div data-no-history="true">
+          <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        </div>
         {auto ? (
           <p className="text-[11px] text-mut">
             {palette.length

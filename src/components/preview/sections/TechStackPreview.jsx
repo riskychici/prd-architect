@@ -10,12 +10,12 @@ export default function TechStackPreview() {
     <div className="space-y-2">
       <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
       <div className="pl-3 space-y-3 text-xs text-slate-700">
-        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
+        <table className="w-full text-xs border-collapse border border-slate-200 keep-together tbl-stack">
           <tbody>
             {rows.map(function (r, i) {
               return (
                 <tr key={i} className="border-b border-slate-200">
-                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
+                  <td className="p-2 font-bold text-slate-700 w-1/3">{r.label}</td>
                   <td className="p-2 text-slate-800">{r.value || '-'}</td>
                 </tr>
               );

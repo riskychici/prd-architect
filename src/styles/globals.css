@@ -170,11 +170,13 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 }
 #prdDocument h3.text-blue-800 { color: var(--doc-primary-text); }
 #prdDocument h3.border-blue-600 { border-left-color: var(--doc-primary); }
-#prdDocument h3.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument h3.border-amber-500 { border-left-color: var(--doc-accent); }
-#prdDocument p.text-amber-700 { color: var(--doc-accent-text); }
-#prdDocument .border-amber-400 { border-left-color: var(--doc-accent); }
-#prdDocument .text-amber-600 { color: var(--doc-accent-text); }
+#prdDocument h3.text-amber-700 { color: var(--doc-primary-text); }
+#prdDocument h3.border-amber-500 { border-left-color: var(--doc-primary); }
+#prdDocument p.text-amber-700 { color: var(--doc-primary-text); }
+#prdDocument .border-amber-400 { border-left-color: var(--doc-primary); }
+#prdDocument .text-amber-600 { color: var(--doc-primary-text); }
+#prdDocument tbody tr:nth-child(odd) { background: #ffffff; }
+#prdDocument tbody tr:nth-child(even) { background: #f3f4f6; }
 
 @media screen and (max-width: 640px) {
   #prdDocument { padding: 1.5rem 1rem; }

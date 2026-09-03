@@ -16,7 +16,7 @@ export default function SchemaPreview() {
               <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
               {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
               <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
-                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
+                <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
                 <tbody className="divide-y divide-slate-200">
                   {t.fields.length ? t.fields.map(function (s, fi) {
                     return (

@@ -35,7 +35,10 @@ export default function App() {
   useEffect(function () {
     const commit = debounce(function () { usePrdStore.getState().commitHistory(); }, 500);
     function onInput(e) {
-      if (e.target.matches && e.target.matches('input, textarea, select')) commit();
+      if (e.target.matches && e.target.matches('input, textarea, select')) {
+        if (e.target.closest && e.target.closest('[data-no-history]')) return;
+        commit();
+      }
     }
     function onClick(e) {
       const b = e.target.closest ? e.target.closest('button') : null;

@@ -140,6 +140,8 @@ src/
   App.jsx
   main.jsx
 .gitignore
+apply-palette-cards.mjs
+apply-section-format.mjs
 index.html
 LICENSE
 package.json
@@ -619,56 +621,6 @@ export default function SectionNote(props) {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/NotePreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-import { getSectionNote } from '../../../utils/sectionNotes';
-
-export default function NotePreview(props) {
-  const noteKey = props.noteKey;
-
-  const fields = usePrdStore(function (s) { return s.fields; });
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
-
-  const note = getSectionNote(
-    {
-      fields: fields,
-      mode: mode,
-      simpleExtras: simpleExtras,
-    },
-    noteKey
-  );
-
-  if (!note) return null;
-
-  if (note.important) {
-    return (
-      <div className="p-3 bg-rose-50 border-l-4 border-rose-600 rounded text-xs keep-together">
-        <p className="text-rose-900 leading-relaxed">
-          <strong className="font-bold">Penting:</strong>{' '}
-          <span className="whitespace-pre-wrap">{note.text}</span>
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="p-3 bg-slate-100 border-l-4 rounded text-xs keep-together"
-      style={{ borderLeftColor: 'var(--doc-accent)' }}
-    >
-      <p className="text-slate-700 leading-relaxed">
-        <strong className="font-bold" style={{ color: 'var(--doc-accent-text)' }}>
-          Catatan:
-        </strong>{' '}
-        <span className="whitespace-pre-wrap">{note.text}</span>
-      </p>
     </div>
   );
 }
@@ -1643,6 +1595,589 @@ createRoot(document.getElementById('root')).render(
 );
 ````
 
+## File: apply-palette-cards.mjs
+````javascript
+// apply-palette-cards.mjs
+// Jalankan dari root proyek: node apply-palette-cards.mjs
+// Kartu palette: blok warna besar di atas, lalu nama, hex (lebih besar),
+// dan keterangan penggunaan pada baris terpisah di bawah hex.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+
+if (!fs.existsSync(path.join(root, 'package.json'))) {
+  console.error('Letakkan script ini di root proyek (sejajar dengan package.json).');
+  process.exit(1);
+}
+
+// ============================================================
+// 1) Timpa BrandingPreview.jsx dengan layout kartu yang disesuaikan
+// ============================================================
+const previewPath = path.join(root, 'src/components/preview/sections/BrandingPreview.jsx');
+fs.writeFileSync(previewPath, String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
+export default function BrandingPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  if (mode !== 'enterprise' && !se.branding) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">
+        1.2 Branding & Design System
+      </h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        {palette.length ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 print:grid-cols-5 gap-2">
+            {palette.map(function (p, i) {
+              const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
+              return (
+                <div key={i} className="border border-slate-200 rounded-md overflow-hidden bg-white keep-together">
+                  <div
+                    id={'preview-palette-swatch-' + i}
+                    className="h-12 w-full border-b border-slate-200"
+                    style={{ background: hex }}
+                  />
+                  <div className="p-2 space-y-0.5">
+                    <p className="font-bold text-slate-900 text-[11px] leading-snug">{p.name || '-'}</p>
+                    <p className="font-mono text-xs text-slate-800 leading-snug">
+                      <span id={'preview-palette-hex-' + i}>{p.hex}</span>
+                    </p>
+                    {p.usage ? (
+                      <p className="text-[10px] text-slate-500 leading-snug">{p.usage}</p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="italic text-slate-400">Belum ada palette warna.</p>
+        )}
+        <p>
+          <strong className="text-slate-900">Typography:</strong>{' '}
+          <span>{f.brandTypography || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Prinsip Layout:</strong>{' '}
+          <span>{f.brandLayout || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Breakpoint:</strong>{' '}
+          <span className="font-mono">{buildBreakpoints(f) || '-'}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+`, 'utf8');
+console.log('[OK]   src/components/preview/sections/BrandingPreview.jsx');
+
+// ============================================================
+// 2) Pastikan live color di BrandingSection.jsx memperbarui background blok
+// ============================================================
+const sectionPath = path.join(root, 'src/components/editor/sections/BrandingSection.jsx');
+let src = fs.readFileSync(sectionPath, 'utf8');
+const oldCode = "if (previewSwatch) previewSwatch.style.border = '8px solid ' + hex;";
+const newCode = "if (previewSwatch) previewSwatch.style.background = hex;";
+if (src.includes(newCode)) {
+  console.log('[LEWAT] BrandingSection.jsx sudah disesuaikan');
+} else if (src.includes(oldCode)) {
+  src = src.replace(oldCode, newCode);
+  fs.writeFileSync(sectionPath, src, 'utf8');
+  console.log('[OK]   src/components/editor/sections/BrandingSection.jsx');
+} else {
+  console.error('[GAGAL] Pola updateDomColor tidak ditemukan di BrandingSection.jsx');
+  process.exit(1);
+}
+
+console.log('');
+console.log('Selesai. Hex kini lebih besar dan keterangan penggunaan berada di bawahnya.');
+console.log('Jalankan npm run dev untuk melihat hasilnya.');
+````
+
+## File: apply-section-format.mjs
+````javascript
+// apply-section-format.mjs
+// Jalankan dari root proyek: node apply-section-format.mjs
+// Mengembalikan format dokumen ke gaya semula, dengan pembeda halus:
+// section = teks lebih besar + bar kiri 4px,
+// subsection = teks kecil + bar kiri 2px + indentasi ringan.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+
+if (!fs.existsSync(path.join(root, 'package.json'))) {
+  console.error('Letakkan script ini di root proyek (sejajar dengan package.json).');
+  process.exit(1);
+}
+
+const FILES = {};
+
+FILES['src/components/preview/sections/OverviewPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function OverviewPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">1. Overview & Goals</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Latar Belakang:</strong> <span className="italic text-slate-600">{f.problemStatement || 'Belum diisi.'}</span></p>
+        <p><strong className="text-slate-900">Tujuan Utama:</strong> <span className="italic text-slate-600">{f.productGoal || 'Belum diisi.'}</span></p>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/PersonaPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function PersonaPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.persona) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">1.1 Target User Persona & Success Metrics</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Target User Persona:</strong> <span>{f.userPersona || '-'}</span></p>
+        <p><strong className="text-slate-900">Metrik & KPI Utama:</strong> <span>{f.successMetrics || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/BrandingPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
+export default function BrandingPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  if (mode !== 'enterprise' && !se.branding) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">
+        1.2 Branding & Design System
+      </h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <div className="space-y-1">
+          {palette.length ? palette.map(function (p, i) {
+            const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
+            return (
+              <div key={i} className="flex items-center space-x-2">
+                <span
+                  id={'preview-palette-swatch-' + i}
+                  className="w-4 h-4 rounded shrink-0"
+                  style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }}
+                />
+                <span className="font-semibold text-slate-900">{p.name || '-'}</span>
+                <span id={'preview-palette-hex-' + i} className="font-mono text-slate-500">
+                  {p.hex}
+                </span>
+                <span className="text-slate-500">{'\u00B7'} {p.usage}</span>
+              </div>
+            );
+          }) : (
+            <p className="italic text-slate-400">Belum ada palette warna.</p>
+          )}
+        </div>
+        <p>
+          <strong className="text-slate-900">Typography:</strong>{' '}
+          <span>{f.brandTypography || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Prinsip Layout:</strong>{' '}
+          <span>{f.brandLayout || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Breakpoint:</strong>{' '}
+          <span className="font-mono">{buildBreakpoints(f) || '-'}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/RolesPreview.jsx'] = String.raw`import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function RolesPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  if (mode !== 'enterprise' && !se.roles) return null;
+  const splitLines = function (text) {
+    if (!text) return [];
+    return text
+      .split('\n')
+      .map(function (line) {
+        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
+      })
+      .filter(function (line) { return line.length > 0; });
+  };
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">1.3 Role & Permission Matrix</h3>
+      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
+        {roles.length ? roles.map(function (r, i) {
+          const canItems = splitLines(r.can);
+          const cannotItems = splitLines(r.cannot);
+          return (
+            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
+              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
+              <div className="space-y-1">
+                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
+                </p>
+                {canItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
+                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+              <div className="space-y-1">
+                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
+                </p>
+                {cannotItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
+                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/FeaturesPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function FeaturesPreview() {
+  const features = usePrdStore(function (s) { return s.features; });
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
+      <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
+        <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
+        <tbody className="divide-y divide-slate-200">
+          {features.length ? features.map(function (f) {
+            let b = 'bg-slate-200 text-slate-800';
+            if (f.priority === 'High') b = 'bg-rose-100 text-rose-800 font-bold';
+            if (f.priority === 'Medium') b = 'bg-amber-100 text-amber-800 font-bold';
+            if (f.priority === 'Low') b = 'bg-blue-100 text-blue-800';
+            return (
+              <tr key={f.id}><td data-label="ID" className="p-2 font-bold text-slate-900">{f.id}</td><td data-label="Fitur" className="p-2 font-semibold text-slate-800">{f.name || '-'}</td><td data-label="Deskripsi" className="p-2 text-slate-600">{f.story || '-'}</td><td data-label="Prioritas" className="p-2 text-center"><span className={'px-2 py-0.5 rounded text-[10px] ' + b}>{f.priority}</span></td></tr>
+            );
+          }) : <tr><td colSpan="4" className="p-3 text-center text-slate-400 italic">Belum ada fitur.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/AcPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function AcPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const ac = usePrdStore(function (s) { return s.acModules; });
+  if (mode !== 'enterprise' && !se.ac) return null;
+  return (
+    <div className="space-y-3">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">2.1 Acceptance Criteria per Modul</h3>
+      <div className="pl-3 space-y-3">
+        {ac.length ? ac.map(function (m, mi) {
+          return (
+            <div key={mi} className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-900">{mi + 1}. {m.title || 'Modul'}</h4>
+              <div className="space-y-1.5">{m.items.map(function (it, ii) {
+                return (
+                  <div key={ii} className="pl-3 border-l-2 border-amber-400 keep-together">
+                    <p className="font-bold text-amber-700">AC-{mi + 1}.{ii + 1} {it.title}</p>
+                    <p className="text-slate-700">{it.desc}</p>
+                  </div>
+                );
+              })}</div>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada acceptance criteria.</p>}
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/SchemaPreview.jsx'] = String.raw`import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function SchemaPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  if (mode !== 'enterprise' && !se.schema) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">4.1 Schema Data</h3>
+      <div className="pl-3 space-y-4">
+        {st.length ? st.map(function (t, ti) {
+          return (
+            <div key={ti} className="space-y-1 keep-together">
+              <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
+              {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
+              <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
+                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">
+                  {t.fields.length ? t.fields.map(function (s, fi) {
+                    return (
+                      <tr key={fi}><td data-label="Kolom" className="p-2 font-mono font-semibold text-slate-900">{s.field || '-'}</td><td data-label="Tipe" className="p-2 text-slate-600 font-mono">{s.type || '-'}</td><td data-label="Not Null" className="p-2 text-center"><FontAwesomeIcon icon={s.required === 'Ya' ? faCheck : faMinus} className={s.required === 'Ya' ? 'text-emerald-600' : 'text-slate-400'} /></td><td data-label="Keterangan" className="p-2 text-slate-600">{s.note}</td></tr>
+                    );
+                  }) : <tr><td colSpan="4" className="p-2 text-center text-slate-400 italic">Belum ada kolom.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada schema.</p>}
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/NfrPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function NfrPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.nfr) return null;
+  const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">4.2 NFR, Prototype & Analisis Risiko</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Keamanan:</strong> <span>{f.nfrSpecs || '-'}</span></p>
+        <p><strong className="text-slate-900">Performance:</strong> <span>{f.nfrPerformance || '-'}</span></p>
+        <p><strong className="text-slate-900">Lokalisasi:</strong> <span>{f.nfrLocalization || '-'}</span></p>
+        <p><strong className="text-slate-900">Browser:</strong> <span>{f.nfrBrowser || '-'}</span></p>
+        <p>
+          <strong className="text-slate-900">Figma:</strong>{' '}
+          {isFigmaLink ? (
+            <a href={f.figmaLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-mono">
+              {f.figmaLink}
+            </a>
+          ) : (
+            <span className="font-mono">{f.figmaLink || '-'}</span>
+          )}
+        </p>
+        <p><strong className="text-slate-900">Risiko:</strong> <span>{f.riskMitigation || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/TechStackPreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
+export default function TechStackPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
+    .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
+    .map(function (d) { return { label: d.label, value: f[d.key] }; }));
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
+      <div className="pl-3 space-y-3 text-xs text-slate-700">
+        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
+          <tbody>
+            {rows.map(function (r, i) {
+              return (
+                <tr key={i} className="border-b border-slate-200">
+                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
+                  <td className="p-2 text-slate-800">{r.value || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div>
+          <strong className="text-slate-900 block mb-1">Skema Database:</strong>
+          <pre className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">{f.dbSchema || '-'}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/ScopeDonePreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function ScopeDonePreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const oos = (f.outOfScope || '').trim();
+  const dod = (f.defOfDone || '').trim();
+  const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
+  const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
+        <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
+      </div>
+      <div className="p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-emerald-800">Definition of Done</h4>
+        <ul className="list-disc pl-4 text-emerald-900 space-y-0.5">{dodI.length ? dodI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Belum ditentukan.</li>}</ul>
+      </div>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/sections/NotePreview.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { getSectionNote } from '../../../utils/sectionNotes';
+export default function NotePreview(props) {
+  const noteKey = props.noteKey;
+  const fields = usePrdStore(function (s) { return s.fields; });
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
+  const note = getSectionNote(
+    {
+      fields: fields,
+      mode: mode,
+      simpleExtras: simpleExtras,
+    },
+    noteKey
+  );
+  if (!note) return null;
+  if (note.important) {
+    return (
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-600 rounded text-xs keep-together">
+        <p className="text-rose-900 leading-relaxed">
+          <strong className="font-bold">Penting:</strong>{' '}
+          <span className="whitespace-pre-wrap">{note.text}</span>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="p-3 bg-slate-100 border-l-4 rounded text-xs keep-together"
+      style={{ borderLeftColor: 'var(--doc-accent)' }}
+    >
+      <p className="text-slate-700 leading-relaxed">
+        <strong className="font-bold" style={{ color: 'var(--doc-accent-text)' }}>
+          Catatan:
+        </strong>{' '}
+        <span className="whitespace-pre-wrap">{note.text}</span>
+      </p>
+    </div>
+  );
+}
+`;
+
+FILES['src/components/preview/PreviewDocument.jsx'] = String.raw`import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
+import CoverPage from './CoverPage';
+import DocFooter from './DocFooter';
+import LiveThemeVars from './LiveThemeVars';
+import OverviewPreview from './sections/OverviewPreview';
+import FeaturesPreview from './sections/FeaturesPreview';
+import TechStackPreview from './sections/TechStackPreview';
+import PersonaPreview from './sections/PersonaPreview';
+import BrandingPreview from './sections/BrandingPreview';
+import RolesPreview from './sections/RolesPreview';
+import AcPreview from './sections/AcPreview';
+import SchemaPreview from './sections/SchemaPreview';
+import NfrPreview from './sections/NfrPreview';
+import ScopeDonePreview from './sections/ScopeDonePreview';
+export default function PreviewDocument() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  return (
+    <div id="previewThemeRoot">
+      <LiveThemeVars targetId="previewThemeRoot" />
+      <CoverPage />
+      <div
+        id="prdDocument"
+        className="bg-white text-slate-900 p-8 rounded-lg border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
+      >
+        <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
+        <div className="space-y-2 keep-together">
+          <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">
+            {f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}
+          </div>
+        </div>
+        <TechStackPreview /><SchemaPreview /><NfrPreview /><ScopeDonePreview />
+        <DocFooter />
+      </div>
+    </div>
+  );
+}
+`;
+
+// ============================================================
+// 1) Tulis semua file preview (kembali ke gaya semula + pembeda halus)
+// ============================================================
+let gagal = 0;
+for (const rel of Object.keys(FILES)) {
+  const abs = path.join(root, rel);
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, FILES[rel], 'utf8');
+    console.log('[OK]   ' + rel);
+  } catch (e) {
+    gagal++;
+    console.error('[GAGAL] ' + rel + ' : ' + e.message);
+  }
+}
+
+// ============================================================
+// 2) Hapus sisa komponen versi sebelumnya (jika ada)
+// ============================================================
+['src/components/preview/sections/SectionHead.jsx', 'src/components/preview/sections/SubSectionHead.jsx'].forEach(function (rel) {
+  const abs = path.join(root, rel);
+  if (fs.existsSync(abs)) {
+    fs.unlinkSync(abs);
+    console.log('[HAPUS] ' + rel);
+  }
+});
+
+// ============================================================
+// 3) Bersihkan aturan .subsec-badge dari globals.css (jika ada)
+// ============================================================
+const cssPath = path.join(root, 'src/styles/globals.css');
+try {
+  const css = fs.readFileSync(cssPath, 'utf8');
+  if (css.includes('.subsec-badge')) {
+    const bersih = css.split('\n').filter(function (line) { return line.indexOf('.subsec-badge') === -1; }).join('\n');
+    fs.writeFileSync(cssPath, bersih, 'utf8');
+    console.log('[OK]   globals.css (aturan .subsec-badge dihapus)');
+  } else {
+    console.log('[LEWAT] globals.css sudah bersih');
+  }
+} catch (e) {
+  gagal++;
+  console.error('[GAGAL] globals.css : ' + e.message);
+}
+
+if (gagal > 0) {
+  console.error('Selesai dengan ' + gagal + ' kesalahan. Periksa pesan di atas.');
+  process.exit(1);
+}
+console.log('');
+console.log('Format dikembalikan seperti semula dengan pembeda halus:');
+console.log('  Section    : teks lebih besar (text-sm) + bar kiri tebal 4px');
+console.log('  Subsection : teks kecil (text-xs) + bar kiri tipis 2px + indentasi');
+console.log('Jalankan npm run dev untuk melihat hasilnya.');
+````
+
 ## File: LICENSE
 ````
 MIT License
@@ -1943,196 +2478,45 @@ export default function MobileTabBar() {
 }
 ````
 
-## File: src/components/preview/sections/AcPreview.jsx
+## File: src/components/preview/sections/NotePreview.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function AcPreview() {
+import { getSectionNote } from '../../../utils/sectionNotes';
+export default function NotePreview(props) {
+  const noteKey = props.noteKey;
+  const fields = usePrdStore(function (s) { return s.fields; });
   const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const ac = usePrdStore(function (s) { return s.acModules; });
-  if (mode !== 'enterprise' && !se.ac) return null;
-  return (
-    <div className="space-y-3">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">2.1 Acceptance Criteria per Modul</h3>
-      <div className="pl-3 space-y-3">
-        {ac.length ? ac.map(function (m, mi) {
-          return (
-            <div key={mi} className="space-y-2">
-              <h4 className="text-xs font-bold text-slate-900">{mi + 1}. {m.title || 'Modul'}</h4>
-              <div className="space-y-1.5">{m.items.map(function (it, ii) {
-                return (
-                  <div key={ii} className="pl-3 border-l-2 border-amber-400 keep-together">
-                    <p className="font-bold text-amber-700">AC-{mi + 1}.{ii + 1} {it.title}</p>
-                    <p className="text-slate-700">{it.desc}</p>
-                  </div>
-                );
-              })}</div>
-            </div>
-          );
-        }) : <p className="italic text-slate-400">Belum ada acceptance criteria.</p>}
-      </div>
-    </div>
+  const simpleExtras = usePrdStore(function (s) { return s.simpleExtras; });
+  const note = getSectionNote(
+    {
+      fields: fields,
+      mode: mode,
+      simpleExtras: simpleExtras,
+    },
+    noteKey
   );
-}
-````
-
-## File: src/components/preview/sections/FeaturesPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function FeaturesPreview() {
-  const features = usePrdStore(function (s) { return s.features; });
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
-      <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
-        <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
-        <tbody className="divide-y divide-slate-200">
-          {features.length ? features.map(function (f) {
-            let b = 'bg-slate-200 text-slate-800';
-            if (f.priority === 'High') b = 'bg-rose-100 text-rose-800 font-bold';
-            if (f.priority === 'Medium') b = 'bg-amber-100 text-amber-800 font-bold';
-            if (f.priority === 'Low') b = 'bg-blue-100 text-blue-800';
-            return (
-              <tr key={f.id}><td data-label="ID" className="p-2 font-bold text-slate-900">{f.id}</td><td data-label="Fitur" className="p-2 font-semibold text-slate-800">{f.name || '-'}</td><td data-label="Deskripsi" className="p-2 text-slate-600">{f.story || '-'}</td><td data-label="Prioritas" className="p-2 text-center"><span className={'px-2 py-0.5 rounded text-[10px] ' + b}>{f.priority}</span></td></tr>
-            );
-          }) : <tr><td colSpan="4" className="p-3 text-center text-slate-400 italic">Belum ada fitur.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/OverviewPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function OverviewPreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">1. Overview & Goals</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Latar Belakang:</strong> <span className="italic text-slate-600">{f.problemStatement || 'Belum diisi.'}</span></p>
-        <p><strong className="text-slate-900">Tujuan Utama:</strong> <span className="italic text-slate-600">{f.productGoal || 'Belum diisi.'}</span></p>
+  if (!note) return null;
+  if (note.important) {
+    return (
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-600 rounded text-xs keep-together">
+        <p className="text-rose-900 leading-relaxed">
+          <strong className="font-bold">Penting:</strong>{' '}
+          <span className="whitespace-pre-wrap">{note.text}</span>
+        </p>
       </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/PersonaPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function PersonaPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  if (mode !== 'enterprise' && !se.persona) return null;
+    );
+  }
   return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.1 Target User Persona & Success Metrics</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Target User Persona:</strong> <span>{f.userPersona || '-'}</span></p>
-        <p><strong className="text-slate-900">Metrik & KPI Utama:</strong> <span>{f.successMetrics || '-'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/SchemaPreview.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function SchemaPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const st = usePrdStore(function (s) { return s.schemaTables; });
-  if (mode !== 'enterprise' && !se.schema) return null;
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.1 Schema Data</h3>
-      <div className="pl-3 space-y-4">
-        {st.length ? st.map(function (t, ti) {
-          return (
-            <div key={ti} className="space-y-1 keep-together">
-              <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
-              {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
-              <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
-                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
-                <tbody className="divide-y divide-slate-200">
-                  {t.fields.length ? t.fields.map(function (s, fi) {
-                    return (
-                      <tr key={fi}><td data-label="Kolom" className="p-2 font-mono font-semibold text-slate-900">{s.field || '-'}</td><td data-label="Tipe" className="p-2 text-slate-600 font-mono">{s.type || '-'}</td><td data-label="Not Null" className="p-2 text-center"><FontAwesomeIcon icon={s.required === 'Ya' ? faCheck : faMinus} className={s.required === 'Ya' ? 'text-emerald-600' : 'text-slate-400'} /></td><td data-label="Keterangan" className="p-2 text-slate-600">{s.note}</td></tr>
-                    );
-                  }) : <tr><td colSpan="4" className="p-2 text-center text-slate-400 italic">Belum ada kolom.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          );
-        }) : <p className="italic text-slate-400">Belum ada schema.</p>}
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/ScopeDonePreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function ScopeDonePreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const oos = (f.outOfScope || '').trim();
-  const dod = (f.defOfDone || '').trim();
-  const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
-  const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
-      <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
-        <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
-        <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
-      </div>
-      <div className="p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded text-xs space-y-1">
-        <h4 className="font-bold text-emerald-800">Definition of Done</h4>
-        <ul className="list-disc pl-4 text-emerald-900 space-y-0.5">{dodI.length ? dodI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Belum ditentukan.</li>}</ul>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/TechStackPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
-export default function TechStackPreview() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const techOptional = usePrdStore(function (s) { return s.techOptional; });
-  const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
-    .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
-    .map(function (d) { return { label: d.label, value: f[d.key] }; }));
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
-      <div className="pl-3 space-y-3 text-xs text-slate-700">
-        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
-          <tbody>
-            {rows.map(function (r, i) {
-              return (
-                <tr key={i} className="border-b border-slate-200">
-                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
-                  <td className="p-2 text-slate-800">{r.value || '-'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div>
-          <strong className="text-slate-900 block mb-1">Skema Database:</strong>
-          <pre className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">{f.dbSchema || '-'}</pre>
-        </div>
-      </div>
+    <div
+      className="p-3 bg-slate-100 border-l-4 rounded text-xs keep-together"
+      style={{ borderLeftColor: 'var(--doc-accent)' }}
+    >
+      <p className="text-slate-700 leading-relaxed">
+        <strong className="font-bold" style={{ color: 'var(--doc-accent-text)' }}>
+          Catatan:
+        </strong>{' '}
+        <span className="whitespace-pre-wrap">{note.text}</span>
+      </p>
     </div>
   );
 }
@@ -3234,155 +3618,195 @@ export default function EditorSection(props) {
 }
 ````
 
-## File: src/components/preview/sections/BrandingPreview.jsx
+## File: src/components/preview/sections/AcPreview.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
-
-export default function BrandingPreview() {
+export default function AcPreview() {
   const mode = usePrdStore(function (s) { return s.mode; });
   const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-
-  if (mode !== 'enterprise' && !se.branding) return null;
-
+  const ac = usePrdStore(function (s) { return s.acModules; });
+  if (mode !== 'enterprise' && !se.ac) return null;
   return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">
-        1.2 Branding & Design System
-      </h3>
-
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <div className="space-y-1">
-          {palette.length ? palette.map(function (p, i) {
-            const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
-
-            return (
-              <div key={i} className="flex items-center space-x-2">
-                <span
-                  id={'preview-palette-swatch-' + i}
-                  className="w-4 h-4 rounded shrink-0"
-                  style={{ border: '8px solid ' + hex, outline: '1px solid #cbd5e1' }}
-                />
-                <span className="font-semibold text-slate-900">{p.name || '-'}</span>
-                <span id={'preview-palette-hex-' + i} className="font-mono text-slate-500">
-                  {p.hex}
-                </span>
-                <span className="text-slate-500">{'\u00B7'} {p.usage}</span>
-              </div>
-            );
-          }) : (
-            <p className="italic text-slate-400">Belum ada palette warna.</p>
-          )}
-        </div>
-
-        <p>
-          <strong className="text-slate-900">Typography:</strong>{' '}
-          <span>{f.brandTypography || '-'}</span>
-        </p>
-
-        <p>
-          <strong className="text-slate-900">Prinsip Layout:</strong>{' '}
-          <span>{f.brandLayout || '-'}</span>
-        </p>
-
-        <p>
-          <strong className="text-slate-900">Breakpoint:</strong>{' '}
-          <span className="font-mono">{buildBreakpoints(f) || '-'}</span>
-        </p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/NfrPreview.jsx
-````javascript
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function NfrPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  if (mode !== 'enterprise' && !se.nfr) return null;
-  const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
-  return (
-    <div className="space-y-2 keep-together">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.2 NFR, Prototype & Analisis Risiko</h3>
-      <div className="pl-3 space-y-2 text-xs text-slate-700">
-        <p><strong className="text-slate-900">Keamanan:</strong> <span>{f.nfrSpecs || '-'}</span></p>
-        <p><strong className="text-slate-900">Performance:</strong> <span>{f.nfrPerformance || '-'}</span></p>
-        <p><strong className="text-slate-900">Lokalisasi:</strong> <span>{f.nfrLocalization || '-'}</span></p>
-        <p><strong className="text-slate-900">Browser:</strong> <span>{f.nfrBrowser || '-'}</span></p>
-        <p>
-          <strong className="text-slate-900">Figma:</strong>{' '}
-          {isFigmaLink ? (
-            <a href={f.figmaLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-mono">
-              {f.figmaLink}
-            </a>
-          ) : (
-            <span className="font-mono">{f.figmaLink || '-'}</span>
-          )}
-        </p>
-        <p><strong className="text-slate-900">Risiko:</strong> <span>{f.riskMitigation || '-'}</span></p>
-      </div>
-    </div>
-  );
-}
-````
-
-## File: src/components/preview/sections/RolesPreview.jsx
-````javascript
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
-import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
-export default function RolesPreview() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const roles = usePrdStore(function (s) { return s.roles; });
-  if (mode !== 'enterprise' && !se.roles) return null;
-  const splitLines = function (text) {
-    if (!text) return [];
-    return text
-      .split('\n')
-      .map(function (line) {
-        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
-      })
-      .filter(function (line) { return line.length > 0; });
-  };
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
-      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
-        {roles.length ? roles.map(function (r, i) {
-          const canItems = splitLines(r.can);
-          const cannotItems = splitLines(r.cannot);
+    <div className="space-y-3">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">2.1 Acceptance Criteria per Modul</h3>
+      <div className="pl-3 space-y-3">
+        {ac.length ? ac.map(function (m, mi) {
           return (
-            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
-              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
-              <div className="space-y-1">
-                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
-                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
-                </p>
-                {canItems.length > 0 ? (
-                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
-                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
-                  </ul>
-                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
-              </div>
-              <div className="space-y-1">
-                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
-                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
-                </p>
-                {cannotItems.length > 0 ? (
-                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
-                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
-                  </ul>
-                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
-              </div>
+            <div key={mi} className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-900">{mi + 1}. {m.title || 'Modul'}</h4>
+              <div className="space-y-1.5">{m.items.map(function (it, ii) {
+                return (
+                  <div key={ii} className="pl-3 border-l-2 border-amber-400 keep-together">
+                    <p className="font-bold text-amber-700">AC-{mi + 1}.{ii + 1} {it.title}</p>
+                    <p className="text-slate-700">{it.desc}</p>
+                  </div>
+                );
+              })}</div>
             </div>
           );
-        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+        }) : <p className="italic text-slate-400">Belum ada acceptance criteria.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/FeaturesPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function FeaturesPreview() {
+  const features = usePrdStore(function (s) { return s.features; });
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
+      <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
+        <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
+        <tbody className="divide-y divide-slate-200">
+          {features.length ? features.map(function (f) {
+            let b = 'bg-slate-200 text-slate-800';
+            if (f.priority === 'High') b = 'bg-rose-100 text-rose-800 font-bold';
+            if (f.priority === 'Medium') b = 'bg-amber-100 text-amber-800 font-bold';
+            if (f.priority === 'Low') b = 'bg-blue-100 text-blue-800';
+            return (
+              <tr key={f.id}><td data-label="ID" className="p-2 font-bold text-slate-900">{f.id}</td><td data-label="Fitur" className="p-2 font-semibold text-slate-800">{f.name || '-'}</td><td data-label="Deskripsi" className="p-2 text-slate-600">{f.story || '-'}</td><td data-label="Prioritas" className="p-2 text-center"><span className={'px-2 py-0.5 rounded text-[10px] ' + b}>{f.priority}</span></td></tr>
+            );
+          }) : <tr><td colSpan="4" className="p-3 text-center text-slate-400 italic">Belum ada fitur.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/OverviewPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function OverviewPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">1. Overview & Goals</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Latar Belakang:</strong> <span className="italic text-slate-600">{f.problemStatement || 'Belum diisi.'}</span></p>
+        <p><strong className="text-slate-900">Tujuan Utama:</strong> <span className="italic text-slate-600">{f.productGoal || 'Belum diisi.'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/PersonaPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function PersonaPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.persona) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">1.1 Target User Persona & Success Metrics</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Target User Persona:</strong> <span>{f.userPersona || '-'}</span></p>
+        <p><strong className="text-slate-900">Metrik & KPI Utama:</strong> <span>{f.successMetrics || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/SchemaPreview.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faDatabase, faCheck, faMinus } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function SchemaPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  if (mode !== 'enterprise' && !se.schema) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">4.1 Schema Data</h3>
+      <div className="pl-3 space-y-4">
+        {st.length ? st.map(function (t, ti) {
+          return (
+            <div key={ti} className="space-y-1 keep-together">
+              <h4 className="text-xs font-bold text-slate-900 font-mono flex items-center gap-2"><FontAwesomeIcon icon={faDatabase} className="text-amber-600" /><span>{t.name || 'tabel_tanpa_nama'}</span></h4>
+              {t.desc && <p className="text-[11px] text-slate-500 pl-6">{t.desc}</p>}
+              <table className="w-full text-xs border-collapse border border-slate-200 tbl-stack">
+                <thead className="bg-slate-100 text-slate-700"><tr><th className="p-2 text-left w-[24%]">Field</th><th className="p-2 text-left w-[26%]">Tipe</th><th className="p-2 text-center w-[14%]">Not Null</th><th className="p-2 text-left">Keterangan</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">
+                  {t.fields.length ? t.fields.map(function (s, fi) {
+                    return (
+                      <tr key={fi}><td data-label="Kolom" className="p-2 font-mono font-semibold text-slate-900">{s.field || '-'}</td><td data-label="Tipe" className="p-2 text-slate-600 font-mono">{s.type || '-'}</td><td data-label="Not Null" className="p-2 text-center"><FontAwesomeIcon icon={s.required === 'Ya' ? faCheck : faMinus} className={s.required === 'Ya' ? 'text-emerald-600' : 'text-slate-400'} /></td><td data-label="Keterangan" className="p-2 text-slate-600">{s.note}</td></tr>
+                    );
+                  }) : <tr><td colSpan="4" className="p-2 text-center text-slate-400 italic">Belum ada kolom.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada schema.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/ScopeDonePreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function ScopeDonePreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const oos = (f.outOfScope || '').trim();
+  const dod = (f.defOfDone || '').trim();
+  const oosI = oos ? oos.split('\n').filter(function (x) { return x.trim(); }) : [];
+  const dodI = dod ? dod.split('\n').filter(function (x) { return x.trim(); }) : [];
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 pt-2 keep-together">
+      <div className="p-3 bg-rose-50 border-l-4 border-rose-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-rose-800">Out of Scope (Ditunda)</h4>
+        <ul className="list-disc pl-4 text-rose-900 space-y-0.5">{oosI.length ? oosI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Tidak ada.</li>}</ul>
+      </div>
+      <div className="p-3 bg-emerald-50 border-l-4 border-emerald-500 rounded text-xs space-y-1">
+        <h4 className="font-bold text-emerald-800">Definition of Done</h4>
+        <ul className="list-disc pl-4 text-emerald-900 space-y-0.5">{dodI.length ? dodI.map(function (x, i) { return <li key={i}>{x}</li>; }) : <li className="italic text-slate-400">Belum ditentukan.</li>}</ul>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/TechStackPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { TECH_REQUIRED, TECH_OPTIONAL } from '../../../utils/constants';
+export default function TechStackPreview() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const techOptional = usePrdStore(function (s) { return s.techOptional; });
+  const rows = TECH_REQUIRED.map(function (d) { return { label: d.label, value: f[d.key] }; })
+    .concat(TECH_OPTIONAL.filter(function (d) { return techOptional.includes(d.key); })
+    .map(function (d) { return { label: d.label, value: f[d.key] }; }));
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
+      <div className="pl-3 space-y-3 text-xs text-slate-700">
+        <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
+          <tbody>
+            {rows.map(function (r, i) {
+              return (
+                <tr key={i} className="border-b border-slate-200">
+                  <td className="p-2 font-bold bg-slate-100 text-slate-700 w-1/3">{r.label}</td>
+                  <td className="p-2 text-slate-800">{r.value || '-'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div>
+          <strong className="text-slate-900 block mb-1">Skema Database:</strong>
+          <pre className="bg-slate-900 text-slate-200 p-3 rounded font-mono text-xs overflow-x-auto">{f.dbSchema || '-'}</pre>
+        </div>
       </div>
     </div>
   );
@@ -4424,6 +4848,98 @@ export default function ScrollButtons() {
 }
 ````
 
+## File: src/components/preview/sections/NfrPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function NfrPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  if (mode !== 'enterprise' && !se.nfr) return null;
+  const isFigmaLink = f.figmaLink && /^https?:\/\//i.test(f.figmaLink);
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">4.2 NFR, Prototype & Analisis Risiko</h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        <p><strong className="text-slate-900">Keamanan:</strong> <span>{f.nfrSpecs || '-'}</span></p>
+        <p><strong className="text-slate-900">Performance:</strong> <span>{f.nfrPerformance || '-'}</span></p>
+        <p><strong className="text-slate-900">Lokalisasi:</strong> <span>{f.nfrLocalization || '-'}</span></p>
+        <p><strong className="text-slate-900">Browser:</strong> <span>{f.nfrBrowser || '-'}</span></p>
+        <p>
+          <strong className="text-slate-900">Figma:</strong>{' '}
+          {isFigmaLink ? (
+            <a href={f.figmaLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-mono">
+              {f.figmaLink}
+            </a>
+          ) : (
+            <span className="font-mono">{f.figmaLink || '-'}</span>
+          )}
+        </p>
+        <p><strong className="text-slate-900">Risiko:</strong> <span>{f.riskMitigation || '-'}</span></p>
+      </div>
+    </div>
+  );
+}
+````
+
+## File: src/components/preview/sections/RolesPreview.jsx
+````javascript
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCircleCheck, faCircleXmark } from '@fortawesome/free-solid-svg-icons';
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+export default function RolesPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const roles = usePrdStore(function (s) { return s.roles; });
+  if (mode !== 'enterprise' && !se.roles) return null;
+  const splitLines = function (text) {
+    if (!text) return [];
+    return text
+      .split('\n')
+      .map(function (line) {
+        return line.replace(/^[\s\|\-\*\•\d+\.\)]+/, '').trim();
+      })
+      .filter(function (line) { return line.length > 0; });
+  };
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">1.3 Role & Permission Matrix</h3>
+      <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
+        {roles.length ? roles.map(function (r, i) {
+          const canItems = splitLines(r.can);
+          const cannotItems = splitLines(r.cannot);
+          return (
+            <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded keep-together space-y-2">
+              <h4 className="font-bold text-slate-900 mb-1">{r.name || 'Role'}</h4>
+              <div className="space-y-1">
+                <p className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleCheck} /> Diizinkan:
+                </p>
+                {canItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-emerald-700 text-xs">
+                    {canItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+              <div className="space-y-1">
+                <p className="text-rose-700 font-semibold text-[11px] flex items-center gap-1">
+                  <FontAwesomeIcon icon={faCircleXmark} /> Dilarang:
+                </p>
+                {cannotItems.length > 0 ? (
+                  <ul className="list-disc pl-5 space-y-0.5 text-rose-700 text-xs">
+                    {cannotItems.map(function (item, idx) { return <li key={idx}>{item}</li>; })}
+                  </ul>
+                ) : (<p className="text-slate-400 italic text-xs">-</p>)}
+              </div>
+            </div>
+          );
+        }) : <p className="italic text-slate-400">Belum ada role.</p>}
+      </div>
+    </div>
+  );
+}
+````
+
 ## File: src/components/preview/CoverPage.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
@@ -5029,6 +5545,248 @@ export const titleCaseForCover = function (text) {
 };
 ````
 
+## File: src/components/editor/sections/ProjectInfo.jsx
+````javascript
+import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import AiRefineButton from '../../shared/AiRefineButton';
+
+const STATUS_OPTIONS = [
+  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
+  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
+  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
+  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
+  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
+  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
+];
+
+export default function ProjectInfo() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+
+  return (
+    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+        <div>
+          <label htmlFor="projectName" className="block text-ink font-medium mb-1">Nama Proyek / Aplikasi</label>
+          <div className="relative">
+            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docVersion" className="block text-ink font-medium mb-1">Versi Dokumen</label>
+          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="author" className="block text-ink font-medium mb-1">Penulis / Product Owner</label>
+          <div className="relative">
+            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
+            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+        <div>
+          <label htmlFor="docStatus" className="block text-ink font-medium mb-1">Status Dokumen</label>
+          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
+            {STATUS_OPTIONS.map(function (o) { return <option key={o.value} value={o.value}>{o.label}</option>; })}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="targetDate" className="block text-ink font-medium mb-1">Target Rilis</label>
+          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="targetDateFormat" className="block text-ink font-medium mb-1">Format Tampilan Target Rilis</label>
+          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
+            <option value="full">Tanggal Lengkap</option>
+            <option value="month">Bulan + Tahun</option>
+            <option value="quarter">Kuartal + Tahun</option>
+          </select>
+        </div>
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/editor/sections/SchemaSection.jsx
+````javascript
+import { useState } from 'react';
+import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import EditorSection from '../EditorSection';
+import IconButton from '../../shared/IconButton';
+import ComboBox from '../../shared/ComboBox';
+import AiRefineButton from '../../shared/AiRefineButton';
+import { generateSchemaFromFlow } from '../../../services/aiService';
+import { useToast } from '../../../hooks/useToast';
+
+export default function SchemaSection() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const st = usePrdStore(function (s) { return s.schemaTables; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
+  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
+  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
+  const addF = usePrdStore(function (s) { return s.addSchemaField; });
+  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
+  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
+  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [genBusy, setGenBusy] = useState(false);
+  const flowText = (f.userFlow || '').trim();
+
+  async function handleGenerate() {
+    if (!flowText || genBusy) return;
+    setGenBusy(true);
+    try {
+      const tables = await generateSchemaFromFlow(flowText);
+      setTables(tables);
+      commit();
+      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
+    } catch (e) {
+      showToast('Gagal membuat schema: ' + e.message, 'error');
+    } finally {
+      setGenBusy(false);
+    }
+  }
+
+  if (mode !== 'enterprise' && !se.schema) return null;
+
+  return (
+    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList}
+      action={
+        <div className="flex items-center gap-2">
+          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
+            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
+            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
+          </IconButton>
+          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
+        </div>
+      }>
+      <p className="text-[11px] text-mut -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
+      <div className="space-y-4">
+        {st.map(function (t, ti) {
+          return (
+            <div key={ti} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
+              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
+                <span className="col-span-1 order-1 text-accent text-center" aria-hidden="true">
+                  <FontAwesomeIcon icon={faTableList} />
+                </span>
+                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
+                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-card border border-line rounded p-1.5 text-ink font-mono font-semibold" />
+                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-danger flex justify-center">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                </button>
+                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
+                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
+                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
+                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {t.fields.map(function (s, fi) {
+                  return (
+                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-card border border-line rounded-lg">
+                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
+                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-field border border-line rounded p-1.5 text-ink font-mono" />
+                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-danger flex justify-center">
+                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                      </button>
+                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
+                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
+                      </div>
+                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
+                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-field border border-line rounded p-1.5 text-ink">
+                        <option value="Ya">Not Null</option>
+                        <option value="Opsional">Opsional</option>
+                      </select>
+                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
+                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
+                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
+                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-accent font-semibold">
+                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </EditorSection>
+  );
+}
+````
+
+## File: src/components/preview/sections/BrandingPreview.jsx
+````javascript
+import { usePreviewStore as usePrdStore } from '../../../store/usePreviewStore';
+import { buildBreakpoints, isValidHex } from '../../../utils/helpers';
+export default function BrandingPreview() {
+  const mode = usePrdStore(function (s) { return s.mode; });
+  const se = usePrdStore(function (s) { return s.simpleExtras; });
+  const f = usePrdStore(function (s) { return s.fields; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  if (mode !== 'enterprise' && !se.branding) return null;
+  return (
+    <div className="space-y-2 keep-together">
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">
+        1.2 Branding & Design System
+      </h3>
+      <div className="pl-3 space-y-2 text-xs text-slate-700">
+        {palette.length ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 print:grid-cols-5 gap-2">
+            {palette.map(function (p, i) {
+              const hex = isValidHex(p.hex) ? p.hex : '#ffffff';
+              return (
+                <div key={i} className="border border-slate-200 rounded-md overflow-hidden bg-white keep-together">
+                  <div
+                    id={'preview-palette-swatch-' + i}
+                    className="h-10 w-full border-b border-slate-200"
+                    style={{ background: hex }}
+                  />
+                  <div className="p-2 space-y-0.5">
+                    <p className="font-bold text-slate-900 text-[11px] leading-snug">{p.name || '-'}</p>
+                    <p className="font-mono text-xs text-slate-800 leading-snug">
+                      <span id={'preview-palette-hex-' + i}>{p.hex}</span>
+                    </p>
+                    {p.usage ? (
+                      <p className="text-[11px] text-slate-500 leading-snug">{p.usage}</p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="italic text-slate-400">Belum ada palette warna.</p>
+        )}
+        <p>
+          <strong className="text-slate-900">Typography:</strong>{' '}
+          <span>{f.brandTypography || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Prinsip Layout:</strong>{' '}
+          <span>{f.brandLayout || '-'}</span>
+        </p>
+        <p>
+          <strong className="text-slate-900">Breakpoint:</strong>{' '}
+          <span className="font-mono">{buildBreakpoints(f) || '-'}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+````
+
 ## File: src/components/editor/sections/BrandingSection.jsx
 ````javascript
 import { faPalette, faEyeDropper, faXmark } from '@fortawesome/free-solid-svg-icons';
@@ -5050,7 +5808,7 @@ function updateDomColor(i, hex) {
   if (editorHex) editorHex.value = clean;
 
   const previewSwatch = document.getElementById('preview-palette-swatch-' + i);
-  if (previewSwatch) previewSwatch.style.border = '8px solid ' + hex;
+  if (previewSwatch) previewSwatch.style.background = hex;
 
   const previewHex = document.getElementById('preview-palette-hex-' + i);
   if (previewHex) previewHex.textContent = hex;
@@ -5349,195 +6107,12 @@ export default function BrandingSection() {
 }
 ````
 
-## File: src/components/editor/sections/ProjectInfo.jsx
-````javascript
-import { faCircleInfo } from '@fortawesome/free-solid-svg-icons';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import AiRefineButton from '../../shared/AiRefineButton';
-
-const STATUS_OPTIONS = [
-  { value: 'Draft', label: 'Draft (masih konsep, belum final)' },
-  { value: 'In Review', label: 'In Review (sedang ditinjau tim/stakeholder)' },
-  { value: 'Approved', label: 'Approved (disetujui, siap jadi acuan)' },
-  { value: 'In Development', label: 'In Development (spec sedang dikerjakan tim dev)' },
-  { value: 'Released', label: 'Released (final, produk sudah rilis)' },
-  { value: 'Archived', label: 'Archived (dokumen lama, disimpan sebagai arsip)' },
-];
-
-export default function ProjectInfo() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-
-  return (
-    <EditorSection title="1. Informasi Proyek & Metadata" icon={faCircleInfo}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div>
-          <label htmlFor="projectName" className="block text-ink font-medium mb-1">Nama Proyek / Aplikasi</label>
-          <div className="relative">
-            <input id="projectName" type="text" value={f.projectName} onChange={function (e) { set('projectName', e.target.value); }} placeholder="misal: Prime Property" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
-            <AiRefineButton value={f.projectName} onApply={function (v) { set('projectName', v); }} mode="name" label="Nama Proyek" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="docVersion" className="block text-ink font-medium mb-1">Versi Dokumen</label>
-          <input id="docVersion" type="text" value={f.docVersion} onChange={function (e) { set('docVersion', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="author" className="block text-ink font-medium mb-1">Penulis / Product Owner</label>
-          <div className="relative">
-            <input id="author" type="text" value={f.author} onChange={function (e) { set('author', e.target.value); }} placeholder="Nama Anda / Tim Product" className="w-full bg-field border border-line rounded-lg p-2.5 pr-10 text-ink focus:border-accent focus:outline-none" />
-            <AiRefineButton value={f.author} onApply={function (v) { set('author', v); }} mode="name" label="Penulis" className="absolute right-2 top-1/2 -translate-y-1/2" />
-          </div>
-        </div>
-        <div>
-          <label htmlFor="docStatus" className="block text-ink font-medium mb-1">Status Dokumen</label>
-          <select id="docStatus" value={f.docStatus || 'Draft'} onChange={function (e) { set('docStatus', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
-            {STATUS_OPTIONS.map(function (o) { return <option key={o.value} value={o.value}>{o.label}</option>; })}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="targetDate" className="block text-ink font-medium mb-1">Target Rilis</label>
-          <input id="targetDate" type="date" value={f.targetDate} onChange={function (e) { set('targetDate', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="targetDateFormat" className="block text-ink font-medium mb-1">Format Tampilan Target Rilis</label>
-          <select id="targetDateFormat" value={f.targetDateFormat} onChange={function (e) { set('targetDateFormat', e.target.value); }} className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none">
-            <option value="full">Tanggal Lengkap</option>
-            <option value="month">Bulan + Tahun</option>
-            <option value="quarter">Kuartal + Tahun</option>
-          </select>
-        </div>
-      </div>
-    </EditorSection>
-  );
-}
-````
-
-## File: src/components/editor/sections/SchemaSection.jsx
-````javascript
-import { useState } from 'react';
-import { faTableList, faXmark, faPlus, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import EditorSection from '../EditorSection';
-import IconButton from '../../shared/IconButton';
-import ComboBox from '../../shared/ComboBox';
-import AiRefineButton from '../../shared/AiRefineButton';
-import { generateSchemaFromFlow } from '../../../services/aiService';
-import { useToast } from '../../../hooks/useToast';
-
-export default function SchemaSection() {
-  const mode = usePrdStore(function (s) { return s.mode; });
-  const se = usePrdStore(function (s) { return s.simpleExtras; });
-  const st = usePrdStore(function (s) { return s.schemaTables; });
-  const f = usePrdStore(function (s) { return s.fields; });
-  const addT = usePrdStore(function (s) { return s.addSchemaTable; });
-  const updT = usePrdStore(function (s) { return s.updateSchemaTable; });
-  const remT = usePrdStore(function (s) { return s.removeSchemaTable; });
-  const addF = usePrdStore(function (s) { return s.addSchemaField; });
-  const updF = usePrdStore(function (s) { return s.updateSchemaField; });
-  const remF = usePrdStore(function (s) { return s.removeSchemaField; });
-  const setTables = usePrdStore(function (s) { return s.setSchemaTables; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [genBusy, setGenBusy] = useState(false);
-  const flowText = (f.userFlow || '').trim();
-
-  async function handleGenerate() {
-    if (!flowText || genBusy) return;
-    setGenBusy(true);
-    try {
-      const tables = await generateSchemaFromFlow(flowText);
-      setTables(tables);
-      commit();
-      showToast('Schema dibuat dari user flow: ' + tables.length + ' tabel', 'success');
-    } catch (e) {
-      showToast('Gagal membuat schema: ' + e.message, 'error');
-    } finally {
-      setGenBusy(false);
-    }
-  }
-
-  if (mode !== 'enterprise' && !se.schema) return null;
-
-  return (
-    <EditorSection title="Schema Data (Multi-Tabel)" icon={faTableList}
-      action={
-        <div className="flex items-center gap-2">
-          <IconButton onClick={handleGenerate} disabled={!flowText || genBusy} variant="primary" ariaLabel="Generate schema dari user flow" title="AI membaca user flow lalu menyusun tabel database">
-            <FontAwesomeIcon icon={genBusy ? faSpinner : faWandMagicSparkles} className={genBusy ? 'animate-spin' : ''} />
-            {genBusy ? 'Menganalisis...' : 'Generate dari User Flow'}
-          </IconButton>
-          <IconButton onClick={addT} variant="accent" ariaLabel="Tambah tabel baru">+ Tabel</IconButton>
-        </div>
-      }>
-      <p className="text-[11px] text-mut -mt-1">Tambahkan nama tabel beserta propertinya, atau biarkan AI menyusunnya dari user flow.</p>
-      <div className="space-y-4">
-        {st.map(function (t, ti) {
-          return (
-            <div key={ti} className="p-3 bg-field border border-line rounded-lg space-y-3 text-xs">
-              <div className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center">
-                <span className="col-span-1 order-1 text-accent text-center" aria-hidden="true">
-                  <FontAwesomeIcon icon={faTableList} />
-                </span>
-                <label htmlFor={'schema-tbl-name-' + ti} className="sr-only">Nama tabel {ti + 1}</label>
-                <input id={'schema-tbl-name-' + ti} value={t.name} onChange={function (e) { updT(ti, { name: e.target.value }); }} placeholder="Nama tabel" className="col-span-4 md:col-span-4 order-2 bg-card border border-line rounded p-1.5 text-ink font-mono font-semibold" />
-                <button onClick={function () { remT(ti); }} aria-label={'Hapus tabel ' + (t.name || (ti + 1))} className="col-span-1 order-3 md:order-4 text-danger flex justify-center">
-                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                </button>
-                <label htmlFor={'schema-tbl-desc-' + ti} className="sr-only">Deskripsi tabel {ti + 1}</label>
-                <div className="relative col-span-6 md:col-span-6 order-4 md:order-3">
-                  <input id={'schema-tbl-desc-' + ti} value={t.desc} onChange={function (e) { updT(ti, { desc: e.target.value }); }} placeholder="Deskripsi tabel" className="w-full bg-card border border-line rounded p-1.5 pr-9 text-ink" />
-                  <AiRefineButton value={t.desc} onApply={function (v) { updT(ti, { desc: v }); }} mode="phrase" label={'deskripsi tabel ' + (t.name || (ti + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                {t.fields.map(function (s, fi) {
-                  return (
-                    <div key={fi} className="grid grid-cols-6 md:grid-cols-12 gap-2 items-center p-2 bg-card border border-line rounded-lg">
-                      <label htmlFor={'schema-fld-name-' + ti + '-' + fi} className="sr-only">Nama kolom {fi + 1} di tabel {t.name || (ti + 1)}</label>
-                      <input id={'schema-fld-name-' + ti + '-' + fi} value={s.field} onChange={function (e) { updF(ti, fi, { field: e.target.value }); }} placeholder="Nama kolom" className="col-span-5 md:col-span-3 order-1 bg-field border border-line rounded p-1.5 text-ink font-mono" />
-                      <button onClick={function () { remF(ti, fi); }} aria-label={'Hapus kolom ' + (s.field || (fi + 1))} className="col-span-1 order-2 md:order-5 text-danger flex justify-center">
-                        <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
-                      </button>
-                      <div className="col-span-4 md:col-span-3 order-3 md:order-2">
-                        <ComboBox value={s.type} onChange={function (v) { updF(ti, fi, { type: v }); }} label={'Tipe kolom ' + (s.field || (fi + 1))} />
-                      </div>
-                      <label htmlFor={'schema-fld-req-' + ti + '-' + fi} className="sr-only">Required status kolom {fi + 1}</label>
-                      <select id={'schema-fld-req-' + ti + '-' + fi} value={s.required} onChange={function (e) { updF(ti, fi, { required: e.target.value }); }} className="col-span-2 md:col-span-2 order-4 md:order-3 bg-field border border-line rounded p-1.5 text-ink">
-                        <option value="Ya">Not Null</option>
-                        <option value="Opsional">Opsional</option>
-                      </select>
-                      <label htmlFor={'schema-fld-note-' + ti + '-' + fi} className="sr-only">Keterangan kolom {fi + 1}</label>
-                      <div className="relative col-span-6 md:col-span-3 order-5 md:order-4">
-                        <input id={'schema-fld-note-' + ti + '-' + fi} value={s.note} onChange={function (e) { updF(ti, fi, { note: e.target.value }); }} placeholder="Keterangan" className="w-full bg-field border border-line rounded p-1.5 pr-9 text-ink" />
-                        <AiRefineButton value={s.note} onApply={function (v) { updF(ti, fi, { note: v }); }} mode="phrase" label={'keterangan kolom ' + (s.field || (fi + 1))} className="absolute right-1 top-1/2 -translate-y-1/2" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={function () { addF(ti); }} aria-label={'Tambah kolom ke tabel ' + (t.name || (ti + 1))} className="text-accent font-semibold">
-                <FontAwesomeIcon icon={faPlus} className="mr-1" aria-hidden="true" />Tambah Kolom
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </EditorSection>
-  );
-}
-````
-
 ## File: src/components/preview/PreviewDocument.jsx
 ````javascript
 import { usePreviewStore as usePrdStore } from '../../store/usePreviewStore';
-
 import CoverPage from './CoverPage';
 import DocFooter from './DocFooter';
 import LiveThemeVars from './LiveThemeVars';
-
 import OverviewPreview from './sections/OverviewPreview';
 import FeaturesPreview from './sections/FeaturesPreview';
 import TechStackPreview from './sections/TechStackPreview';
@@ -5548,23 +6123,19 @@ import AcPreview from './sections/AcPreview';
 import SchemaPreview from './sections/SchemaPreview';
 import NfrPreview from './sections/NfrPreview';
 import ScopeDonePreview from './sections/ScopeDonePreview';
-
 export default function PreviewDocument() {
   const f = usePrdStore(function (s) { return s.fields; });
-
   return (
     <div id="previewThemeRoot">
       <LiveThemeVars targetId="previewThemeRoot" />
-
       <CoverPage />
-
       <div
         id="prdDocument"
         className="bg-white text-slate-900 p-8 rounded-lg border border-slate-200 text-sm space-y-6 max-w-2xl mx-auto w-full h-auto mb-12"
       >
         <OverviewPreview /><PersonaPreview /><BrandingPreview /><RolesPreview /><FeaturesPreview /><AcPreview />
         <div className="space-y-2 keep-together">
-          <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
+          <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">3. Alur Pengguna (User Flow)</h3>
           <div className="p-3 bg-slate-100 rounded border border-slate-200 font-mono text-xs text-slate-800">
             {f.userFlow ? f.userFlow.split('->').join(' \u27A4 ') : 'Belum ada alur pengguna.'}
           </div>
@@ -5575,6 +6146,24 @@ export default function PreviewDocument() {
     </div>
   );
 }
+````
+
+## File: src/services/exportService.js
+````javascript
+import { saveAs } from 'file-saver';
+import copyToClipboard from 'copy-to-clipboard';
+import { generateMarkdown } from '../utils/markdown';
+export const exportService = {
+  exportJSON: function (state) {
+    const data = { app: 'PRD Architect', version: '3.5', mode: state.mode, state: state };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
+  },
+  copyMarkdown: function (state) {
+    copyToClipboard(generateMarkdown(state));
+  },
+  printDocument: function () { window.print(); },
+};
 ````
 
 ## File: src/App.jsx
@@ -5699,6 +6288,247 @@ export default function App() {
         <ToastContainer />
       </div>
     </>
+  );
+}
+````
+
+## File: .gitignore
+````
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode
+.env
+repomix-output.md
+.repomixignore
+.vercel
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+````
+
+## File: index.html
+````html
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PRD Architect - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
+    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
+    <meta name="author" content="PRD Architect" />
+    <meta name="theme-color" content="#101013" />
+    <meta name="robots" content="index, follow" />
+    <script>
+      try {
+        if ((localStorage.getItem('prdTheme') || 'dark') === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
+    <meta property="og:title" content="PRD Architect" />
+    <meta property="og:description" content="Perancang PRD Profesional - Simple MVP & Enterprise Mode" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="id_ID" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="PRD Architect" />
+    <meta name="twitter:description" content="Perancang PRD Profesional" />
+    <title>PRD Architect - Perancang PRD Profesional</title>
+    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "PRD Architect",
+      "description": "Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise.",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "inLanguage": "id-ID",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "IDR" }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+````
+
+## File: src/components/editor/sections/CoverFooterSection.jsx
+````javascript
+import { useState } from 'react';
+import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { usePrdStore } from '../../../store/usePrdStore';
+import { resolveCoverTheme } from '../../../utils/helpers';
+import { generateCoverTagline } from '../../../services/aiService';
+import { useSmoothColor } from '../../../hooks/useSmoothColor';
+import { useToast } from '../../../hooks/useToast';
+import EditorSection from '../EditorSection';
+import ToggleSwitch from '../../shared/ToggleSwitch';
+
+function ColorField(props) {
+  const digits = (props.value || '').replace(/^#/, '');
+  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
+
+  const smooth = useSmoothColor({
+    value: props.value,
+    commit: props.onChange,
+    makeLive: function (hex) {
+      const patch = {};
+      patch[props.fieldKey] = hex;
+      return { fieldsPatch: patch };
+    },
+    onLiveDom: function (hex) {
+      const el = document.getElementById(inputId);
+      if (el) el.value = (hex || '').replace(/^#/, '');
+    },
+  });
+
+  return (
+    <div>
+      <span className="block text-ink font-medium mb-1">{props.label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          key={smooth.version}
+          type="color"
+          ref={smooth.ref}
+          defaultValue={smooth.defaultHex}
+          onChange={smooth.onInput}
+          aria-label={'Pilih ' + props.label}
+          className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
+        />
+        <div className="relative w-full min-w-0">
+          <span
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none select-none"
+            aria-hidden="true"
+          >#</span>
+          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
+          <input
+            id={inputId}
+            type="text"
+            value={digits}
+            onChange={function (e) {
+              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
+              props.onChange(c ? '#' + c : '');
+            }}
+            placeholder="C9A961"
+            maxLength="6"
+            className="w-full bg-field border border-line rounded-lg p-2 pl-6 text-ink font-mono focus:border-accent focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function CoverFooterSection() {
+  const f = usePrdStore(function (s) { return s.fields; });
+  const set = usePrdStore(function (s) { return s.setField; });
+  const palette = usePrdStore(function (s) { return s.palette; });
+  const commit = usePrdStore(function (s) { return s.commitHistory; });
+  const showToast = useToast();
+  const [aiBusy, setAiBusy] = useState(false);
+
+  const auto = f.coverThemeAuto !== false;
+
+  const handleToggleAuto = function (v) {
+    if (!v) {
+      const t = resolveCoverTheme(f, palette);
+      set('coverPrimary', t.primary);
+      set('coverAccent', t.accent);
+      set('coverBg', t.bg);
+    }
+    set('coverThemeAuto', v);
+  };
+
+  const goalText = (f.productGoal || '').trim();
+
+  async function handleUseAi() {
+    if (aiBusy || !goalText) return;
+    setAiBusy(true);
+    try {
+      const t = await generateCoverTagline(goalText);
+      if (t) {
+        set('coverSubtitle', t);
+        commit();
+        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
+      } else {
+        showToast('AI tidak menghasilkan saran', 'error');
+      }
+    } catch (e) {
+      showToast('Gagal membuat saran: ' + e.message, 'error');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  return (
+    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
+      <div className="space-y-3 text-xs">
+        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
+        {auto ? (
+          <p className="text-[11px] text-mut">
+            {palette.length
+              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis.'
+              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <ColorField fieldKey="coverPrimary" label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
+            <ColorField fieldKey="coverAccent" label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
+            <ColorField fieldKey="coverBg" label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
+          </div>
+        )}
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="coverSubtitle" className="text-ink font-medium">Subtitle Sampul (di bawah judul)</label>
+            <button
+              type="button"
+              onClick={handleUseAi}
+              disabled={aiBusy || !goalText}
+              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+            >
+              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
+              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
+            </button>
+          </div>
+          <input
+            id="coverSubtitle"
+            type="text"
+            value={f.coverSubtitle}
+            onChange={function (e) { set('coverSubtitle', e.target.value); }}
+            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
+            className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none"
+          />
+          <p className="text-[10px] text-mut mt-1">
+            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="coverKicker" className="block text-ink font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
+          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
+        </div>
+        <div>
+          <label htmlFor="coverFooterNote" className="block text-ink font-medium mb-1">Catatan Footer</label>
+          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none resize-none" />
+        </div>
+        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
+      </div>
+    </EditorSection>
   );
 }
 ````
@@ -6053,265 +6883,6 @@ export default function AiAnalysisCard() {
         </div>
       )}
     </div>
-  );
-}
-````
-
-## File: src/services/exportService.js
-````javascript
-import { saveAs } from 'file-saver';
-import copyToClipboard from 'copy-to-clipboard';
-import { generateMarkdown } from '../utils/markdown';
-export const exportService = {
-  exportJSON: function (state) {
-    const data = { app: 'PRD Architect', version: '3.5', mode: state.mode, state: state };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    saveAs(blob, (state.fields.projectName || 'PRD') + '.json');
-  },
-  copyMarkdown: function (state) {
-    copyToClipboard(generateMarkdown(state));
-  },
-  printDocument: function () { window.print(); },
-};
-````
-
-## File: .gitignore
-````
-node_modules
-dist
-dist-ssr
-*.local
-.DS_Store
-.vscode
-.env
-repomix-output.md
-.repomixignore
-.vercel
-
-# Playwright
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
-````
-
-## File: index.html
-````html
-<!doctype html>
-<html lang="id">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="PRD Architect - Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise." />
-    <meta name="keywords" content="PRD, Product Requirement Document, product manager, spesifikasi produk, dokumen teknis" />
-    <meta name="author" content="PRD Architect" />
-    <meta name="theme-color" content="#101013" />
-    <meta name="robots" content="index, follow" />
-    <script>
-      try {
-        if ((localStorage.getItem('prdTheme') || 'dark') === 'dark') {
-          document.documentElement.classList.add('dark');
-        }
-      } catch (e) {}
-    </script>
-    <meta property="og:title" content="PRD Architect" />
-    <meta property="og:description" content="Perancang PRD Profesional - Simple MVP & Enterprise Mode" />
-    <meta property="og:type" content="website" />
-    <meta property="og:locale" content="id_ID" />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="PRD Architect" />
-    <meta name="twitter:description" content="Perancang PRD Profesional" />
-    <title>PRD Architect - Perancang PRD Profesional</title>
-    <link rel="icon" type="image/svg+xml" href="/logo-riskychici.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" /></noscript>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "PRD Architect",
-      "description": "Perancang dokumen Product Requirement Document profesional dengan mode Simple MVP dan Enterprise.",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "Web",
-      "inLanguage": "id-ID",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "IDR" }
-    }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-````
-
-## File: src/components/editor/sections/CoverFooterSection.jsx
-````javascript
-import { useState } from 'react';
-import { faBookOpen, faWandMagicSparkles, faSpinner } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { usePrdStore } from '../../../store/usePrdStore';
-import { resolveCoverTheme } from '../../../utils/helpers';
-import { generateCoverTagline } from '../../../services/aiService';
-import { useSmoothColor } from '../../../hooks/useSmoothColor';
-import { useToast } from '../../../hooks/useToast';
-import EditorSection from '../EditorSection';
-import ToggleSwitch from '../../shared/ToggleSwitch';
-
-function ColorField(props) {
-  const digits = (props.value || '').replace(/^#/, '');
-  const inputId = 'cover-hex-' + (props.label || '').replace(/\s+/g, '-').toLowerCase();
-
-  const smooth = useSmoothColor({
-    value: props.value,
-    commit: props.onChange,
-    makeLive: function (hex) {
-      const patch = {};
-      patch[props.fieldKey] = hex;
-      return { fieldsPatch: patch };
-    },
-    onLiveDom: function (hex) {
-      const el = document.getElementById(inputId);
-      if (el) el.value = (hex || '').replace(/^#/, '');
-    },
-  });
-
-  return (
-    <div>
-      <span className="block text-ink font-medium mb-1">{props.label}</span>
-      <div className="flex items-center gap-2">
-        <input
-          key={smooth.version}
-          type="color"
-          ref={smooth.ref}
-          defaultValue={smooth.defaultHex}
-          onChange={smooth.onInput}
-          aria-label={'Pilih ' + props.label}
-          className="w-9 h-9 bg-field border border-line rounded cursor-pointer p-1 shrink-0"
-        />
-        <div className="relative w-full min-w-0">
-          <span
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-mut font-mono text-[11px] pointer-events-none select-none"
-            aria-hidden="true"
-          >#</span>
-          <label htmlFor={inputId} className="sr-only">{'Kode hex ' + props.label}</label>
-          <input
-            id={inputId}
-            type="text"
-            value={digits}
-            onChange={function (e) {
-              const c = e.target.value.replace(/[^0-9A-Fa-f]/g, '').slice(0, 6);
-              props.onChange(c ? '#' + c : '');
-            }}
-            placeholder="C9A961"
-            maxLength="6"
-            className="w-full bg-field border border-line rounded-lg p-2 pl-6 text-ink font-mono focus:border-accent focus:outline-none"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function CoverFooterSection() {
-  const f = usePrdStore(function (s) { return s.fields; });
-  const set = usePrdStore(function (s) { return s.setField; });
-  const palette = usePrdStore(function (s) { return s.palette; });
-  const commit = usePrdStore(function (s) { return s.commitHistory; });
-  const showToast = useToast();
-  const [aiBusy, setAiBusy] = useState(false);
-
-  const auto = f.coverThemeAuto !== false;
-
-  const handleToggleAuto = function (v) {
-    if (!v) {
-      const t = resolveCoverTheme(f, palette);
-      set('coverPrimary', t.primary);
-      set('coverAccent', t.accent);
-      set('coverBg', t.bg);
-    }
-    set('coverThemeAuto', v);
-  };
-
-  const goalText = (f.productGoal || '').trim();
-
-  async function handleUseAi() {
-    if (aiBusy || !goalText) return;
-    setAiBusy(true);
-    try {
-      const t = await generateCoverTagline(goalText);
-      if (t) {
-        set('coverSubtitle', t);
-        commit();
-        showToast('Saran AI diterapkan ke Subtitle Sampul', 'success');
-      } else {
-        showToast('AI tidak menghasilkan saran', 'error');
-      }
-    } catch (e) {
-      showToast('Gagal membuat saran: ' + e.message, 'error');
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  return (
-    <EditorSection title="Sampul & Footer Dokumen" icon={faBookOpen}>
-      <div className="space-y-3 text-xs">
-        <ToggleSwitch checked={auto} onChange={handleToggleAuto} label="Warna sampul & footer otomatis mengikuti palette branding" />
-        {auto ? (
-          <p className="text-[11px] text-mut">
-            {palette.length
-              ? 'Sistem akan meracik warna sampul dari palette brandingmu secara otomatis.'
-              : 'Palette branding masih kosong. Isi dulu section Branding & Design System agar sampul bisa memakai warna brandmu.'}
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <ColorField fieldKey="coverPrimary" label="Warna Utama" value={f.coverPrimary} onChange={function (v) { set('coverPrimary', v); }} />
-            <ColorField fieldKey="coverAccent" label="Warna Aksen" value={f.coverAccent} onChange={function (v) { set('coverAccent', v); }} />
-            <ColorField fieldKey="coverBg" label="Latar Sampul" value={f.coverBg} onChange={function (v) { set('coverBg', v); }} />
-          </div>
-        )}
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <label htmlFor="coverSubtitle" className="text-ink font-medium">Subtitle Sampul (di bawah judul)</label>
-            <button
-              type="button"
-              onClick={handleUseAi}
-              disabled={aiBusy || !goalText}
-              title="Isi subtitle dengan ringkasan AI dari kolom Tujuan Utama Produk"
-              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-md border border-line bg-field text-accent hover:text-white hover:border-accent hover:bg-accent transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-            >
-              <FontAwesomeIcon icon={aiBusy ? faSpinner : faWandMagicSparkles} className={aiBusy ? 'animate-spin' : ''} />
-              {aiBusy ? 'Membuat...' : 'Pakai saran AI'}
-            </button>
-          </div>
-          <input
-            id="coverSubtitle"
-            type="text"
-            value={f.coverSubtitle}
-            onChange={function (e) { set('coverSubtitle', e.target.value); }}
-            placeholder="Contoh: Dashboard terpusat untuk pemantauan omzet secara real-time"
-            className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none"
-          />
-          <p className="text-[10px] text-mut mt-1">
-            Kalimat pendek ini yang tampil di bawah judul pada sampul dokumen.
-          </p>
-        </div>
-        <div>
-          <label htmlFor="coverKicker" className="block text-ink font-medium mb-1">Kicker Sampul (teks kecil di atas judul)</label>
-          <input id="coverKicker" type="text" value={f.coverKicker} onChange={function (e) { set('coverKicker', e.target.value); }} placeholder="PRODUCT REQUIREMENT DOCUMENT" className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none" />
-        </div>
-        <div>
-          <label htmlFor="coverFooterNote" className="block text-ink font-medium mb-1">Catatan Footer</label>
-          <textarea id="coverFooterNote" value={f.coverFooterNote} onChange={function (e) { set('coverFooterNote', e.target.value); }} rows="2" placeholder="Dokumen ini menjadi rujukan utama bagi tim development dan QA selama fase implementasi." className="w-full bg-field border border-line rounded-lg p-2.5 text-ink focus:border-accent focus:outline-none resize-none" />
-        </div>
-        <ToggleSwitch checked={f.coverShowFooter !== false} onChange={function (v) { set('coverShowFooter', v); }} label="Tampilkan footer di akhir dokumen" />
-      </div>
-    </EditorSection>
   );
 }
 ````
