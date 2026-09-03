@@ -3,7 +3,7 @@ export default function FeaturesPreview() {
   const features = usePrdStore(function (s) { return s.features; });
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">2. Fitur Utama & Requirements</h3>
       <table className="w-full text-xs border-collapse border border-slate-200 mt-2 tbl-stack">
         <thead className="bg-slate-800 text-white"><tr><th className="p-2 text-left w-12">ID</th><th className="p-2 text-left w-1/3">Nama Fitur</th><th className="p-2 text-left">Deskripsi</th><th className="p-2 text-center w-24">Prioritas</th></tr></thead>
         <tbody className="divide-y divide-slate-200">

@@ -17,7 +17,7 @@ export default function RolesPreview() {
   };
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">1.3 Role & Permission Matrix</h3>
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">1.3 Role & Permission Matrix</h3>
       <div className="pl-3 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-3">
         {roles.length ? roles.map(function (r, i) {
           const canItems = splitLines(r.can);

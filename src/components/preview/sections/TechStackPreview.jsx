@@ -8,7 +8,7 @@ export default function TechStackPreview() {
     .map(function (d) { return { label: d.label, value: f[d.key] }; }));
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
+      <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wider border-l-4 border-blue-600 pl-2">4. Spesifikasi Tech Stack & Arsitektur</h3>
       <div className="pl-3 space-y-3 text-xs text-slate-700">
         <table className="w-full text-xs border-collapse border border-slate-200 bg-slate-50 keep-together tbl-stack">
           <tbody>

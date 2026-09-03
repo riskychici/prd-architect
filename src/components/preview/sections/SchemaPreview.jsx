@@ -8,7 +8,7 @@ export default function SchemaPreview() {
   if (mode !== 'enterprise' && !se.schema) return null;
   return (
     <div className="space-y-2">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">4.1 Schema Data</h3>
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">4.1 Schema Data</h3>
       <div className="pl-3 space-y-4">
         {st.length ? st.map(function (t, ti) {
           return (

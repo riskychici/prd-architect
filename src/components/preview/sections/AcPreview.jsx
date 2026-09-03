@@ -6,7 +6,7 @@ export default function AcPreview() {
   if (mode !== 'enterprise' && !se.ac) return null;
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-4 border-amber-500 pl-2">2.1 Acceptance Criteria per Modul</h3>
+      <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider border-l-2 border-amber-500 pl-2 ml-1">2.1 Acceptance Criteria per Modul</h3>
       <div className="pl-3 space-y-3">
         {ac.length ? ac.map(function (m, mi) {
           return (
