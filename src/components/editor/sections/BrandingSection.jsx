@@ -17,7 +17,7 @@ function updateDomColor(i, hex) {
   if (editorHex) editorHex.value = clean;
 
   const previewSwatch = document.getElementById('preview-palette-swatch-' + i);
-  if (previewSwatch) previewSwatch.style.border = '8px solid ' + hex;
+  if (previewSwatch) previewSwatch.style.background = hex;
 
   const previewHex = document.getElementById('preview-palette-hex-' + i);
   if (previewHex) previewHex.textContent = hex;
